@@ -1,4 +1,4 @@
-// Arabic Quest Frontend Application
+// Arabic Quest Frontend Application Logic
 
 let currentUser = {
     username: 'brother',
@@ -11,13 +11,14 @@ let currentEpisode = null;
 let episodes = [];
 let currentQuiz = null;
 let ytPlayer = null;
+let lastOwedAmount = 0;
 
-// Auth Header Helper
+// Base Auth Header
 function getAuthHeader() {
     return 'Basic ' + btoa(currentUser.username + ':' + currentUser.password);
 }
 
-// Initialize on page load
+// App Initialization
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
 });
@@ -27,7 +28,7 @@ function initApp() {
     fetchEpisodes();
 }
 
-// User Switcher
+// Role Switcher
 function handleUserSwitch() {
     const sel = document.getElementById('user-selector').value;
     if (sel === 'brother') {
@@ -40,13 +41,13 @@ function handleUserSwitch() {
     } else {
         currentUser = { username: 'admin', password: 'admin123', role: 'ADMIN' };
         document.getElementById('student-view').style.display = 'none';
-        document.getElementById('admin-view').style.display = 'block';
+        document.getElementById('admin-view').style.display = 'grid';
         document.getElementById('student-earnings-pill').style.display = 'none';
         loadAdminDashboard();
     }
 }
 
-// Fetch Student Earnings
+// Fetch Student Earnings & Update Progress Bar
 async function fetchEarnings() {
     try {
         const res = await fetch('/api/student/earnings', {
@@ -54,17 +55,24 @@ async function fetchEarnings() {
         });
         if (res.ok) {
             const data = await res.json();
+            lastOwedAmount = data.balanceOwed;
             document.getElementById('val-earned').textContent = '$' + data.totalEarned.toFixed(2);
             document.getElementById('val-paid').textContent = '$' + data.totalPaid.toFixed(2);
             document.getElementById('val-owed').textContent = '$' + data.balanceOwed.toFixed(2);
-            document.getElementById('progress-indicator').textContent = `${data.passedEpisodesCount}/${data.totalEpisodesCount} Passed`;
+            
+            const total = data.totalEpisodesCount > 0 ? data.totalEpisodesCount : 1;
+            const percent = Math.min(100, Math.round((data.passedEpisodesCount / total) * 100));
+            
+            document.getElementById('badge-course-count').textContent = `${data.passedEpisodesCount}/${data.totalEpisodesCount}`;
+            document.getElementById('progress-percent-label').textContent = `${percent}%`;
+            document.getElementById('progress-bar-fill').style.width = `${percent}%`;
         }
     } catch (e) {
         console.warn('Earnings fetch failed:', e);
     }
 }
 
-// Fetch Episodes
+// Fetch Course Episodes
 async function fetchEpisodes() {
     try {
         const res = await fetch('/api/student/episodes', {
@@ -82,51 +90,66 @@ async function fetchEpisodes() {
     }
 }
 
-// Render Episode List
+// Render Episode List Cards
 function renderEpisodeList() {
     const container = document.getElementById('episode-list');
     container.innerHTML = '';
 
     episodes.forEach((ep) => {
-        const div = document.createElement('div');
-        div.className = 'episode-item' + (currentEpisode && currentEpisode.id === ep.id ? ' active' : '');
-        div.onclick = () => selectEpisode(ep);
+        const card = document.createElement('div');
+        card.className = 'episode-card' + (currentEpisode && currentEpisode.id === ep.id ? ' active' : '');
+        card.onclick = () => selectEpisode(ep);
 
-        const titleSpan = document.createElement('span');
-        titleSpan.textContent = `Ep. ${ep.episodeNumber}: ${ep.title}`;
-        div.appendChild(titleSpan);
+        const pill = document.createElement('div');
+        pill.className = 'ep-num-pill';
+        pill.textContent = ep.episodeNumber;
+        card.appendChild(pill);
+
+        const info = document.createElement('div');
+        info.className = 'ep-info';
+        
+        const title = document.createElement('div');
+        title.className = 'ep-title';
+        title.textContent = ep.title;
+        info.appendChild(title);
+
+        const tag = document.createElement('div');
+        tag.className = 'ep-tag';
+        tag.textContent = ep.passed ? 'Status: Completed' : 'Reward: +$15.00';
+        info.appendChild(tag);
+
+        card.appendChild(info);
 
         if (ep.passed) {
-            const badge = document.createElement('span');
-            badge.className = 'badge-passed';
-            badge.textContent = 'PASSED ✓';
-            div.appendChild(badge);
+            const badge = document.createElement('div');
+            badge.className = 'ep-badge-passed';
+            badge.innerHTML = '<span>✓</span> PASSED';
+            card.appendChild(badge);
         }
 
-        container.appendChild(div);
+        container.appendChild(card);
     });
 }
 
-// Select an Episode
+// Select Episode
 function selectEpisode(ep) {
     currentEpisode = ep;
-    document.getElementById('current-episode-title').textContent = `Episode ${ep.episodeNumber}: ${ep.title}`;
+    document.getElementById('current-episode-title').textContent = ep.title;
     renderEpisodeList();
 
-    // Reset Quiz UI
+    // Reset Quiz
     document.getElementById('quiz-section').style.display = 'none';
-    document.getElementById('video-status-text').textContent = '⏳ Watch the episode completely to unlock the quiz!';
+    document.getElementById('video-status-text').textContent = 'Watch the episode to completion to unlock the comprehension quiz!';
 
-    // Load YouTube video
+    // Load in YouTube player
     if (ytPlayer && ytPlayer.loadVideoById) {
         ytPlayer.loadVideoById(ep.youtubeVideoId);
     }
 
-    // Pre-fetch quiz questions
     fetchQuiz(ep.id);
 }
 
-// Fetch Quiz for Episode
+// Fetch Quiz
 async function fetchQuiz(episodeId) {
     try {
         const res = await fetch(`/api/student/quizzes/${episodeId}`, {
@@ -143,31 +166,31 @@ async function fetchQuiz(episodeId) {
     }
 }
 
-// Render Quiz Questions into Form
+// Render Quiz Questions
 function renderQuizQuestions() {
     const container = document.getElementById('questions-container');
     container.innerHTML = '';
 
-    if (!currentQuiz || !currentQuiz.questions) {
-        container.innerHTML = '<p style="color:var(--text-muted);">No quiz available for this episode yet.</p>';
+    if (!currentQuiz || !currentQuiz.questions || currentQuiz.questions.length === 0) {
+        container.innerHTML = '<p style="color:var(--text-muted); padding:1rem;">No quiz configured for this episode yet.</p>';
         return;
     }
 
     currentQuiz.questions.forEach((q, idx) => {
-        const card = document.createElement('div');
-        card.className = 'question-card';
+        const block = document.createElement('div');
+        block.className = 'question-block';
 
-        const text = document.createElement('div');
-        text.className = 'question-text';
-        text.textContent = `${idx + 1}. ${q.questionText}`;
-        card.appendChild(text);
+        const heading = document.createElement('div');
+        heading.className = 'question-heading';
+        heading.textContent = `السؤال ${idx + 1}: ${q.questionText}`;
+        block.appendChild(heading);
 
-        const optionsList = document.createElement('div');
-        optionsList.className = 'options-list';
+        const grid = document.createElement('div');
+        grid.className = 'options-grid';
 
         q.options.forEach((opt) => {
             const label = document.createElement('label');
-            label.className = 'option-label';
+            label.className = 'option-pill';
 
             const radio = document.createElement('input');
             radio.type = 'radio';
@@ -180,31 +203,32 @@ function renderQuizQuestions() {
 
             label.appendChild(radio);
             label.appendChild(span);
-            optionsList.appendChild(label);
+            grid.appendChild(label);
         });
 
-        card.appendChild(optionsList);
-        container.appendChild(card);
+        block.appendChild(grid);
+        container.appendChild(block);
     });
 }
 
-// Watch Mode Selection
+// Watch Mode Switch
 function selectMode(mode) {
     currentMode = mode;
-    document.getElementById('btn-mode-arabic').classList.toggle('selected', mode === 'ARABIC_SUB');
-    document.getElementById('btn-mode-english').classList.toggle('selected', mode === 'ENGLISH_DUB');
+    document.getElementById('btn-mode-arabic').classList.toggle('active', mode === 'ARABIC_SUB');
+    document.getElementById('btn-mode-english').classList.toggle('active', mode === 'ENGLISH_DUB');
 }
 
-// YouTube IFrame API Callback
+// YouTube Player Ready Hook
 function onYouTubeIframeAPIReady() {
-    const initialVideoId = episodes.length > 0 ? episodes[0].youtubeVideoId : 'dQw4w9WgXcQ';
+    const initialVideoId = episodes.length > 0 ? episodes[0].youtubeVideoId : 'p1qG6FqfJ8w';
     ytPlayer = new YT.Player('yt-player', {
         height: '100%',
         width: '100%',
         videoId: initialVideoId,
         playerVars: {
             'playsinline': 1,
-            'rel': 0
+            'rel': 0,
+            'modestbranding': 1
         },
         events: {
             'onStateChange': onPlayerStateChange
@@ -212,7 +236,7 @@ function onYouTubeIframeAPIReady() {
     });
 }
 
-// Unlock quiz when video finishes
+// Automatically Unlock Quiz When Video Finishes
 function onPlayerStateChange(event) {
     if (event.data === YT.PlayerState.ENDED) {
         devUnlockQuiz();
@@ -222,11 +246,12 @@ function onPlayerStateChange(event) {
 // Unlock Quiz Action
 function devUnlockQuiz() {
     document.getElementById('quiz-section').style.display = 'block';
-    document.getElementById('video-status-text').innerHTML = '<span style="color:#10b981; font-weight:600;">🎉 Episode Finished! Quiz Unlocked below!</span>';
+    document.getElementById('video-status-text').innerHTML = 
+        '<strong style="color:var(--primary);">🎉 Episode completed! The quiz is now unlocked below!</strong>';
     document.getElementById('quiz-section').scrollIntoView({ behavior: 'smooth' });
 }
 
-// Submit Quiz
+// Submit Quiz Form
 async function handleQuizSubmit(event) {
     event.preventDefault();
     if (!currentQuiz || !currentEpisode) return;
@@ -268,25 +293,32 @@ async function handleQuizSubmit(event) {
     }
 }
 
-// Result Modal
+// Result Modal with Confetti
 function showResultModal(result) {
     const modal = document.getElementById('result-modal');
-    const modalBox = document.getElementById('modal-box');
+    const dialog = document.getElementById('modal-dialog');
     const title = document.getElementById('modal-title');
     const score = document.getElementById('modal-score');
     const message = document.getElementById('modal-message');
 
     if (result.passed) {
-        modalBox.className = 'modal-content';
+        dialog.className = 'modal-dialog';
         title.textContent = '🎉 Congratulations!';
-        score.style.color = 'var(--primary)';
-        score.textContent = result.scorePercentage.toFixed(1) + '%';
+        score.textContent = result.scorePercentage.toFixed(0) + '%';
         message.textContent = result.message;
+
+        // Confetti Celebration
+        if (typeof confetti === 'function') {
+            confetti({
+                particleCount: 120,
+                spread: 80,
+                origin: { y: 0.6 }
+            });
+        }
     } else {
-        modalBox.className = 'modal-content failed';
-        title.textContent = '❌ Almost there!';
-        score.style.color = 'var(--danger)';
-        score.textContent = result.scorePercentage.toFixed(1) + '%';
+        dialog.className = 'modal-dialog failed';
+        title.textContent = '❌ Try Again!';
+        score.textContent = result.scorePercentage.toFixed(0) + '%';
         message.textContent = result.message;
     }
 
@@ -300,18 +332,19 @@ function closeModal() {
 // Admin Dashboard Functions
 async function loadAdminDashboard() {
     try {
-        // Fetch Brother earnings
         const earningsRes = await fetch('/api/admin/students/brother/earnings', {
             headers: { 'Authorization': getAuthHeader() }
         });
         if (earningsRes.ok) {
             const data = await earningsRes.json();
-            document.getElementById('admin-student-stats').textContent = 
-                `Total Earned: $${data.totalEarned.toFixed(2)} | Paid Out: $${data.totalPaid.toFixed(2)} | Balance Owed: $${data.balanceOwed.toFixed(2)} (${data.passedEpisodesCount}/${data.totalEpisodesCount} Episodes Passed)`;
+            lastOwedAmount = data.balanceOwed;
+            document.getElementById('admin-metric-earned').textContent = '$' + data.totalEarned.toFixed(2);
+            document.getElementById('admin-metric-paid').textContent = '$' + data.totalPaid.toFixed(2);
+            document.getElementById('admin-metric-owed').textContent = '$' + data.balanceOwed.toFixed(2);
+            document.getElementById('admin-metric-episodes').textContent = `${data.passedEpisodesCount} / ${data.totalEpisodesCount}`;
             document.getElementById('payout-amount').value = data.balanceOwed > 0 ? data.balanceOwed : '';
         }
 
-        // Fetch Attempts
         const attemptsRes = await fetch('/api/admin/attempts', {
             headers: { 'Authorization': getAuthHeader() }
         });
@@ -319,23 +352,41 @@ async function loadAdminDashboard() {
             const attempts = await attemptsRes.json();
             const tbody = document.getElementById('admin-attempts-tbody');
             tbody.innerHTML = '';
-            attempts.forEach((a) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${a.student.fullName || a.student.username}</td>
-                    <td>Ep. ${a.episode.episodeNumber} - ${a.episode.title}</td>
-                    <td>${a.watchMode}</td>
-                    <td>${a.scorePercentage.toFixed(1)}%</td>
-                    <td style="color:${a.passed ? '#10b981':'#ef4444'}; font-weight:700;">${a.passed ? 'PASSED':'FAILED'}</td>
-                    <td style="color:#f59e0b; font-weight:700;">$${a.rewardAmount.toFixed(2)}</td>
-                    <td>${new Date(a.attemptedAt).toLocaleString()}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            
+            if (attempts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">No quiz attempts logged yet.</td></tr>';
+            } else {
+                attempts.slice().reverse().forEach((a) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${a.student.fullName || a.student.username}</strong></td>
+                        <td style="font-family:'Cairo';">Ep. ${a.episode.episodeNumber}: ${a.episode.title}</td>
+                        <td><span style="font-size:0.8rem; background:rgba(255,255,255,0.06); padding:0.2rem 0.5rem; border-radius:4px;">${a.watchMode}</span></td>
+                        <td><strong>${a.scorePercentage.toFixed(0)}%</strong></td>
+                        <td>
+                            <span style="color:${a.passed ? '#10b981':'#ef4444'}; font-weight:800; font-size:0.82rem;">
+                                ${a.passed ? '✓ PASSED' : '✗ FAILED'}
+                            </span>
+                        </td>
+                        <td style="color:#f59e0b; font-weight:800;">+$${a.rewardAmount.toFixed(2)}</td>
+                        <td style="color:var(--text-muted); font-size:0.82rem;">${new Date(a.attemptedAt).toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
         }
     } catch (e) {
         console.warn('Admin load failed:', e);
     }
+}
+
+// Payout Presets
+function setPayoutInput(val) {
+    document.getElementById('payout-amount').value = val;
+}
+
+function setPayoutFullOwed() {
+    document.getElementById('payout-amount').value = lastOwedAmount > 0 ? lastOwedAmount : 0;
 }
 
 async function handleRecordPayout() {
@@ -351,7 +402,7 @@ async function handleRecordPayout() {
             headers: { 'Authorization': getAuthHeader() }
         });
         if (res.ok) {
-            alert(`Successfully recorded payout of $${parseFloat(amount).toFixed(2)}!`);
+            alert(`✓ Successfully recorded payout of $${parseFloat(amount).toFixed(2)} to Brother!`);
             loadAdminDashboard();
         } else {
             alert('Failed to record payout.');

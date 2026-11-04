@@ -3,29 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arabic Quest - Learn Arabic & Earn</title>
+    <title>Arabic Quest | 100 سؤال في التاريخ</title>
     <link rel="stylesheet" href="style.css">
-    <!-- YouTube IFrame API -->
+    <!-- Confetti Effects for Passing Quizzes -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+    <!-- YouTube IFrame Player API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 </head>
 <body>
 
+    <!-- Top Navigation Bar -->
     <header>
-        <div class="logo">
-            <span>⚔️</span> Arabic Quest
+        <div class="brand">
+            <div class="brand-icon">⚔️</div>
+            <div>
+                <div class="brand-title">Arabic Quest</div>
+                <div class="brand-subtitle">100 سؤال في التاريخ • تاريخُنا</div>
+            </div>
         </div>
 
-        <div class="header-right">
-            <!-- Live Earnings for Student -->
-            <div id="student-earnings-pill" class="earnings-pill">
-                <div class="earnings-item">Earned: <span id="val-earned">$0.00</span></div>
-                <div class="earnings-item">Paid: <span id="val-paid">$0.00</span></div>
-                <div class="earnings-item">Owed: <span id="val-owed" style="color:#fbbf24;">$0.00</span></div>
+        <div class="header-actions">
+            <!-- Student Live Earnings Strip -->
+            <div id="student-earnings-pill" class="earnings-strip">
+                <div class="earnings-metric">Earned: <strong id="val-earned">$0.00</strong></div>
+                <div class="earnings-metric">Paid: <strong id="val-paid">$0.00</strong></div>
+                <div class="earnings-metric owed">Owed: <strong id="val-owed">$0.00</strong></div>
             </div>
 
             <!-- Role Switcher -->
-            <div class="role-switcher">
-                <span>User:</span>
+            <div class="role-pill">
+                <label>View:</label>
                 <select id="user-selector" onchange="handleUserSwitch()">
                     <option value="brother" selected>Student: Brother</option>
                     <option value="admin">Admin: Parent/Teacher</option>
@@ -34,61 +41,80 @@
         </div>
     </header>
 
-    <!-- Student Dashboard Layout -->
-    <div id="student-view" class="main-container">
-        <!-- Sidebar: Episodes list -->
+    <!-- Student Experience Layout -->
+    <div id="student-view" class="app-layout">
+        <!-- Sidebar: Episode Roadmap & Course Progress -->
         <aside class="sidebar">
-            <h3>
-                <span>Course Episodes</span>
-                <span id="progress-indicator" style="font-size:0.8rem; color:var(--text-muted);">0/0 Passed</span>
-            </h3>
+            <div class="sidebar-header">
+                <div class="sidebar-title">
+                    <span>Course Episodes</span>
+                    <span id="badge-course-count" style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">0/0</span>
+                </div>
+
+                <div class="course-progress-card">
+                    <div class="progress-header">
+                        <span>Course Completion</span>
+                        <strong id="progress-percent-label">0%</strong>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                    </div>
+                    <div class="bonus-milestone">
+                        <span>🏆 Complete all episodes for the $100.00 Bonus!</span>
+                    </div>
+                </div>
+            </div>
+
             <div id="episode-list" class="episode-list">
-                <!-- Dynamically populated -->
+                <!-- Dynamically populated from API -->
             </div>
         </aside>
 
-        <!-- Main Content Area -->
+        <!-- Main Content Column -->
         <main class="content-area">
-            <!-- Mode Selector Card -->
-            <div class="mode-selector-card">
-                <div>
-                    <h3 id="current-episode-title">Episode 1: The Beginning</h3>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">Select your viewing mode before starting:</p>
+            <!-- Mode Selection Card -->
+            <div class="mode-card">
+                <div class="mode-info">
+                    <h2 id="current-episode-title">الحلقة 1: كيف بدأ تدوين التاريخ الإسلامي؟</h2>
+                    <p>Choose your viewing mode. Passing the quiz locks in your reward:</p>
                 </div>
 
-                <div class="mode-options">
-                    <button id="btn-mode-arabic" class="mode-btn selected" onclick="selectMode('ARABIC_SUB')">
-                        <span>🎧 Arabic + English Subs</span>
-                        <span class="reward-tag">+$15.00 Reward</span>
+                <div class="mode-toggle-group">
+                    <button id="btn-mode-arabic" class="mode-button active" onclick="selectMode('ARABIC_SUB')">
+                        <span class="mode-name">🎧 Arabic + English Subs</span>
+                        <span class="mode-reward">+$15.00 Reward</span>
                     </button>
-                    <button id="btn-mode-english" class="mode-btn" onclick="selectMode('ENGLISH_DUB')">
-                        <span>🔊 English Dub</span>
-                        <span class="reward-tag">+$10.00 Reward</span>
+                    <button id="btn-mode-english" class="mode-button" onclick="selectMode('ENGLISH_DUB')">
+                        <span class="mode-name">🔊 English Dub</span>
+                        <span class="mode-reward">+$10.00 Reward</span>
                     </button>
                 </div>
             </div>
 
-            <!-- YouTube Video Player Container -->
-            <div class="video-container">
+            <!-- YouTube Video Player -->
+            <div class="player-wrapper">
                 <div id="yt-player"></div>
             </div>
 
-            <!-- Video Status & Dev Tools -->
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span id="video-status-text" style="font-size:0.85rem; color:var(--text-muted);">
-                    ⏳ Watch the episode completely to unlock the quiz!
-                </span>
-                <button class="dev-skip-btn" onclick="devUnlockQuiz()">[Dev Test: Unlock Quiz Now]</button>
+            <!-- Player Status Strip -->
+            <div class="player-status-strip">
+                <div class="status-badge">
+                    <div class="pulse-dot"></div>
+                    <span id="video-status-text">Watch the episode to completion to unlock the comprehension quiz!</span>
+                </div>
+                <button class="btn-dev-skip" onclick="devUnlockQuiz()">[Dev Test: Skip to Quiz]</button>
             </div>
 
-            <!-- Quiz Section (Unlocked after watching) -->
-            <section id="quiz-section" class="quiz-section" style="display:none;">
+            <!-- Interactive Quiz Box -->
+            <section id="quiz-section" class="quiz-box" style="display: none;">
                 <div class="quiz-header">
                     <div>
                         <h3>Comprehension Quiz</h3>
-                        <p style="font-size:0.85rem; color:var(--text-muted);">Score 80% or higher to pass and claim your reward!</p>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                            Answer the questions based on the dialogue you just heard.
+                        </p>
                     </div>
-                    <span id="quiz-passing-score" style="color:var(--gold); font-weight:600; font-size:0.9rem;">Pass Mark: 80%</span>
+                    <div class="quiz-pass-badge">Pass Mark: 80%</div>
                 </div>
 
                 <form id="quiz-form" onsubmit="handleQuizSubmit(event)">
@@ -96,64 +122,95 @@
                         <!-- Questions dynamically loaded -->
                     </div>
 
-                    <button type="submit" class="btn-submit">Submit Quiz for Grading</button>
+                    <button type="submit" class="btn-primary" style="margin-top: 1.25rem;">
+                        <span>Submit for Grading & Reward</span>
+                        <span>➔</span>
+                    </button>
                 </form>
             </section>
         </main>
     </div>
 
     <!-- Admin Dashboard Layout -->
-    <div id="admin-view" class="main-container" style="display:none;">
-        <main class="content-area" style="grid-column: 1 / -1;">
-            <div class="mode-selector-card">
-                <div>
-                    <h2>Admin Dashboard & Payout Management</h2>
-                    <p style="color:var(--text-muted);">Review quiz attempts, track student earnings, and issue payouts.</p>
+    <div id="admin-view" class="app-layout" style="display: none; grid-template-columns: 1fr;">
+        <main class="content-area">
+            <!-- Key Metrics Overview -->
+            <div class="admin-metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Student Total Earned</div>
+                    <div id="admin-metric-earned" class="metric-value green">$0.00</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Paid Out</div>
+                    <div id="admin-metric-paid" class="metric-value">$0.00</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Outstanding Balance Owed</div>
+                    <div id="admin-metric-owed" class="metric-value gold">$0.00</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Episodes Completed</div>
+                    <div id="admin-metric-episodes" class="metric-value">0 / 0</div>
                 </div>
             </div>
 
-            <!-- Student Balance Card -->
-            <div class="mode-selector-card" style="margin-top: 1rem;">
+            <!-- Payout Action Bar -->
+            <div class="admin-action-bar">
                 <div>
-                    <h3>Student: Brother</h3>
-                    <p id="admin-student-stats" style="margin-top:0.3rem; color:var(--text-muted);">Loading earnings...</p>
+                    <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">Issue Payout to Brother</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">
+                        Record cash or digital transfer to deduct from his balance owed.
+                    </p>
                 </div>
-                <div style="display:flex; gap:0.75rem; align-items:center;">
-                    <input type="number" id="payout-amount" placeholder="Amount ($)" style="padding:0.6rem; border-radius:6px; border:1px solid var(--border); background:var(--bg-main); color:white; width:120px;">
-                    <button class="btn-submit" style="margin-top:0; padding:0.6rem 1rem;" onclick="handleRecordPayout()">Mark as Paid</button>
+
+                <div style="display: flex; gap: 0.85rem; align-items: center; flex-wrap: wrap;">
+                    <div class="payout-presets">
+                        <button class="preset-btn" onclick="setPayoutInput(15)">+$15</button>
+                        <button class="preset-btn" onclick="setPayoutInput(30)">+$30</button>
+                        <button class="preset-btn" onclick="setPayoutInput(50)">+$50</button>
+                        <button class="preset-btn" onclick="setPayoutFullOwed()">Full Balance</button>
+                    </div>
+                    <input type="number" id="payout-amount" placeholder="Amount ($)" style="padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-subtle); color: white; width: 130px; font-weight: 700;">
+                    <button class="btn-primary" style="padding: 0.65rem 1.25rem;" onclick="handleRecordPayout()">Mark as Paid</button>
                 </div>
             </div>
 
-            <!-- Attempts Audit Table -->
-            <div class="quiz-section" style="margin-top:1rem;">
-                <h3>Quiz Attempts Audit Log</h3>
-                <table class="admin-table">
+            <!-- Quiz Attempts Audit Log -->
+            <div class="table-container">
+                <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border);">
+                    <h3 style="font-size: 1.05rem;">Student Attempts Audit Log</h3>
+                </div>
+                <table class="data-table">
                     <thead>
                         <tr>
                             <th>Student</th>
                             <th>Episode</th>
                             <th>Mode</th>
                             <th>Score</th>
-                            <th>Passed</th>
-                            <th>Reward</th>
-                            <th>Attempted At</th>
+                            <th>Status</th>
+                            <th>Reward Earned</th>
+                            <th>Date & Time</th>
                         </tr>
                     </thead>
                     <tbody id="admin-attempts-tbody">
-                        <!-- Dynamically populated -->
+                        <!-- Dynamically filled -->
                     </tbody>
                 </table>
             </div>
         </main>
     </div>
 
-    <!-- Result Modal -->
-    <div id="result-modal" class="modal-overlay" style="display:none;">
-        <div id="modal-box" class="modal-content">
-            <h2 id="modal-title" class="modal-title">🎉 You Passed!</h2>
-            <div id="modal-score" style="font-size:2rem; font-weight:800; color:var(--primary); margin:0.5rem 0;">100%</div>
-            <p id="modal-message" class="modal-message">Reward earned: $15.00</p>
-            <button class="btn-close-modal" onclick="closeModal()">Continue</button>
+    <!-- Celebration / Result Modal -->
+    <div id="result-modal" class="modal-overlay" style="display: none;">
+        <div id="modal-dialog" class="modal-dialog">
+            <h2 id="modal-title" style="font-size: 1.6rem; font-weight: 800;">🎉 Excellent Work!</h2>
+            <div id="modal-score" class="modal-score-circle">100%</div>
+            <p id="modal-message" style="color: var(--text-muted); font-size: 1rem; line-height: 1.6; margin-bottom: 1.5rem;">
+                You passed and earned $15.00!
+            </p>
+            <button class="btn-primary" style="width: 100%; justify-content: center;" onclick="closeModal()">
+                Continue to Next Episode
+            </button>
         </div>
     </div>
 
