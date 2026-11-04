@@ -1,0 +1,49 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: arabic-quest
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+---
+# Local Development Profile (H2 In-Memory - runs out of the box)
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:h2:mem:arabicquest;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+---
+# Production Profile (PostgreSQL on Neon, Supabase, Render, or Railway)
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:jdbc:postgresql://localhost:5432/arabicquest}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DATABASE_USERNAME:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DATABASE_PASSWORD:postgres}}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
