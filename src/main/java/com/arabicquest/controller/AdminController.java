@@ -3,17 +3,21 @@ package com.arabicquest.controller;
 import com.arabicquest.dto.CreateEpisodeRequest;
 import com.arabicquest.dto.CreateQuizRequest;
 import com.arabicquest.dto.EarningsSummaryResponse;
+import com.arabicquest.dto.RegisterRequest;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
 import com.arabicquest.service.AiQuizService;
 import com.arabicquest.service.PayoutService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -27,6 +31,7 @@ public class AdminController {
     private final EpisodeRepository episodeRepository;
     private final QuizRepository quizRepository;
     private final AiQuizService aiQuizService;
+    private final PasswordEncoder passwordEncoder;
 
     public AdminController(UserRepository userRepository,
                            QuizAttemptRepository quizAttemptRepository,
@@ -35,7 +40,8 @@ public class AdminController {
                            PlaylistRepository playlistRepository,
                            EpisodeRepository episodeRepository,
                            QuizRepository quizRepository,
-                           AiQuizService aiQuizService) {
+                           AiQuizService aiQuizService,
+                           PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.quizAttemptRepository = quizAttemptRepository;
         this.payoutRepository = payoutRepository;
@@ -44,11 +50,30 @@ public class AdminController {
         this.episodeRepository = episodeRepository;
         this.quizRepository = quizRepository;
         this.aiQuizService = aiQuizService;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @GetMapping("/students")
     public ResponseEntity<List<User>> getAllStudents() {
         return ResponseEntity.ok(userRepository.findAll());
+    }
+
+    @PostMapping("/students")
+    public ResponseEntity<?> createStudent(@Valid @RequestBody RegisterRequest request) {
+        String cleanUsername = request.getUsername().trim().toLowerCase();
+        if (userRepository.existsByUsername(cleanUsername)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "Username '" + cleanUsername + "' is already taken"));
+        }
+
+        User newUser = new User(
+                cleanUsername,
+                passwordEncoder.encode(request.getPassword()),
+                request.getFullName().trim(),
+                Role.ROLE_STUDENT
+        );
+        User saved = userRepository.save(newUser);
+        return ResponseEntity.ok(saved);
     }
 
     @GetMapping("/students/{username}/earnings")

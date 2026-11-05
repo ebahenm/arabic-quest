@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arabic Quest | Admin Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Turathtona (تراثُنا) | Secret HQ</title>
     <link rel="stylesheet" href="style.css">
     <style>
         .auth-container {
@@ -11,52 +11,64 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            padding: 1.5rem;
-            background: radial-gradient(circle at top, #261b0c, #090d16 65%);
+            padding: 1rem;
+            background: radial-gradient(circle at top, #2b1f0e, #090d16 65%);
         }
         .auth-card {
             background: rgba(17, 24, 39, 0.95);
-            border: 1px solid rgba(245, 158, 11, 0.35);
+            border: 1px solid rgba(245, 158, 11, 0.4);
             border-radius: var(--radius-lg);
-            padding: 2.5rem 2.25rem;
-            max-width: 440px;
+            padding: 2.25rem 1.75rem;
+            max-width: 420px;
             width: 100%;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 24px var(--gold-glow);
             text-align: center;
         }
         .auth-logo {
-            width: 56px;
-            height: 56px;
+            width: 52px;
+            height: 52px;
             background: linear-gradient(135deg, #f59e0b, #d97706);
             border-radius: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 2rem;
-            margin: 0 auto 1.25rem auto;
+            font-size: 1.85rem;
+            margin: 0 auto 0.75rem auto;
             box-shadow: 0 8px 20px var(--gold-glow);
         }
+        .domain-tag {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #fde68a;
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            padding: 0.2rem 0.6rem;
+            border-radius: var(--radius-full);
+            display: inline-block;
+            margin-bottom: 0.5rem;
+        }
         .auth-title {
-            font-size: 1.6rem;
+            font-size: 1.55rem;
             font-weight: 800;
             color: white;
-            margin-bottom: 0.35rem;
+            font-family: 'Cairo', sans-serif;
+            margin-bottom: 0.2rem;
         }
         .auth-subtitle {
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             color: var(--text-muted);
-            margin-bottom: 1.75rem;
+            margin-bottom: 1.5rem;
         }
         .form-group {
             text-align: left;
-            margin-bottom: 1.25rem;
+            margin-bottom: 1.15rem;
         }
         .form-label {
             display: block;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 700;
             color: var(--text-muted);
-            margin-bottom: 0.4rem;
+            margin-bottom: 0.35rem;
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
@@ -87,12 +99,12 @@
             font-weight: 800;
             cursor: pointer;
             transition: all 0.2s;
-            margin-top: 0.5rem;
-            box-shadow: 0 6px 16px var(--gold-glow);
+            margin-top: 0.35rem;
+            box-shadow: 0 4px 14px var(--gold-glow);
         }
         .auth-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(245, 158, 11, 0.4);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
         }
         .auth-error {
             background: rgba(239, 68, 68, 0.15);
@@ -100,20 +112,14 @@
             color: #fca5a5;
             padding: 0.65rem 0.85rem;
             border-radius: var(--radius-sm);
-            font-size: 0.85rem;
-            margin-bottom: 1.25rem;
+            font-size: 0.82rem;
+            margin-bottom: 1rem;
             display: none;
         }
-        .portal-switch-link {
-            display: inline-block;
-            margin-top: 1.75rem;
-            font-size: 0.85rem;
-            color: var(--text-subtle);
-            text-decoration: none;
-            transition: color 0.2s;
-        }
-        .portal-switch-link:hover {
-            color: var(--gold);
+        @media (max-width: 480px) {
+            .auth-card {
+                padding: 1.75rem 1.25rem;
+            }
         }
     </style>
 </head>
@@ -122,15 +128,15 @@
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-logo">🛡️</div>
-            <span style="font-size:0.75rem; font-weight:700; color:#fde68a; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); padding:0.2rem 0.6rem; border-radius:9999px; display:inline-block; margin-bottom:0.5rem;">turathtona.site</span>
-            <h1 class="auth-title">تراثُنا • Admin Command Center</h1>
-            <p class="auth-subtitle">Manage student payouts, audit logs, and AI quiz generation.</p>
+            <span class="domain-tag">Secret HQ Access</span>
+            <h1 class="auth-title">Admin Command Center</h1>
+            <p class="auth-subtitle">Authorized administrator verification required.</p>
 
             <div id="error-box" class="auth-error"></div>
 
             <form id="admin-login-form" onsubmit="handleAdminLogin(event)">
                 <div class="form-group">
-                    <label class="form-label">Admin Username</label>
+                    <label class="form-label">Master Username</label>
                     <input type="text" id="username" class="form-input" placeholder="admin" value="admin" required autofocus>
                 </div>
 
@@ -141,10 +147,6 @@
 
                 <button type="submit" id="btn-submit" class="auth-btn">Authorize &amp; Enter ➔</button>
             </form>
-
-            <a href="login.html" class="portal-switch-link">
-                🎓 Student learner? Switch to Student Portal ➔
-            </a>
         </div>
     </div>
 
@@ -170,7 +172,7 @@
                 if (res.ok) {
                     const data = await res.json();
                     if (data.role !== 'ROLE_ADMIN') {
-                        errBox.textContent = 'Access Denied: Administrator role required.';
+                        errBox.textContent = 'Access Denied: Administrator privileges required.';
                         errBox.style.display = 'block';
                         return;
                     }
@@ -180,11 +182,11 @@
                     localStorage.setItem('aq_fullname', data.fullName);
                     localStorage.setItem('aq_role', data.role);
 
-                    // Redirect to dedicated Admin Dashboard
-                    window.location.href = 'admin.html';
+                    // Redirect to Secret Admin Dashboard
+                    window.location.href = 'turath-hq';
                 } else {
                     const err = await res.json().catch(() => ({}));
-                    errBox.textContent = err.error || 'Invalid admin credentials';
+                    errBox.textContent = err.error || 'Invalid credentials';
                     errBox.style.display = 'block';
                 }
             } catch (err) {

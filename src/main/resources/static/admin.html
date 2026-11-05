@@ -217,6 +217,39 @@
                 </div>
             </div>
 
+            <!-- Create New Student Account Section (Admin Exclusive) -->
+            <div class="admin-card-section" style="border-color: rgba(16, 185, 129, 0.4); background: linear-gradient(180deg, rgba(16, 185, 129, 0.05), var(--bg-card));">
+                <div class="card-header-bar">
+                    <div>
+                        <h3 style="color: #6ee7b7;">➕ Create New Student Account</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                            Only you as administrator can create student logins for Turathtona.
+                        </p>
+                    </div>
+                </div>
+
+                <form id="form-create-student" onsubmit="handleCreateStudentSubmit(event)">
+                    <div class="form-row">
+                        <div>
+                            <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Full Name</label>
+                            <input type="text" id="new-student-fullname" class="text-input" placeholder="e.g. Brother Ahmad" required>
+                        </div>
+                        <div>
+                            <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Username</label>
+                            <input type="text" id="new-student-username" class="text-input" placeholder="e.g. brother or email" required>
+                        </div>
+                        <div>
+                            <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Initial Password</label>
+                            <input type="password" id="new-student-password" class="text-input" placeholder="••••••••" required>
+                        </div>
+                    </div>
+                    <button type="submit" id="btn-create-student" class="btn-primary" style="padding: 0.7rem 1.5rem;">
+                        <span>Create Student Account ➔</span>
+                    </button>
+                </form>
+                <div id="create-student-msg" style="display:none; margin-top:0.75rem; padding:0.6rem 0.85rem; border-radius:var(--radius-sm); font-size:0.85rem; font-weight:600;"></div>
+            </div>
+
             <!-- Add Episode Tool -->
             <div class="admin-card-section">
                 <div class="card-header-bar">

@@ -10,7 +10,7 @@ let selectedStudent = null;
 
 // Enforce Admin Auth
 if (!authToken || userRole !== 'ROLE_ADMIN') {
-    window.location.href = 'admin-login.html';
+    window.location.href = 'turath-hq-login';
 }
 
 function getAuthHeader() {
@@ -33,7 +33,7 @@ function handleLogout() {
     localStorage.removeItem('aq_role');
     localStorage.removeItem('aq_username');
     localStorage.removeItem('aq_fullname');
-    window.location.href = 'admin-login.html';
+    window.location.href = 'turath-hq-login';
 }
 
 // Load Students for Dropdown
@@ -264,5 +264,58 @@ async function handleRecordPayout() {
         }
     } catch (e) {
         alert('Error recording payout: ' + e.message);
+    }
+}
+
+// Create New Student Account
+async function handleCreateStudentSubmit(e) {
+    e.preventDefault();
+    const fullName = document.getElementById('new-student-fullname').value.trim();
+    const username = document.getElementById('new-student-username').value.trim();
+    const password = document.getElementById('new-student-password').value;
+    const btn = document.getElementById('btn-create-student');
+    const msgBox = document.getElementById('create-student-msg');
+
+    btn.disabled = true;
+    btn.textContent = 'Creating Account...';
+    msgBox.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/admin/students', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': getAuthHeader()
+            },
+            body: JSON.stringify({ fullName, username, password })
+        });
+
+        if (res.ok) {
+            const created = await res.json();
+            msgBox.style.display = 'block';
+            msgBox.style.background = 'rgba(16, 185, 129, 0.15)';
+            msgBox.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+            msgBox.style.color = '#6ee7b7';
+            msgBox.textContent = `✓ Student account for "${created.fullName}" (@${created.username}) created successfully!`;
+            document.getElementById('form-create-student').reset();
+            // Reload student dropdown so new student is immediately selectable
+            await loadStudents();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            msgBox.style.display = 'block';
+            msgBox.style.background = 'rgba(239, 68, 68, 0.15)';
+            msgBox.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+            msgBox.style.color = '#fca5a5';
+            msgBox.textContent = 'Error: ' + (err.error || 'Failed to create student account');
+        }
+    } catch (err) {
+        msgBox.style.display = 'block';
+        msgBox.style.background = 'rgba(239, 68, 68, 0.15)';
+        msgBox.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+        msgBox.style.color = '#fca5a5';
+        msgBox.textContent = 'Connection error: ' + err.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Student Account ➔';
     }
 }

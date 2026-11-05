@@ -32,8 +32,10 @@ The application features two separate web portals with distinct authentication m
      * **Create Account** tab for self-registration.
      * **Sign in with Google** button.
 
-2. **Admin Command Center** (`/admin-login.html` ➔ `/admin.html`)
+2. **Secret Admin Command Center** (`/turath-hq-login` ➔ `/turath-hq`)
+   * Hidden, unguessable private route (`/turath-hq`) exclusively for the administrator.
    * Protected with `ROLE_ADMIN` (seeded account: `admin` / `admin123`).
+   * **Admin-Exclusive Student Creator**: Only the admin can register and issue logins for students (public self-registration disabled).
    * **Multi-Student Switcher**: View stats and balance owed for any student.
    * **One-Click Payout Actions**: Fast-pay buttons (`+$15`, `+$30`, `+$50`, `Full Balance`) to log cash/digital transfers.
    * **AI Quiz Generator Tool**: Select any episode and generate 3 multiple-choice questions with one click via Gemini 1.5.
@@ -61,8 +63,8 @@ The application features two separate web portals with distinct authentication m
 3. Open `src/main/java/com/arabicquest/ArabicQuestApplication.java`.
 4. Click **Run** (or press `F5`).
 5. Open your browser:
-   * **Student Portal**: [http://localhost:8080/login.html](http://localhost:8080/login.html)
-   * **Admin Portal**: [http://localhost:8080/admin-login.html](http://localhost:8080/admin-login.html)
+   * **Student Portal**: [http://localhost:8080/login](http://localhost:8080/login)
+   * **Secret Admin Portal**: [http://localhost:8080/turath-hq-login](http://localhost:8080/turath-hq-login)
 
 ---
 
@@ -82,7 +84,7 @@ Under **Render Settings > Custom Domains**, add:
 * `www.turathtona.site`
 
 In **Namecheap > Advanced DNS**, add two Host Records:
-1. `CNAME Record` | Host: `www` | Value: `your-app.onrender.com` | TTL: Automatic
+1. `CNAME Record` | Host: `www` | Value: `your-app.onrender.com.` | TTL: Automatic
 2. `ALIAS Record` (or `A Record`) | Host: `@` | Value: `216.24.57.1` (or Render apex address) | TTL: Automatic
 
 ---
@@ -91,5 +93,5 @@ In **Namecheap > Advanced DNS**, add two Host Records:
 
 | Role | Username | Password | Access Portal |
 |---|---|---|---|
-| **Admin** | `admin` | `admin123` | `/admin-login.html` |
-| **Student** | `brother` | `learn123` | `/login.html` |
+| **Admin** | `admin` | `admin123` | `/turath-hq-login` |
+| **Student** | `brother` | `learn123` | `/login` |
