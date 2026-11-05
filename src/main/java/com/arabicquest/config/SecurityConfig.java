@@ -47,9 +47,14 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable()) // Disabled for REST API / H2 console
             .headers(headers -> headers.frameOptions(frame -> frame.disable())) // For H2 console
             .authorizeHttpRequests(auth -> auth
-                // Public frontend pages, assets, and auth login/register
+                // Public frontend pages, clean URL routes, assets, and auth login/register
                 .requestMatchers(
                     "/",
+                    "/login",
+                    "/admin-login",
+                    "/admin/login",
+                    "/admin",
+                    "/student",
                     "/*.html",
                     "/*.css",
                     "/*.js",
