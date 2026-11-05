@@ -1,5 +1,6 @@
 package com.arabicquest.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -32,6 +33,10 @@ public class Playlist {
     @Column(name = "completion_bonus", nullable = false, precision = 10, scale = 2)
     private BigDecimal completionBonus = new BigDecimal("100.00");
 
+    @Column(name = "min_episodes_for_bonus")
+    private Integer minEpisodesForBonus = 12;
+
+    @JsonIgnore
     @OneToMany(mappedBy = "playlist", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("episodeNumber ASC")
     private List<Episode> episodes = new ArrayList<>();
@@ -51,6 +56,9 @@ public class Playlist {
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (this.minEpisodesForBonus == null) {
+            this.minEpisodesForBonus = 12;
+        }
     }
 
     public Long getId() {
@@ -107,6 +115,14 @@ public class Playlist {
 
     public void setCompletionBonus(BigDecimal completionBonus) {
         this.completionBonus = completionBonus;
+    }
+
+    public int getMinEpisodesForBonus() {
+        return minEpisodesForBonus != null && minEpisodesForBonus > 0 ? minEpisodesForBonus : 12;
+    }
+
+    public void setMinEpisodesForBonus(Integer minEpisodesForBonus) {
+        this.minEpisodesForBonus = minEpisodesForBonus;
     }
 
     public List<Episode> getEpisodes() {

@@ -19,6 +19,7 @@ public class QuestionOption {
     @Column(name = "option_text", nullable = false, length = 500)
     private String optionText;
 
+    @JsonIgnore
     @Column(name = "is_correct", nullable = false)
     private Boolean isCorrect = false;
 

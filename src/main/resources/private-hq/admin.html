@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Turathtona (تراثُنا) | Admin Command Center</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        .admin-nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 0.45rem 0.9rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-ghost:hover {
+            color: white;
+            border-color: var(--primary);
+        }
+        .btn-danger-outline {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fca5a5;
+            padding: 0.35rem 0.7rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.78rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-danger-outline:hover {
+            background: rgba(239, 68, 68, 0.28);
+        }
+        .btn-logout {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fca5a5;
+            padding: 0.45rem 0.9rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-logout:hover {
+            background: rgba(239, 68, 68, 0.3);
+        }
+        .admin-card-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .card-header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.25rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.85rem;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+        .card-header-bar h3 {
+            font-size: 1.15rem;
+            font-weight: 800;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .select-input, .text-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: white;
+            font-family: inherit;
+            font-size: 0.9rem;
+            outline: none;
+        }
+        .select-input:focus, .text-input:focus {
+            border-color: var(--gold);
+        }
+        .btn-ai-generate {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: var(--radius-sm);
+            font-weight: 800;
+            font-size: 0.95rem;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-ai-generate:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(139, 92, 246, 0.5);
+        }
+        .btn-ai-generate:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+        }
+        .ai-result-box {
+            background: var(--bg-subtle);
+            border: 1px solid rgba(139, 92, 246, 0.4);
+            border-radius: var(--radius-md);
+            padding: 1.25rem;
+            margin-top: 1rem;
+            display: none;
+        }
+        .security-alert-banner {
+            display: none;
+            background: rgba(239, 68, 68, 0.16);
+            border: 1px solid rgba(239, 68, 68, 0.55);
+            border-radius: var(--radius-lg);
+            padding: 1rem 1.5rem;
+            color: #fecaca;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .feedback-msg {
+            display: none;
+            margin-top: 0.75rem;
+            padding: 0.65rem 0.9rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .feedback-msg.ok {
+            display: block;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #6ee7b7;
+        }
+        .feedback-msg.err {
+            display: block;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fca5a5;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="brand">
+            <div class="brand-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 12px var(--gold-glow);">🛡️</div>
+            <div>
+                <div class="brand-title">Admin Command Center</div>
+                <div class="brand-subtitle">تراثُنا • turathtona.site</div>
+            </div>
+        </div>
+
+        <div class="admin-nav-actions">
+            <a href="/student" target="_blank" rel="noopener noreferrer" class="btn-ghost">👁️ Preview Student Portal</a>
+            <span id="admin-user-display" style="font-size: 0.85rem; font-weight: 700; color: var(--gold);">🛡️ Admin</span>
+            <button class="btn-logout" id="btn-logout" type="button">Sign Out</button>
+        </div>
+    </header>
+
+    <div class="app-layout" style="grid-template-columns: 1fr;">
+        <main class="content-area">
+
+            <!-- Urgent Default Password Rotation Banner -->
+            <div id="default-password-banner" class="security-alert-banner">
+                <div>
+                    <strong style="color: #fca5a5; font-size: 0.95rem;">⚠️ Security Alert: Legacy Default Admin Password Active</strong>
+                    <p style="font-size: 0.83rem; margin-top: 0.2rem; color: #fecaca;">
+                        Your master account is still using the initial bootstrap password. Rotate it immediately to lock out unauthorized access.
+                    </p>
+                </div>
+                <button type="button" class="btn-danger-outline" id="btn-jump-password" style="padding: 0.55rem 1rem; font-size: 0.85rem;">
+                    Rotate Password Now ↓
+                </button>
+            </div>
+
+            <!-- Student Selector Banner -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <span style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em;">Selected Student</span>
+                    <h3 id="current-student-title" style="font-size: 1.25rem; font-weight: 800; color: #a7f3d0; margin-top: 0.15rem;">Loading students...</h3>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <label for="admin-student-select" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Student:</label>
+                    <select id="admin-student-select" class="select-input" style="width: 260px;"></select>
+                    <button type="button" class="btn-ghost" id="btn-toggle-reset-pw">🔑 Reset Student Password</button>
+                </div>
+            </div>
+
+            <!-- Collapsible Student Password Reset Panel -->
+            <div id="reset-student-pw-box" class="admin-card-section" style="display: none; border-color: rgba(245, 158, 11, 0.4);">
+                <form id="form-reset-student-pw" style="display: flex; gap: 0.85rem; align-items: flex-end; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 220px;">
+                        <label for="reset-student-newpw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">New Password for Selected Student (min 8 chars)</label>
+                        <input type="password" id="reset-student-newpw" class="text-input" minlength="8" maxlength="128" placeholder="Enter new student password" required>
+                    </div>
+                    <button type="submit" class="btn-primary" style="padding: 0.75rem 1.35rem;">Save New Password</button>
+                </form>
+                <div id="reset-student-pw-msg" class="feedback-msg"></div>
+            </div>
+
+            <!-- Metrics -->
+            <div class="admin-metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Student Total Earned</div>
+                    <div id="admin-metric-earned" class="metric-value green">$0.00</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Paid Out</div>
+                    <div id="admin-metric-paid" class="metric-value">$0.00</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Outstanding Balance Owed</div>
+                    <div id="admin-metric-owed" class="metric-value gold">$0.00</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Episodes Completed</div>
+                    <div id="admin-metric-episodes" class="metric-value">0 / 0</div>
+                </div>
+            </div>
+
+            <!-- Payout Action Bar -->
+            <div class="admin-action-bar">
+                <div>
+                    <h3 id="payout-title-label" style="font-size: 1.1rem; margin-bottom: 0.25rem;">Issue Payout to Student</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">
+                        Record cash or digital transfer to deduct from this student's balance owed.
+                    </p>
+                    <div id="payout-feedback-msg" class="feedback-msg"></div>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                    <div class="payout-presets">
+                        <button type="button" class="preset-btn" data-preset="15">+$15</button>
+                        <button type="button" class="preset-btn" data-preset="30">+$30</button>
+                        <button type="button" class="preset-btn" data-preset="50">+$50</button>
+                        <button type="button" class="preset-btn" id="btn-preset-full">Full Balance</button>
+                    </div>
+                    <input type="number" id="payout-amount" min="0.01" step="0.01" placeholder="Amount ($)" style="padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-subtle); color: white; width: 130px; font-weight: 700;">
+                    <input type="text" id="payout-note" maxlength="200" placeholder="Note (e.g. Zelle / Cash)" style="padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-subtle); color: white; width: 190px;">
+                    <button type="button" class="btn-primary" id="btn-record-payout" style="padding: 0.65rem 1.25rem;">Mark as Paid</button>
+                </div>
+            </div>
+
+            <!-- Create New Student Account Section (Admin Exclusive) -->
+            <div class="admin-card-section" style="border-color: rgba(16, 185, 129, 0.4); background: linear-gradient(180deg, rgba(16, 185, 129, 0.05), var(--bg-card));">
+                <div class="card-header-bar">
+                    <div>
+                        <h3 style="color: #6ee7b7;">➕ Create New Student Account</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                            Self-registration is locked. Tip: Use their Gmail address as the Username if you want them to be able to sign in with Google as well as their password.
+                        </p>
+                    </div>
+                </div>
+
+                <form id="form-create-student">
+                    <div class="form-row">
+                        <div>
+                            <label for="new-student-fullname" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Full Name</label>
+                            <input type="text" id="new-student-fullname" class="text-input" maxlength="100" placeholder="e.g. Brother Ahmad" required>
+                        </div>
+                        <div>
+                            <label for="new-student-username" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Username or Google Email</label>
+                            <input type="text" id="new-student-username" class="text-input" minlength="3" maxlength="100" placeholder="e.g. ahmad@gmail.com or brother" required>
+                        </div>
+                        <div>
+                            <label for="new-student-password" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Initial Password (min 8 chars)</label>
+                            <input type="password" id="new-student-password" class="text-input" minlength="8" maxlength="128" placeholder="Minimum 8 characters" required>
+                        </div>
+                    </div>
+                    <button type="submit" id="btn-create-student" class="btn-primary" style="padding: 0.7rem 1.5rem;">
+                        Create Student Account ➔
+                    </button>
+                </form>
+                <div id="create-student-msg" class="feedback-msg"></div>
+            </div>
+
+            <!-- AI Quiz Generator Tool -->
+            <div class="admin-card-section">
+                <div class="card-header-bar">
+                    <div>
+                        <h3>🤖 AI Quiz &amp; Vocabulary Generator (Gemini 2.5 Flash)</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                            Generate fresh comprehension questions and Arabic vocabulary cards (with randomized answer positions) for any episode.
+                        </p>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 260px;">
+                        <label for="ai-episode-select" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Select Episode:</label>
+                        <select id="ai-episode-select" class="select-input"></select>
+                    </div>
+                    <div>
+                        <button type="button" id="btn-run-ai" class="btn-ai-generate">
+                            ✨ Generate AI Quiz Now
+                        </button>
+                    </div>
+                </div>
+
+                <div id="ai-result-box" class="ai-result-box">
+                    <h4 style="color: #c4b5fd; font-weight: 800; margin-bottom: 0.5rem;" id="ai-result-title">Quiz Generated Successfully!</h4>
+                    <div id="ai-result-content" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6;"></div>
+                </div>
+            </div>
+
+            <!-- Course Episodes Management (Add + Active List with Archive/Delete) -->
+            <div class="admin-card-section">
+                <div class="card-header-bar">
+                    <div>
+                        <h3>📚 Manage Course Episodes</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                            Add new episodes from the Tareekhuna playlist or archive episodes safely without breaking student balances.
+                        </p>
+                    </div>
+                </div>
+
+                <form id="form-add-episode">
+                    <div class="form-row">
+                        <div>
+                            <label for="new-ep-num" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Number</label>
+                            <input type="number" id="new-ep-num" class="text-input" min="1" placeholder="e.g. 16" required>
+                        </div>
+                        <div style="grid-column: span 2;">
+                            <label for="new-ep-title" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Title (Arabic)</label>
+                            <input type="text" id="new-ep-title" class="text-input" maxlength="250" placeholder="e.g. 16- 100 سؤال في التاريخ | ..." required>
+                        </div>
+                        <div>
+                            <label for="new-ep-videoid" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">YouTube Video ID</label>
+                            <input type="text" id="new-ep-videoid" class="text-input" maxlength="20" placeholder="e.g. EXrpLeyeSeU" required>
+                        </div>
+                    </div>
+                    <button type="submit" id="btn-add-episode" class="btn-primary" style="padding: 0.7rem 1.5rem;">Save Episode ➔</button>
+                </form>
+                <div id="add-episode-msg" class="feedback-msg"></div>
+
+                <div class="table-container" style="margin-top: 1.25rem;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Ep #</th>
+                                <th>Title</th>
+                                <th>YouTube ID</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-episodes-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Payouts Ledger -->
+            <div class="table-container">
+                <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="font-size: 1.05rem;">💸 Payout History Ledger</h3>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Amount Paid</th>
+                            <th>Note</th>
+                            <th>Date &amp; Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="admin-payouts-tbody"></tbody>
+                </table>
+            </div>
+
+            <!-- Quiz Attempts Audit Log -->
+            <div class="table-container">
+                <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="font-size: 1.05rem;">📋 Student Attempts Audit Log</h3>
+                    <button type="button" class="btn-ghost" id="btn-refresh-audit" style="font-size: 0.8rem;">↻ Refresh</button>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Episode</th>
+                            <th>Mode</th>
+                            <th>Score</th>
+                            <th>Status</th>
+                            <th>Reward Earned</th>
+                            <th>Date &amp; Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="admin-attempts-tbody"></tbody>
+                </table>
+            </div>
+
+            <!-- Change Admin Master Password -->
+            <div id="password-security-card" class="admin-card-section" style="border-color: rgba(245, 158, 11, 0.4);">
+                <div class="card-header-bar">
+                    <div>
+                        <h3 style="color: var(--gold);">🔐 Rotate Admin Master Password</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                            Updates your master password in PostgreSQL and immediately invalidates all previously issued session tokens.
+                        </p>
+                    </div>
+                </div>
+
+                <form id="form-change-admin-pw">
+                    <div class="form-row">
+                        <div>
+                            <label for="admin-current-pw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Current Master Password</label>
+                            <input type="password" id="admin-current-pw" class="text-input" autocomplete="current-password" required>
+                        </div>
+                        <div>
+                            <label for="admin-new-pw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">New Strong Password (min 8 chars)</label>
+                            <input type="password" id="admin-new-pw" class="text-input" minlength="8" maxlength="128" autocomplete="new-password" required>
+                        </div>
+                        <div>
+                            <label for="admin-confirm-pw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Confirm New Password</label>
+                            <input type="password" id="admin-confirm-pw" class="text-input" minlength="8" maxlength="128" autocomplete="new-password" required>
+                        </div>
+                    </div>
+                    <button type="submit" id="btn-change-admin-pw" class="btn-primary" style="padding: 0.7rem 1.5rem;">
+                        Update Master Password ➔
+                    </button>
+                </form>
+                <div id="change-admin-pw-msg" class="feedback-msg"></div>
+            </div>
+
+        </main>
+    </div>
+
+    <script src="{{HQ_SCRIPT_PATH}}"></script>
+</body>
+</html>

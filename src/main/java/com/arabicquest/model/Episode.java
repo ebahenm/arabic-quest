@@ -28,7 +28,18 @@ public class Episode {
     @Column(name = "youtube_video_id", nullable = false, length = 100)
     private String youtubeVideoId;
 
+    @Column(name = "duration_seconds")
+    private Integer durationSeconds = 1800;
+
+    @JsonIgnore
+    @Column(name = "vocabulary_json", columnDefinition = "TEXT")
+    private String vocabularyJson;
+
+    @Column(name = "archived")
+    private Boolean archived = false;
+
     @OneToOne(mappedBy = "episode", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     private Quiz quiz;
 
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -38,15 +49,27 @@ public class Episode {
     }
 
     public Episode(Playlist playlist, Integer episodeNumber, String title, String youtubeVideoId) {
+        this(playlist, episodeNumber, title, youtubeVideoId, 1800);
+    }
+
+    public Episode(Playlist playlist, Integer episodeNumber, String title, String youtubeVideoId, Integer durationSeconds) {
         this.playlist = playlist;
         this.episodeNumber = episodeNumber;
         this.title = title;
         this.youtubeVideoId = youtubeVideoId;
+        this.durationSeconds = durationSeconds != null ? durationSeconds : 1800;
+        this.archived = false;
     }
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (this.durationSeconds == null) {
+            this.durationSeconds = 1800;
+        }
+        if (this.archived == null) {
+            this.archived = false;
+        }
     }
 
     public Long getId() {
@@ -87,6 +110,30 @@ public class Episode {
 
     public void setYoutubeVideoId(String youtubeVideoId) {
         this.youtubeVideoId = youtubeVideoId;
+    }
+
+    public int getDurationSeconds() {
+        return durationSeconds != null && durationSeconds > 0 ? durationSeconds : 1800;
+    }
+
+    public void setDurationSeconds(Integer durationSeconds) {
+        this.durationSeconds = durationSeconds;
+    }
+
+    public String getVocabularyJson() {
+        return vocabularyJson;
+    }
+
+    public void setVocabularyJson(String vocabularyJson) {
+        this.vocabularyJson = vocabularyJson;
+    }
+
+    public boolean isArchived() {
+        return Boolean.TRUE.equals(archived);
+    }
+
+    public void setArchived(Boolean archived) {
+        this.archived = archived;
     }
 
     public Quiz getQuiz() {

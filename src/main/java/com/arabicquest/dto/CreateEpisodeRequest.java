@@ -1,21 +1,29 @@
 package com.arabicquest.dto;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 public class CreateEpisodeRequest {
 
-    @NotNull
+    // Optional: if omitted, defaults to primary active playlist
     private Long playlistId;
 
-    @NotNull
+    @NotNull(message = "Episode number is required")
+    @Min(value = 1, message = "Episode number must be >= 1")
     private Integer episodeNumber;
 
-    @NotBlank
+    @NotBlank(message = "Episode title is required")
+    @Size(max = 250, message = "Episode title must not exceed 250 characters")
     private String title;
 
-    @NotBlank
+    @NotBlank(message = "YouTube video ID is required")
+    @Pattern(regexp = "^[A-Za-z0-9_-]{6,20}$", message = "Invalid YouTube video ID format")
     private String youtubeVideoId;
+
+    private Integer durationSeconds;
 
     public CreateEpisodeRequest() {
     }
@@ -57,5 +65,13 @@ public class CreateEpisodeRequest {
 
     public void setYoutubeVideoId(String youtubeVideoId) {
         this.youtubeVideoId = youtubeVideoId;
+    }
+
+    public Integer getDurationSeconds() {
+        return durationSeconds;
+    }
+
+    public void setDurationSeconds(Integer durationSeconds) {
+        this.durationSeconds = durationSeconds;
     }
 }

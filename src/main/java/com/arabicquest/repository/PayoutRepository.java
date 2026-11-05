@@ -11,7 +11,12 @@ import java.util.List;
 
 @Repository
 public interface PayoutRepository extends JpaRepository<Payout, Long> {
-    List<Payout> findByStudentIdOrderByCreatedAtDesc(Long studentId);
+
+    @Query("SELECT p FROM Payout p JOIN FETCH p.student ORDER BY p.createdAt DESC, p.id DESC")
+    List<Payout> findAllWithStudentOrderByCreatedAtDesc();
+
+    @Query("SELECT p FROM Payout p JOIN FETCH p.student WHERE p.student.id = :studentId ORDER BY p.createdAt DESC, p.id DESC")
+    List<Payout> findByStudentIdOrderByCreatedAtDesc(@Param("studentId") Long studentId);
 
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payout p WHERE p.student.id = :studentId AND p.isPaid = true")
     BigDecimal calculateTotalPaidToStudent(@Param("studentId") Long studentId);

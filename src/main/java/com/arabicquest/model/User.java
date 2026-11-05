@@ -1,5 +1,6 @@
 package com.arabicquest.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -14,6 +15,7 @@ public class User {
     @Column(nullable = false, unique = true, length = 100)
     private String username;
 
+    @JsonIgnore
     @Column(nullable = false)
     private String password;
 
@@ -23,6 +25,10 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Role role;
+
+    @JsonIgnore
+    @Column(name = "token_version")
+    private Integer tokenVersion = 0;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -35,11 +41,15 @@ public class User {
         this.password = password;
         this.fullName = fullName;
         this.role = role;
+        this.tokenVersion = 0;
     }
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (this.tokenVersion == null) {
+            this.tokenVersion = 0;
+        }
     }
 
     public Long getId() {
@@ -80,6 +90,18 @@ public class User {
 
     public void setRole(Role role) {
         this.role = role;
+    }
+
+    public int getTokenVersion() {
+        return tokenVersion == null ? 0 : tokenVersion;
+    }
+
+    public void setTokenVersion(Integer tokenVersion) {
+        this.tokenVersion = tokenVersion;
+    }
+
+    public void incrementTokenVersion() {
+        this.tokenVersion = getTokenVersion() + 1;
     }
 
     public LocalDateTime getCreatedAt() {

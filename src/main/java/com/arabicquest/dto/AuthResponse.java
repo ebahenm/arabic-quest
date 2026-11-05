@@ -5,15 +5,21 @@ public class AuthResponse {
     private String username;
     private String fullName;
     private String role;
+    private boolean defaultPasswordWarning;
 
     public AuthResponse() {
     }
 
     public AuthResponse(Long id, String username, String fullName, String role) {
+        this(id, username, fullName, role, false);
+    }
+
+    public AuthResponse(Long id, String username, String fullName, String role, boolean defaultPasswordWarning) {
         this.id = id;
         this.username = username;
         this.fullName = fullName;
         this.role = role;
+        this.defaultPasswordWarning = defaultPasswordWarning;
     }
 
     public Long getId() {
@@ -46,5 +52,13 @@ public class AuthResponse {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public boolean isDefaultPasswordWarning() {
+        return defaultPasswordWarning;
+    }
+
+    public void setDefaultPasswordWarning(boolean defaultPasswordWarning) {
+        this.defaultPasswordWarning = defaultPasswordWarning;
     }
 }

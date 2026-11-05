@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arabic Quest | Student Portal</title>
-    <link rel="stylesheet" href="style.css">
-    <!-- Confetti Effects for Passing Quizzes -->
+    <title>تراثُنا • Turathtona | Student Portal</title>
+    <link rel="stylesheet" href="/style.css">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
-    <!-- YouTube IFrame Player API -->
     <script src="https://www.youtube.com/iframe_api"></script>
     <style>
         .student-user-pill {
@@ -64,6 +62,48 @@
         .btn-yt-external:hover {
             background: #dc2626;
             transform: translateY(-1px);
+        }
+        .watch-progress-strip {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 0.9rem 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.55rem;
+        }
+        .watch-progress-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            font-size: 0.84rem;
+        }
+        .btn-reset-mode {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 0.28rem 0.65rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-reset-mode:hover {
+            border-color: var(--gold);
+            color: var(--gold);
+        }
+        .cooldown-banner {
+            background: rgba(245, 158, 11, 0.14);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            color: #fcd34d;
+            border-radius: var(--radius-md);
+            padding: 0.85rem 1.15rem;
+            font-size: 0.88rem;
+            font-weight: 700;
+            display: none;
+            margin-bottom: 1rem;
         }
         .vocab-drawer {
             background: var(--bg-card);
@@ -122,7 +162,6 @@
 </head>
 <body>
 
-    <!-- Top Navigation Bar -->
     <header>
         <div class="brand">
             <div class="brand-icon">⚔️</div>
@@ -133,24 +172,20 @@
         </div>
 
         <div class="header-actions">
-            <!-- Student Live Earnings Strip -->
             <div id="student-earnings-pill" class="earnings-strip">
                 <div class="earnings-metric">Earned: <strong id="val-earned">$0.00</strong></div>
                 <div class="earnings-metric">Paid: <strong id="val-paid">$0.00</strong></div>
                 <div class="earnings-metric owed">Owed: <strong id="val-owed">$0.00</strong></div>
             </div>
 
-            <!-- Student Profile & Logout -->
             <div class="student-user-pill">
-                <span id="student-name-display" style="font-size: 0.85rem; font-weight: 700; color: #a7f3d0;">Brother</span>
+                <span id="student-name-display" style="font-size: 0.85rem; font-weight: 700; color: #a7f3d0;">Loading...</span>
                 <button class="btn-signout" onclick="handleStudentLogout()">Log Out</button>
             </div>
         </div>
     </header>
 
-    <!-- Student Experience Layout -->
     <div class="app-layout">
-        <!-- Sidebar: Episode Roadmap & Course Progress -->
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="sidebar-title">
@@ -167,23 +202,19 @@
                         <div id="progress-bar-fill" class="progress-bar-fill"></div>
                     </div>
                     <div class="bonus-milestone">
-                        <span>🏆 Complete all episodes for the $100.00 Bonus!</span>
+                        <span>🏆 Complete all episodes for the one-time $100.00 Bonus!</span>
                     </div>
                 </div>
             </div>
 
-            <div id="episode-list" class="episode-list">
-                <!-- Dynamically populated from API -->
-            </div>
+            <div id="episode-list" class="episode-list"></div>
         </aside>
 
-        <!-- Main Content Column -->
         <main class="content-area">
-            <!-- Mode Selection Card -->
             <div class="mode-card">
                 <div class="mode-info">
-                    <h2 id="current-episode-title">الحلقة 1: كيف بدأ تدوين التاريخ الإسلامي؟</h2>
-                    <p>Choose your viewing mode. Passing the quiz locks in your reward:</p>
+                    <h2 id="current-episode-title">Loading episode...</h2>
+                    <p id="mode-helper-text">Choose your viewing mode before starting playback. Passing the quiz (80%+) locks in your reward:</p>
                 </div>
 
                 <div class="mode-toggle-group">
@@ -198,64 +229,75 @@
                 </div>
             </div>
 
-            <!-- YouTube Video Player Frame -->
             <div class="player-wrapper">
                 <div id="yt-player"></div>
             </div>
 
-            <!-- Extension & Subtitles Banner -->
+            <!-- Verified Watch Progress & Mode Lock Bar -->
+            <div class="watch-progress-strip">
+                <div class="watch-progress-row">
+                    <div>
+                        <strong id="watch-status-label" style="color: #a7f3d0;">⏱️ Watch Progress: 00:00 / 10:00</strong>
+                        <span id="locked-mode-badge" style="margin-left: 0.65rem; font-size: 0.78rem; color: var(--text-muted);"></span>
+                    </div>
+                    <button id="btn-reset-mode" class="btn-reset-mode" style="display: none;" onclick="handleSwitchLockedMode()">
+                        Switch Mode &amp; Restart Timer
+                    </button>
+                </div>
+                <div class="progress-bar-bg">
+                    <div id="watch-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- External YouTube Extension Support Banner -->
             <div class="extension-support-banner">
                 <div>
-                    <strong style="color: #93c5fd; font-size: 0.88rem;">Need auto-translated subtitles or browser extensions?</strong>
+                    <strong style="color: #93c5fd; font-size: 0.88rem;">Using browser translation extensions (e.g. YouTube Subtitle/Comment Translator)?</strong>
                     <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">
-                        If English dub or auto-captions aren't working in the embedded player, watch natively on YouTube using your extensions (e.g. YouTube Comment/Subtitle Translator)!
+                        Click below to watch directly on YouTube with your extensions. Your selected mode locks in and your watch timer tracks automatically while you watch!
                     </p>
                 </div>
                 <div style="display: flex; gap: 0.65rem; align-items: center;">
-                    <a id="btn-yt-external-link" href="#" target="_blank" class="btn-yt-external">
+                    <a id="btn-yt-external-link" href="#" target="_blank" rel="noopener noreferrer" class="btn-yt-external" onclick="handleStartExternalWatch()">
                         <span>▶ Watch on YouTube</span>
                         <span>↗</span>
                     </a>
-                    <button class="btn-dev-skip" onclick="devUnlockQuiz()">[I watched on YouTube ➔ Unlock Quiz]</button>
                 </div>
             </div>
 
-            <!-- AI Vocabulary & Translation Study Guide -->
+            <!-- Episode-Specific Vocabulary & Translation Study Guide -->
             <div class="vocab-drawer">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                     <div>
                         <h3 style="font-size: 1.05rem; font-weight: 800;">📚 Episode Vocabulary &amp; Translation Guide</h3>
-                        <p style="font-size: 0.82rem; color: var(--text-muted);">Key Arabic words and meanings for this episode to boost your comprehension:</p>
+                        <p style="font-size: 0.82rem; color: var(--text-muted);">Key Arabic terms and historical concepts from this specific episode:</p>
                     </div>
-                    <span class="btn-ai-auto-badge">⚡ AI Vocabulary Helper</span>
+                    <span class="btn-ai-auto-badge">⚡ Episode Study Lexicon</span>
                 </div>
 
-                <div id="vocab-grid" class="vocab-grid">
-                    <!-- Populated dynamically -->
-                </div>
+                <div id="vocab-grid" class="vocab-grid"></div>
             </div>
 
-            <!-- Interactive Quiz Box (Unlocked after watching or on external return) -->
+            <!-- Interactive Quiz Box (Unlocked only after verified watch time) -->
             <section id="quiz-section" class="quiz-box" style="display: none;">
                 <div class="quiz-header">
                     <div>
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
                             <h3>Comprehension Quiz</h3>
-                            <span class="btn-ai-auto-badge">🤖 AI Generated</span>
+                            <span class="quiz-pass-badge">Pass Mark: 80% (4/5)</span>
                         </div>
                         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                            Answer the questions based on the dialogue you just heard. Pass mark is 80%.
+                            Answer carefully based on the episode. Failed attempts trigger a 10-minute review cooldown.
                         </p>
                     </div>
-                    <button class="btn-dev-skip" onclick="regenerateQuizWithAi()">[↻ AI Regenerate Quiz]</button>
                 </div>
 
-                <form id="quiz-form" onsubmit="handleQuizSubmit(event)">
-                    <div id="questions-container">
-                        <!-- Questions dynamically loaded -->
-                    </div>
+                <div id="cooldown-banner" class="cooldown-banner"></div>
 
-                    <button type="submit" class="btn-primary" style="margin-top: 1.25rem;">
+                <form id="quiz-form" onsubmit="handleQuizSubmit(event)">
+                    <div id="questions-container"></div>
+
+                    <button type="submit" id="btn-submit-quiz" class="btn-primary" style="margin-top: 1.25rem;">
                         <span>Submit for Grading &amp; Reward</span>
                         <span>➔</span>
                     </button>
@@ -264,20 +306,17 @@
         </main>
     </div>
 
-    <!-- Celebration / Result Modal -->
     <div id="result-modal" class="modal-overlay" style="display: none;">
         <div id="modal-dialog" class="modal-dialog">
             <h2 id="modal-title" style="font-size: 1.6rem; font-weight: 800;">🎉 Excellent Work!</h2>
             <div id="modal-score" class="modal-score-circle">100%</div>
-            <p id="modal-message" style="color: var(--text-muted); font-size: 1rem; line-height: 1.6; margin-bottom: 1.5rem;">
-                You passed and earned $15.00!
-            </p>
+            <p id="modal-message" style="color: var(--text-muted); font-size: 1rem; line-height: 1.6; margin-bottom: 1.5rem;"></p>
             <button class="btn-primary" style="width: 100%; justify-content: center;" onclick="closeModal()">
-                Continue to Next Episode
+                Continue
             </button>
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="/app.js"></script>
 </body>
 </html>

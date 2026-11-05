@@ -1,97 +1,72 @@
 # ⚔️ Turathtona (تراثُنا) — Arabic Learning & Incentive Platform
 
-> **Live Domain**: [turathtona.site](https://turathtona.site)  
+> **Live Domain**: https://turathtona.site  
 > **Course Series**: [100 سؤال في التاريخ (One Hundred Questions in History)](https://youtube.com/playlist?list=PLVVfonyXVJI3BXB9Wd2C5yXMr63w3SGXB) by *Tareekhuna (محمد إلهامي)*.
 
 ---
 
 ## 🌟 Overview
 
-**Turathtona** is an educational, gamified platform designed to motivate learners to master Arabic listening comprehension through immersion in authentic historical narratives. 
+**Turathtona** is an educational, incentive-driven platform designed to motivate learners to master Arabic listening comprehension through authentic historical narratives.
 
-### 💰 Incentive & Reward System
-* **Arabic Audio with English Subtitles**: **+\$15.00** per passed episode (Score $\ge 80\%$).
-* **English Dub**: **+\$10.00** per passed episode (Score $\ge 80\%$).
-* **Course Completion Bonus**: **+\$100.00** automatically awarded upon passing all episodes in the series.
-* **Anti-Cheat Grading**: Grading is performed strictly on the server. The client never receives correct answer keys in advance. Rewards can only be claimed once per episode (retries are allowed, but duplicate payouts are blocked).
-
----
-
-## 🏛️ Portal Separation
-
-The application features two separate web portals with distinct authentication mechanisms:
-
-1. **Student Portal** (`/login.html` ➔ `/index.html`)
-   * Full immersion interface with embedded YouTube player.
-   * Direct **"Watch on YouTube"** button allowing native browser extensions (like *YouTube Comment Translator*, *Dual Subtitles*, *Language Reactor*).
-   * **AI Vocabulary & Translation Guide**: Key Arabic terms, transliterations, and meanings right on screen.
-   * **AI-Generated Comprehension Quizzes**: Dynamically tests vocabulary and listening comprehension.
-   * Celebration confetti on passing with immediate live earnings update.
-   * **Sign-in Methods**:
-     * Username & Password (seeded account: `brother` / `learn123`)
-     * **Create Account** tab for self-registration.
-     * **Sign in with Google** button.
-
-2. **Secret Admin Command Center** (`/turath-hq-login` ➔ `/turath-hq`)
-   * Hidden, unguessable private route (`/turath-hq`) exclusively for the administrator.
-   * Protected with `ROLE_ADMIN` (seeded account: `admin` / `admin123`).
-   * **Admin-Exclusive Student Creator**: Only the admin can register and issue logins for students (public self-registration disabled).
-   * **Multi-Student Switcher**: View stats and balance owed for any student.
-   * **One-Click Payout Actions**: Fast-pay buttons (`+$15`, `+$30`, `+$50`, `Full Balance`) to log cash/digital transfers.
-   * **AI Quiz Generator Tool**: Select any episode and generate 3 multiple-choice questions with one click via Gemini 1.5.
-   * **Episode Creator**: Add new episode numbers, titles, and YouTube video IDs.
-   * **Attempts Audit Log**: Real-time table tracking all student attempts, scores, and timestamps.
+### 💰 Verified Incentive & Anti-Cheat System
+* **Arabic Audio with English Subtitles (`ARABIC_SUB`)**: **+\$15.00** per passed episode (Score >= 80%).
+* **English Auto-Dub (`ENGLISH_DUB`)**: **+\$10.00** per passed episode (Score >= 80%).
+* **Course Completion Bonus**: **+\$100.00** awarded once upon passing all active episodes in the playlist.
+* **Server-Side Watch Verification**: Watch progress is tracked on the server via wall-clock-verified playback heartbeats (`WatchSession`). Quizzes cannot be submitted until the required watch threshold is verified.
+* **Mode Lock & Retry Cooldown**: Selecting a watch mode locks that episode's reward tier once playback starts. Failed quiz attempts trigger a server-enforced retry cooldown with reshuffled question options.
+* **Idempotent Ledger**: Pessimistic row locking and unique database reward-claim constraints (`episode_reward_claims`, `playlist_bonus_claims`) guarantee every episode reward and playlist bonus can only be earned once.
 
 ---
 
-## 🛠️ Tech Stack & Architecture
+## 🏛️ Portal Architecture
 
-* **Backend**: Java 21 LTS, Spring Boot 3.3.4, Spring Security, Spring Data JPA.
+1. **Student Portal** (`/login` ➔ `/`)
+   * Responsive desktop & mobile interface with embedded YouTube player and **"Open on YouTube"** extension support (*Language Reactor*, *Dual Subtitles*, *YouTube Comment Translator*).
+   * Episode-specific **Arabic Vocabulary & Translation Guide** (Arabic script, transliteration, English meaning).
+   * Randomized comprehension quizzes graded strictly on the server (answer keys are never sent to the client).
+   * Supports assigned username/password login and optional **Sign in with Google** (restricted exclusively to pre-created student accounts; public self-registration is disabled).
+
+2. **Private Admin Command Center** (configured via `ADMIN_SECRET_PATH`)
+   * Served exclusively at your private `ADMIN_SECRET_PATH` route (direct static access to admin files is disabled).
+   * Protected by `ROLE_ADMIN`, `HttpOnly; SameSite=Strict` signed JWT cookies, CSRF custom-header enforcement, and brute-force login rate limiting.
+   * Create student accounts, reset student passwords, rotate the master admin password, record payouts, audit quiz attempts, manage course episodes, and generate episode quizzes & vocabulary via **Google Gemini 2.5 Flash**.
+
+---
+
+## 🛠️ Tech Stack
+
+* **Backend**: Java 21 LTS, Spring Boot 3.3.4, Spring Security (stateless HS256 JWT cookies), Spring Data JPA, Bean Validation.
 * **Database**:
-  * Local Dev: In-memory H2 database (zero configuration).
-  * Production: Neon Serverless PostgreSQL with SSL.
-* **Frontend**: HTML5, CSS3 (Glassmorphic dark theme), Vanilla JavaScript, YouTube IFrame API, Canvas Confetti.
-* **AI Integration**: Google Gemini 1.5 Flash API for automatic quiz generation and vocabulary parsing (with intelligent semantic fallback).
-* **Containerization**: Multi-stage `Dockerfile` running on Eclipse Temurin Alpine JRE.
+  * `dev`: In-memory H2 database.
+  * `prod`: Neon Serverless PostgreSQL (`sslmode=require`).
+* **Frontend**: Responsive HTML5, CSS3, XSS-safe Vanilla JavaScript (`textContent` / DOM APIs), YouTube IFrame Player API.
+* **AI Integration**: Google Gemini (`gemini-2.5-flash`) with structured JSON schema output (`x-goog-api-key` header).
+* **Deployment**: Multi-stage `Dockerfile` on Eclipse Temurin 21 Alpine.
+
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Required in Prod | Description |
+|---|---|---|
+| `SPRING_PROFILES_ACTIVE` | Yes | Set to `prod` on Render (`Dockerfile` sets this automatically). |
+| `DATABASE_URL` | Yes | PostgreSQL connection URI (e.g. `postgresql://user:pass@ep-...neon.tech/neondb?sslmode=require`). |
+| `JWT_SECRET` | Recommended | Strong random secret (32+ bytes) used to sign `HttpOnly` session JWTs across restarts. |
+| `ADMIN_USERNAME` | Recommended | Master administrator username synced on startup (defaults to `admin`). |
+| `ADMIN_PASSWORD` | Recommended | Master administrator password synced on startup. If omitted on an empty DB, a random one-time password is generated in startup logs. |
+| `ADMIN_SECRET_PATH` | Recommended | Private URL slug for the Admin Command Center. |
+| `GOOGLE_CLIENT_ID` | Optional | Google OAuth 2.0 Web Client ID (`...apps.googleusercontent.com`) to enable Sign in with Google for pre-registered student emails. |
+| `GEMINI_API_KEY` | Optional | Google Gemini API key for live AI quiz and vocabulary generation (`gemini-2.5-flash`). |
+| `ALLOWED_ORIGINS` | Optional | Comma-separated CORS origins (defaults to `https://turathtona.site,https://www.turathtona.site`). |
 
 ---
 
 ## 🚀 Running Locally
 
-1. Open this repository folder in **VS Code**.
-2. Make sure the **Extension Pack for Java** is installed.
-3. Open `src/main/java/com/arabicquest/ArabicQuestApplication.java`.
-4. Click **Run** (or press `F5`).
-5. Open your browser:
-   * **Student Portal**: [http://localhost:8080/login](http://localhost:8080/login)
-   * **Secret Admin Portal**: [http://localhost:8080/turath-hq-login](http://localhost:8080/turath-hq-login)
+```bash
+mvn spring-boot:run
+```
 
----
-
-## 🌐 Deploying to Render with `turathtona.site`
-
-### 1. Render Web Service Setup
-* **Repository**: Connect your GitHub repository.
-* **Runtime**: Docker (auto-detected from `Dockerfile`).
-* **Instance Type**: Free.
-* **Environment Variables**:
-  * `DATABASE_URL`: `postgresql://neondb_owner:password@ep-...neon.tech/neondb?sslmode=require`
-  * `GEMINI_API_KEY`: *(Optional)* Your free Google Gemini API key for live AI quiz generation.
-
-### 2. Custom Domain (Namecheap DNS)
-Under **Render Settings > Custom Domains**, add:
-* `turathtona.site`
-* `www.turathtona.site`
-
-In **Namecheap > Advanced DNS**, add two Host Records:
-1. `CNAME Record` | Host: `www` | Value: `your-app.onrender.com.` | TTL: Automatic
-2. `ALIAS Record` (or `A Record`) | Host: `@` | Value: `216.24.57.1` (or Render apex address) | TTL: Automatic
-
----
-
-## 🔐 Default Pre-Seeded Accounts
-
-| Role | Username | Password | Access Portal |
-|---|---|---|---|
-| **Admin** | `admin` | `admin123` | `/turath-hq-login` |
-| **Student** | `brother` | `learn123` | `/login` |
+* **Student Portal**: http://localhost:8080/login
+* If `ADMIN_PASSWORD` is not set in your local environment and the database is empty, check the console startup log for the generated bootstrap admin password.

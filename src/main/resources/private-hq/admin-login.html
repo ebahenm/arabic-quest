@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
     <title>Turathtona (تراثُنا) | Secret HQ</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
     <style>
         .auth-container {
             display: flex;
@@ -102,9 +103,13 @@
             margin-top: 0.35rem;
             box-shadow: 0 4px 14px var(--gold-glow);
         }
-        .auth-btn:hover {
+        .auth-btn:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+        }
+        .auth-btn:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
         }
         .auth-error {
             background: rgba(239, 68, 68, 0.15);
@@ -128,21 +133,21 @@
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-logo">🛡️</div>
-            <span class="domain-tag">Secret HQ Access</span>
+            <span class="domain-tag">Restricted HQ Access</span>
             <h1 class="auth-title">Admin Command Center</h1>
             <p class="auth-subtitle">Authorized administrator verification required.</p>
 
             <div id="error-box" class="auth-error"></div>
 
-            <form id="admin-login-form" onsubmit="handleAdminLogin(event)">
+            <form id="admin-login-form">
                 <div class="form-group">
-                    <label class="form-label">Master Username</label>
-                    <input type="text" id="username" class="form-input" placeholder="admin" value="admin" required autofocus>
+                    <label class="form-label" for="username">Master Username</label>
+                    <input type="text" id="username" class="form-input" placeholder="Enter master username" autocomplete="username" required autofocus>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Master Password</label>
-                    <input type="password" id="password" class="form-input" placeholder="••••••••" value="admin123" required>
+                    <label class="form-label" for="password">Master Password</label>
+                    <input type="password" id="password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required>
                 </div>
 
                 <button type="submit" id="btn-submit" class="auth-btn">Authorize &amp; Enter ➔</button>
@@ -151,7 +156,30 @@
     </div>
 
     <script>
-        async function handleAdminLogin(e) {
+        const HQ_DASHBOARD_PATH = '{{HQ_DASHBOARD_PATH}}';
+
+        // Purge any legacy plaintext credentials from older client versions
+        try {
+            ['aq_auth_token', 'aq_username', 'aq_fullname', 'aq_role'].forEach(k => localStorage.removeItem(k));
+        } catch (_) {}
+
+        // Redirect immediately if already authenticated as ROLE_ADMIN via HttpOnly session cookie
+        (async function checkExistingSession() {
+            try {
+                const res = await fetch('/api/auth/me', {
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                if (res.ok) {
+                    const me = await res.json();
+                    if (me && me.role === 'ROLE_ADMIN') {
+                        window.location.replace(HQ_DASHBOARD_PATH);
+                    }
+                }
+            } catch (_) {}
+        })();
+
+        document.getElementById('admin-login-form').addEventListener('submit', async function (e) {
             e.preventDefault();
             const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
@@ -165,38 +193,40 @@
             try {
                 const res = await fetch('/api/auth/login', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
                     body: JSON.stringify({ username, password })
                 });
 
                 if (res.ok) {
                     const data = await res.json();
                     if (data.role !== 'ROLE_ADMIN') {
+                        await fetch('/api/auth/logout', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                        }).catch(() => {});
                         errBox.textContent = 'Access Denied: Administrator privileges required.';
                         errBox.style.display = 'block';
                         return;
                     }
-
-                    localStorage.setItem('aq_auth_token', data.token);
-                    localStorage.setItem('aq_username', data.username);
-                    localStorage.setItem('aq_fullname', data.fullName);
-                    localStorage.setItem('aq_role', data.role);
-
-                    // Redirect to Secret Admin Dashboard
-                    window.location.href = 'turath-hq';
+                    window.location.replace(HQ_DASHBOARD_PATH);
                 } else {
                     const err = await res.json().catch(() => ({}));
                     errBox.textContent = err.error || 'Invalid credentials';
                     errBox.style.display = 'block';
                 }
-            } catch (err) {
+            } catch (_) {
                 errBox.textContent = 'Connection error. Please try again.';
                 errBox.style.display = 'block';
             } finally {
                 submitBtn.textContent = 'Authorize & Enter ➔';
                 submitBtn.disabled = false;
             }
-        }
+        });
     </script>
 </body>
 </html>

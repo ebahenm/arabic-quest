@@ -6,27 +6,43 @@ import com.arabicquest.model.QuestionOption;
 import com.arabicquest.model.Quiz;
 import com.arabicquest.repository.EpisodeRepository;
 import com.arabicquest.repository.QuizRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.security.SecureRandom;
 import java.util.*;
 
 @Service
 public class AiQuizService {
 
+    private static final Logger log = LoggerFactory.getLogger(AiQuizService.class);
+
     private final QuizRepository quizRepository;
     private final EpisodeRepository episodeRepository;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final SecureRandom secureRandom = new SecureRandom();
+    private RestTemplate restTemplate = new RestTemplate();
 
     @Value("${GEMINI_API_KEY:${AI_API_KEY:}}")
     private String geminiApiKey;
 
+    @Value("${GEMINI_MODEL:gemini-2.5-flash}")
+    private String geminiModel;
+
     public AiQuizService(QuizRepository quizRepository, EpisodeRepository episodeRepository) {
         this.quizRepository = quizRepository;
         this.episodeRepository = episodeRepository;
+    }
+
+    public void setRestTemplate(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
     }
 
     @Transactional
@@ -42,16 +58,14 @@ public class AiQuizService {
 
         List<GeneratedQuestion> generatedQuestions = null;
 
-        // Try Gemini API if API key is provided
         if (geminiApiKey != null && !geminiApiKey.isBlank()) {
             try {
-                generatedQuestions = callGeminiApiForQuestions(episode.getTitle(), episode.getEpisodeNumber());
+                generatedQuestions = callGeminiForQuestions(episode.getTitle(), episode.getEpisodeNumber());
             } catch (Exception e) {
-                System.err.println("Gemini API call failed, falling back to intelligent generator: " + e.getMessage());
+                log.warn("Gemini quiz generation failed for episode {}: {}", episodeId, e.getClass().getSimpleName());
             }
         }
 
-        // Fallback generator if Gemini is not configured or failed
         if (generatedQuestions == null || generatedQuestions.isEmpty()) {
             generatedQuestions = generateFallbackQuestions(episode.getTitle(), episode.getEpisodeNumber());
         }
@@ -59,7 +73,9 @@ public class AiQuizService {
         int order = 1;
         for (GeneratedQuestion gq : generatedQuestions) {
             Question question = new Question(quiz, gq.questionText, order++);
-            for (GeneratedOption go : gq.options) {
+            List<GeneratedOption> shuffledOpts = new ArrayList<>(gq.options);
+            Collections.shuffle(shuffledOpts, secureRandom);
+            for (GeneratedOption go : shuffledOpts) {
                 QuestionOption opt = new QuestionOption(question, go.optionText, go.isCorrect);
                 question.getOptions().add(opt);
             }
@@ -69,137 +85,290 @@ public class AiQuizService {
         return quizRepository.save(quiz);
     }
 
-    private List<GeneratedQuestion> callGeminiApiForQuestions(String title, int episodeNumber) {
-        String prompt = "You are an Arabic language teacher. Based on this historical episode title: '" + title + 
-                "', generate 3 multiple-choice comprehension questions to test listening comprehension and Arabic vocabulary.\n" +
-                "Format strictly as JSON with this structure:\n" +
-                "[\n" +
-                "  {\n" +
-                "    \"question\": \"Question in Arabic with English translation in parentheses\",\n" +
-                "    \"options\": [\n" +
-                "      {\"text\": \"Correct option in Arabic (English)\", \"correct\": true},\n" +
-                "      {\"text\": \"Wrong option 1 in Arabic (English)\", \"correct\": false},\n" +
-                "      {\"text\": \"Wrong option 2 in Arabic (English)\", \"correct\": false},\n" +
-                "      {\"text\": \"Wrong option 3 in Arabic (English)\", \"correct\": false}\n" +
-                "    ]\n" +
-                "  }\n" +
-                "]\n" +
-                "Return only raw valid JSON without markdown formatting or code fences.";
+    @Transactional
+    public List<Map<String, String>> getVocabularyGuide(Long episodeId) {
+        Episode episode = episodeRepository.findById(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found: " + episodeId));
 
-        String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
+        String cachedJson = episode.getVocabularyJson();
+        if (cachedJson != null && !cachedJson.isBlank()) {
+            try {
+                List<Map<String, String>> parsed = objectMapper.readValue(
+                        cachedJson, new TypeReference<List<Map<String, String>>>() {});
+                if (parsed != null && !parsed.isEmpty()) {
+                    return parsed;
+                }
+            } catch (Exception e) {
+                log.warn("Failed to parse cached vocabularyJson for episode {}", episodeId);
+            }
+        }
+
+        List<Map<String, String>> generated = null;
+        if (geminiApiKey != null && !geminiApiKey.isBlank()) {
+            try {
+                generated = callGeminiForVocabulary(episode.getTitle(), episode.getEpisodeNumber());
+            } catch (Exception e) {
+                log.warn("Gemini vocabulary generation failed for episode {}: {}", episodeId, e.getClass().getSimpleName());
+            }
+        }
+
+        if (generated == null || generated.isEmpty()) {
+            generated = buildContextualFallbackVocabulary(episode.getTitle(), episode.getEpisodeNumber());
+        }
+
+        try {
+            episode.setVocabularyJson(objectMapper.writeValueAsString(generated));
+            episodeRepository.save(episode);
+        } catch (Exception e) {
+            log.warn("Could not persist vocabularyJson for episode {}", episodeId);
+        }
+
+        return generated;
+    }
+
+    private List<GeneratedQuestion> callGeminiForQuestions(String title, int episodeNumber) throws Exception {
+        String prompt = "You are an Arabic language & Islamic history professor creating a comprehension quiz for Episode "
+                + episodeNumber + " titled: \"" + title + "\" from the series '100 سؤال في التاريخ' by Muhammad Elhami.\n"
+                + "Generate 5 multiple-choice questions testing historical comprehension and key Arabic vocabulary from this topic.\n"
+                + "Each question must be in vocalized/clear Arabic followed by concise English in parentheses, with 4 distinct options (exactly 1 correct and 3 plausible distractors).";
+
+        Map<String, Object> optionSchema = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "text", Map.of("type", "STRING"),
+                        "correct", Map.of("type", "BOOLEAN")
+                ),
+                "required", List.of("text", "correct")
+        );
+
+        Map<String, Object> questionSchema = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "question", Map.of("type", "STRING"),
+                        "options", Map.of("type", "ARRAY", "items", optionSchema)
+                ),
+                "required", List.of("question", "options")
+        );
+
+        Map<String, Object> responseSchema = Map.of(
+                "type", "ARRAY",
+                "items", questionSchema
+        );
+
+        String rawJson = invokeGeminiStructured(prompt, responseSchema);
+        if (rawJson == null || rawJson.isBlank()) {
+            return Collections.emptyList();
+        }
+        return parseJsonQuestions(rawJson);
+    }
+
+    private List<Map<String, String>> callGeminiForVocabulary(String title, int episodeNumber) throws Exception {
+        String prompt = "Extract 5 essential Arabic vocabulary terms relevant to Episode "
+                + episodeNumber + " titled: \"" + title + "\" from '100 سؤال في التاريخ'. "
+                + "Include vowelled Arabic (with tashkeel), English transliteration, concise English translation, and a brief root/usage note.";
+
+        Map<String, Object> itemSchema = Map.of(
+                "type", "OBJECT",
+                "properties", Map.of(
+                        "arabic", Map.of("type", "STRING"),
+                        "translit", Map.of("type", "STRING"),
+                        "english", Map.of("type", "STRING"),
+                        "note", Map.of("type", "STRING")
+                ),
+                "required", List.of("arabic", "translit", "english", "note")
+        );
+
+        Map<String, Object> responseSchema = Map.of(
+                "type", "ARRAY",
+                "items", itemSchema
+        );
+
+        String rawJson = invokeGeminiStructured(prompt, responseSchema);
+        if (rawJson == null || rawJson.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        String cleaned = stripCodeFences(rawJson);
+        return objectMapper.readValue(cleaned, new TypeReference<List<Map<String, String>>>() {});
+    }
+
+    @SuppressWarnings("unchecked")
+    private String invokeGeminiStructured(String prompt, Map<String, Object> responseSchema) {
+        String url = "https://generativelanguage.googleapis.com/v1beta/models/" + geminiModel.trim() + ":generateContent";
 
         Map<String, Object> part = Map.of("text", prompt);
         Map<String, Object> content = Map.of("parts", List.of(part));
-        Map<String, Object> requestBody = Map.of("contents", List.of(content));
+        Map<String, Object> generationConfig = Map.of(
+                "responseMimeType", "application/json",
+                "responseSchema", responseSchema,
+                "temperature", 0.4
+        );
+        Map<String, Object> requestBody = Map.of(
+                "contents", List.of(content),
+                "generationConfig", generationConfig
+        );
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        // Never send API key in URL query string; pass strictly via header
+        headers.set("x-goog-api-key", geminiApiKey.trim());
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
         ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
 
         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-            List candidates = (List) response.getBody().get("candidates");
+            List<Map<String, Object>> candidates = (List<Map<String, Object>>) response.getBody().get("candidates");
             if (candidates != null && !candidates.isEmpty()) {
-                Map first = (Map) candidates.get(0);
-                Map contentMap = (Map) first.get("content");
-                List parts = (List) contentMap.get("parts");
-                Map part0 = (Map) parts.get(0);
-                String rawJson = (String) part0.get("text");
-                return parseJsonQuestions(rawJson);
+                Map<String, Object> contentMap = (Map<String, Object>) candidates.get(0).get("content");
+                if (contentMap != null) {
+                    List<Map<String, Object>> parts = (List<Map<String, Object>>) contentMap.get("parts");
+                    if (parts != null && !parts.isEmpty()) {
+                        return (String) parts.get(0).get("text");
+                    }
+                }
             }
         }
-        return Collections.emptyList();
+        return null;
     }
 
     private List<GeneratedQuestion> parseJsonQuestions(String rawJson) {
         List<GeneratedQuestion> result = new ArrayList<>();
         try {
-            // Remove markdown code fences if present
-            String cleaned = rawJson.trim();
-            if (cleaned.startsWith("```json")) {
-                cleaned = cleaned.substring(7);
-            } else if (cleaned.startsWith("```")) {
-                cleaned = cleaned.substring(3);
-            }
-            if (cleaned.endsWith("```")) {
-                cleaned = cleaned.substring(0, cleaned.length() - 3);
-            }
-            cleaned = cleaned.trim();
-
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            List<Map<String, Object>> list = mapper.readValue(cleaned, List.class);
+            String cleaned = stripCodeFences(rawJson);
+            List<Map<String, Object>> list = objectMapper.readValue(
+                    cleaned, new TypeReference<List<Map<String, Object>>>() {});
 
             for (Map<String, Object> item : list) {
                 String qText = (String) item.get("question");
+                @SuppressWarnings("unchecked")
                 List<Map<String, Object>> opts = (List<Map<String, Object>>) item.get("options");
-                List<GeneratedOption> optList = new ArrayList<>();
-                for (Map<String, Object> o : opts) {
-                    optList.add(new GeneratedOption((String) o.get("text"), Boolean.TRUE.equals(o.get("correct"))));
+                if (qText == null || opts == null || opts.size() < 2) {
+                    continue;
                 }
-                result.add(new GeneratedQuestion(qText, optList));
+                List<GeneratedOption> optList = new ArrayList<>();
+                boolean hasCorrect = false;
+                for (Map<String, Object> o : opts) {
+                    boolean correct = Boolean.TRUE.equals(o.get("correct"));
+                    if (correct) hasCorrect = true;
+                    optList.add(new GeneratedOption(String.valueOf(o.get("text")), correct));
+                }
+                if (hasCorrect) {
+                    result.add(new GeneratedQuestion(qText, optList));
+                }
             }
         } catch (Exception e) {
-            System.err.println("Failed to parse Gemini JSON: " + e.getMessage());
+            log.warn("Failed to parse Gemini quiz JSON");
         }
         return result;
+    }
+
+    private static String stripCodeFences(String raw) {
+        String cleaned = raw.trim();
+        if (cleaned.startsWith("```json")) {
+            cleaned = cleaned.substring(7);
+        } else if (cleaned.startsWith("```")) {
+            cleaned = cleaned.substring(3);
+        }
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 3);
+        }
+        return cleaned.trim();
     }
 
     private List<GeneratedQuestion> generateFallbackQuestions(String title, int episodeNumber) {
         List<GeneratedQuestion> list = new ArrayList<>();
 
-        // Question 1: Topic comprehension
         list.add(new GeneratedQuestion(
-                "ما هو الموضوع المحوري الذي تدور حوله هذه الحلقة (" + title + ")؟",
+                "ما القضية المحورية التي تعالجها الحلقة " + episodeNumber + " («" + title + "»)؟ (What central issue does this episode address?)",
                 List.of(
-                        new GeneratedOption("فهم الأحداث التاريخية وتحليل أسبابها (Understanding historical events and their causes)", true),
-                        new GeneratedOption("شعر الغزل الجاهلي (Pre-Islamic love poetry)", false),
-                        new GeneratedOption("قواعد النحو العربي المتقدم (Advanced Arabic grammar rules)", false),
-                        new GeneratedOption("صناعة الأسلحة الحديثة (Modern weapons manufacturing)", false)
+                        new GeneratedOption("تحرير الإشكاليات التاريخية بمنهج علمي موثق (Examining historical questions with verified scholarly methodology)", true),
+                        new GeneratedOption("دراسة العروض والقوافي الشعرية فقط (Studying poetic meter and rhyme exclusively)", false),
+                        new GeneratedOption("شرح المعاملات المصرفية المعاصرة (Explaining modern banking transactions)", false),
+                        new GeneratedOption("تاريخ الصناعات المعدنية الحديثة (History of modern metallurgical industries)", false)
                 )
         ));
 
-        // Question 2: Vocabulary comprehension
         list.add(new GeneratedQuestion(
-                "ما المعنى الأقرب لمصطلح 'التدوين التاريخي' المستخدم في السلسلة؟",
+                "كيف يميز المنهج العلمي الإسلامي بين الرواية الصحيحة والرواية الضعيفة؟ (How does Islamic scholarly methodology distinguish authentic from weak reports?)",
                 List.of(
-                        new GeneratedOption("كتابة الأخبار وتسجيل الروايات الموثقة (Recording and documenting verified reports)", true),
-                        new GeneratedOption("رسم الخرائط الجغرافية (Drawing geographic maps)", false),
-                        new GeneratedOption("تأليف الروايات الخيالية (Inventing fictional stories)", false),
-                        new GeneratedOption("التجارة بين المدن (Commerce between cities)", false)
+                        new GeneratedOption("بفحص السند ونقد المتن ومقارنة الروايات (By examining narrator chains, text criticism, and comparing reports)", true),
+                        new GeneratedOption("بقبول كل ما يُنشر دون تمحيص (By accepting everything published uncritically)", false),
+                        new GeneratedOption("برفض جميع المصادر المكتوبة مطلقاً (By rejecting all written sources entirely)", false),
+                        new GeneratedOption("بالاعتماد على الخيال الأدبي وحده (By relying on literary imagination alone)", false)
                 )
         ));
 
-        // Question 3: Critical thinking & listening check
         list.add(new GeneratedQuestion(
-                "ما هي الفائدة الأساسية التي يركز عليها المحاضر عند دراسة هذا الباب من التاريخ؟",
+                "ما معنى مصطلح «الوعي التاريخي» الذي يؤكد عليه برنامج 100 سؤال في التاريخ؟ (What does 'historical consciousness' mean in the series?)",
                 List.of(
-                        new GeneratedOption("استخلاص الدروس والعِبر لبناء الوعي المعاصر (Extracting lessons to build modern awareness)", true),
-                        new GeneratedOption("حفظ أسماء الملوك دون فهم السياق (Memorizing kings' names without context)", false),
-                        new GeneratedOption("الجدال العقيم دون فائدة علمية (Futile arguments without scholarly benefit)", false),
-                        new GeneratedOption("التعصب للآراء القديمة (Blind fanaticism toward old views)", false)
+                        new GeneratedOption("فهم سنن الماضي لاستيعاب الحاضر والبناء للمستقبل (Understanding patterns of the past to grasp the present and build the future)", true),
+                        new GeneratedOption("حفظ أرقام السنوات بمعزل عن سياقها (Memorizing year numbers isolated from context)", false),
+                        new GeneratedOption("الانشغال بالجدل العقيم دون عمل (Engaging in fruitless debate without action)", false),
+                        new GeneratedOption("تقليد الأمم الأخرى دون تمييز (Imitating other nations uncritically)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما المقصود بكلمة «الشُّبْهَة» عند مناقشة المسائل التاريخية؟ (What does 'Shubhah' mean when discussing historical questions?)",
+                List.of(
+                        new GeneratedOption("إشكال أو التباس يشتبه بالحق لغياب العلم الكافي (A misconception or ambiguity confused with truth due to incomplete knowledge)", true),
+                        new GeneratedOption("الوثيقة الرسمية المختومة (An officially sealed state document)", false),
+                        new GeneratedOption("الفهرس الأبجدي للكتاب (The alphabetical index of a book)", false),
+                        new GeneratedOption("الخريطة الجغرافية للأقاليم (A geographical map of provinces)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "لماذا تُعد قراءة التاريخ من مصادره الأصيلة ضرورة لطالب المعرفة؟ (Why is studying history from authentic primary sources essential?)",
+                List.of(
+                        new GeneratedOption("للوقوف على الحقائق الموثقة وتجنب التحريف والاجتزاء (To access verified facts and avoid distortion or cherry-picking)", true),
+                        new GeneratedOption("للاستغناء عن التفكير والتحليل العقلي (To dispense with critical thinking and analysis)", false),
+                        new GeneratedOption("لأن الكتب الحديثة ممنوعة من الطباعة (Because modern books are banned from printing)", false),
+                        new GeneratedOption("لتعلم الرسم والزخرفة فقط (Solely to learn drawing and ornamentation)", false)
                 )
         ));
 
         return list;
     }
 
-    public List<Map<String, String>> getVocabularyGuide(Long episodeId) {
-        Episode episode = episodeRepository.findById(episodeId)
-                .orElseThrow(() -> new IllegalArgumentException("Episode not found: " + episodeId));
-
-        return List.of(
-                Map.of("arabic", "التَّاريخ", "translit", "At-Tareekh", "english", "History / Chronicle", "note", "Root word related to date and timing."),
-                Map.of("arabic", "العِبْرَة", "translit", "Al-'Ibrah", "english", "Moral lesson / Insight", "note", "Plural is 'Ibar (عِبَر), learning from past outcomes."),
-                Map.of("arabic", "الإِسْنَاد", "translit", "Al-Isnad", "english", "Chain of transmission / Documentation", "note", "Methodology used to verify historical authentic reports."),
-                Map.of("arabic", "الحَضَارَة", "translit", "Al-Hadarah", "english", "Civilization / Culture", "note", "Refers to intellectual, scientific and societal development."),
-                Map.of("arabic", "الرِّوَايَة", "translit", "Ar-Riwayah", "english", "Narration / Historical account", "note", "The telling of an event handed down by observers.")
-        );
+    private List<Map<String, String>> buildContextualFallbackVocabulary(String title, int episodeNumber) {
+        List<Map<String, String>> vocab = new ArrayList<>();
+        vocab.add(Map.of(
+                "arabic", "الحَلْقَة " + episodeNumber,
+                "translit", "Al-Halqah " + episodeNumber,
+                "english", "Episode " + episodeNumber,
+                "note", "Topic: " + title
+        ));
+        vocab.add(Map.of(
+                "arabic", "التَّحْقِيق العِلْمِي",
+                "translit", "At-Tahqiq al-'Ilmi",
+                "english", "Scholarly Verification",
+                "note", "From root ح-ق-ق (h-q-q), establishing truth through evidence."
+        ));
+        vocab.add(Map.of(
+                "arabic", "المَصَادِر الأَصِيلَة",
+                "translit", "Al-Masadir al-Asilah",
+                "english", "Primary / Authentic Sources",
+                "note", "Plural of مَصْدَر (masdar), original historical references."
+        ));
+        vocab.add(Map.of(
+                "arabic", "السِّيَاق التَّارِيخِي",
+                "translit", "As-Siyaq at-Tarikhi",
+                "english", "Historical Context",
+                "note", "Essential for understanding events accurately without distortion."
+        ));
+        vocab.add(Map.of(
+                "arabic", "الاسْتِنْبَاط",
+                "translit", "Al-Istinbat",
+                "english", "Deduction / Extracting Insight",
+                "note", "Drawing sound conclusions and lessons from historical evidence."
+        ));
+        return vocab;
     }
 
     private static class GeneratedQuestion {
-        String questionText;
-        List<GeneratedOption> options;
+        final String questionText;
+        final List<GeneratedOption> options;
         GeneratedQuestion(String questionText, List<GeneratedOption> options) {
             this.questionText = questionText;
             this.options = options;
@@ -207,8 +376,8 @@ public class AiQuizService {
     }
 
     private static class GeneratedOption {
-        String optionText;
-        boolean isCorrect;
+        final String optionText;
+        final boolean isCorrect;
         GeneratedOption(String optionText, boolean isCorrect) {
             this.optionText = optionText;
             this.isCorrect = isCorrect;
