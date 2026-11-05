@@ -153,7 +153,7 @@ public class SecurityConfig {
 
                 auth.requestMatchers("/api/admin/**").hasRole("ADMIN")
                     .requestMatchers("/api/student/**").hasAnyRole("STUDENT", "ADMIN")
-                    .requestMatchers("/api/auth/me", "/api/auth/change-password").authenticated()
+                    .requestMatchers("/api/auth/me", "/api/auth/change-password", "/api/auth/update-credentials").authenticated()
                     .anyRequest().authenticated();
             })
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

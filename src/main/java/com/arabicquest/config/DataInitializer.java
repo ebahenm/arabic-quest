@@ -40,11 +40,12 @@ public class DataInitializer {
             PasswordEncoder passwordEncoder,
             PlatformTransactionManager transactionManager,
             @Value("${ADMIN_USERNAME:admin}") String adminUsername,
-            @Value("${ADMIN_PASSWORD:}") String adminPassword) {
+            @Value("${ADMIN_PASSWORD:}") String adminPassword,
+            @Value("${FORCE_ADMIN_ENV_SYNC:false}") boolean forceAdminEnvSync) {
         return args -> {
             TransactionTemplate tx = new TransactionTemplate(transactionManager);
             tx.executeWithoutResult(status -> {
-                syncAdminAccount(userRepository, passwordEncoder, adminUsername, adminPassword);
+                syncAdminAccount(userRepository, passwordEncoder, adminUsername, adminPassword, forceAdminEnvSync);
                 seedOrUpgradeCurriculum(playlistRepository, episodeRepository, quizRepository);
             });
         };
@@ -54,15 +55,22 @@ public class DataInitializer {
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             String configuredUsername,
-            String configuredPassword) {
+            String configuredPassword,
+            boolean forceAdminEnvSync) {
 
         String cleanAdminUser = (configuredUsername == null || configuredUsername.isBlank())
                 ? "admin"
                 : configuredUsername.trim();
 
-        User existingAdmin = userRepository.findByUsername(cleanAdminUser)
+        User existingAdmin = userRepository.findByUsernameIgnoreCase(cleanAdminUser)
                 .or(() -> userRepository.findByRole(Role.ROLE_ADMIN).stream().findFirst())
                 .orElse(null);
+
+        if (existingAdmin != null && existingAdmin.isCredentialsCustomized() && !forceAdminEnvSync) {
+            log.info("Administrator '{}' has customized login credentials via Admin Command Center; preserving database credentials.",
+                    existingAdmin.getUsername());
+            return;
+        }
 
         if (configuredPassword != null && !configuredPassword.isBlank()) {
             if (existingAdmin == null) {
@@ -152,7 +160,8 @@ public class DataInitializer {
                 saveShuffledQuiz(quizRepository, created, seed.questions);
                 upgradedOrCreated++;
             } else {
-                boolean wasFakeVideo = LEGACY_PLACEHOLDER_VIDEO_IDS.contains(existing.getYoutubeVideoId());
+                boolean wasFakeVideo = LEGACY_PLACEHOLDER_VIDEO_IDS.contains(existing.getYoutubeVideoId())
+                        || (existing.getTitle() != null && existing.getTitle().startsWith("Episode "));
                 boolean missingVocab = existing.getVocabularyJson() == null || existing.getVocabularyJson().isBlank();
 
                 if (wasFakeVideo || missingVocab) {

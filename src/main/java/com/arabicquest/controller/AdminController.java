@@ -76,7 +76,7 @@ public class AdminController {
     @PostMapping("/students")
     public ResponseEntity<?> createStudent(@Valid @RequestBody RegisterRequest request) {
         String cleanUsername = request.getUsername().trim().toLowerCase();
-        if (userRepository.existsByUsername(cleanUsername)) {
+        if (userRepository.existsByUsernameIgnoreCase(cleanUsername)) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "Username '" + cleanUsername + "' is already taken"));
         }
@@ -105,6 +105,67 @@ public class AdminController {
         user.incrementTokenVersion();
         userRepository.save(user);
         return ResponseEntity.ok(Map.of("message", "Password reset successfully for " + user.getUsername()));
+    }
+
+    @Transactional
+    @PostMapping("/students/{studentId}/update-account")
+    public ResponseEntity<?> updateStudentAccount(
+            @PathVariable Long studentId,
+            @Valid @RequestBody UpdateStudentAccountRequest request) {
+        User student = userRepository.findById(studentId)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found"));
+        if (student.getRole() != Role.ROLE_STUDENT) {
+            throw new IllegalArgumentException("Only student accounts can be updated via this endpoint");
+        }
+
+        boolean changed = false;
+        boolean revokeTokens = false;
+
+        if (request.newUsername() != null && !request.newUsername().isBlank()) {
+            String cleanUsername = request.newUsername().trim().toLowerCase();
+            if (cleanUsername.length() < 3) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Username must be at least 3 characters"));
+            }
+            if (!cleanUsername.equals(student.getUsername())) {
+                if (userRepository.existsByUsernameIgnoreCaseAndIdNot(cleanUsername, student.getId())) {
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                            .body(Map.of("error", "Username '" + cleanUsername + "' is already taken"));
+                }
+                student.setUsername(cleanUsername);
+                changed = true;
+                revokeTokens = true;
+            }
+        }
+
+        if (request.fullName() != null && !request.fullName().isBlank()) {
+            String cleanName = request.fullName().trim();
+            if (!cleanName.equals(student.getFullName())) {
+                student.setFullName(cleanName);
+                changed = true;
+            }
+        }
+
+        if (request.newPassword() != null && !request.newPassword().isBlank()) {
+            if (request.newPassword().length() < 8) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "New password must be at least 8 characters"));
+            }
+            student.setPassword(passwordEncoder.encode(request.newPassword()));
+            changed = true;
+            revokeTokens = true;
+        }
+
+        if (!changed) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "No changes detected"));
+        }
+
+        if (revokeTokens) {
+            student.incrementTokenVersion();
+        }
+        User saved = userRepository.save(student);
+        return ResponseEntity.ok(UserSummaryResponse.from(saved));
     }
 
     @GetMapping("/students/{username}/earnings")
@@ -181,6 +242,8 @@ public class AdminController {
                     .orElseThrow(() -> new IllegalArgumentException("No active playlist found"));
         }
 
+        String cleanVideoId = extractYoutubeVideoId(request.getYoutubeVideoId());
+
         // Check if an archived episode with the same number exists; if so, restore and update it
         Episode existing = episodeRepository.findByPlaylistIdAndEpisodeNumber(playlist.getId(), request.getEpisodeNumber())
                 .orElse(null);
@@ -192,7 +255,7 @@ public class AdminController {
                         .body(Map.of("error", "Episode " + request.getEpisodeNumber() + " already exists in this playlist"));
             }
             existing.setTitle(request.getTitle().trim());
-            existing.setYoutubeVideoId(request.getYoutubeVideoId().trim());
+            existing.setYoutubeVideoId(cleanVideoId);
             existing.setDurationSeconds(request.getDurationSeconds() != null ? request.getDurationSeconds() : 1800);
             existing.setArchived(false);
             existing.setVocabularyJson(null);
@@ -202,7 +265,7 @@ public class AdminController {
                     playlist,
                     request.getEpisodeNumber(),
                     request.getTitle().trim(),
-                    request.getYoutubeVideoId().trim(),
+                    cleanVideoId,
                     request.getDurationSeconds() != null ? request.getDurationSeconds() : 1800
             );
             saved = episodeRepository.save(episode);
@@ -280,5 +343,32 @@ public class AdminController {
             episodeRepository.delete(episode);
         }
         return ResponseEntity.noContent().build();
+    }
+
+    public static String extractYoutubeVideoId(String raw) {
+        if (raw == null) {
+            throw new IllegalArgumentException("YouTube video ID is required");
+        }
+        String trimmed = raw.trim();
+        String candidate = trimmed;
+
+        if (trimmed.contains("youtu.be/")) {
+            int idx = trimmed.indexOf("youtu.be/") + "youtu.be/".length();
+            candidate = trimmed.substring(idx).split("[?&/#]")[0];
+        } else if (trimmed.contains("v=")) {
+            int idx = trimmed.indexOf("v=") + 2;
+            candidate = trimmed.substring(idx).split("[?&#]")[0];
+        } else if (trimmed.contains("/embed/")) {
+            int idx = trimmed.indexOf("/embed/") + "/embed/".length();
+            candidate = trimmed.substring(idx).split("[?&/#]")[0];
+        } else if (trimmed.contains("/shorts/")) {
+            int idx = trimmed.indexOf("/shorts/") + "/shorts/".length();
+            candidate = trimmed.substring(idx).split("[?&/#]")[0];
+        }
+
+        if (!candidate.matches("^[A-Za-z0-9_-]{6,20}$")) {
+            throw new IllegalArgumentException("Invalid YouTube video ID or URL");
+        }
+        return candidate;
     }
 }

@@ -1,6 +1,7 @@
 package com.arabicquest;
 
 import com.arabicquest.config.DatabaseConfig;
+import com.arabicquest.controller.AdminController;
 import com.arabicquest.controller.AuthController;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
@@ -561,6 +562,68 @@ class SecurityAndAuditIntegrationTest {
         assertThat(parsed.password()).isEqualTo("p@ss+w:rd!");
         assertThat(parsed.jdbcUrl())
                 .isEqualTo("jdbc:postgresql://ep-cool-sky-12345.us-east-2.aws.neon.tech:5432/neondb?sslmode=require&channel_binding=require");
+    }
+
+    @Test
+    void adminAndStudentUsernameUpdates_andYoutubeUrlExtractionWorkSeamlessly() throws Exception {
+        // Verify full YouTube URLs extract cleanly
+        assertThat(AdminController.extractYoutubeVideoId("https://www.youtube.com/watch?v=EXrpLeyeSeU&list=PLVVfonyXVJI3BXB9Wd2C5yXMr63w3SGXB"))
+                .isEqualTo("EXrpLeyeSeU");
+        assertThat(AdminController.extractYoutubeVideoId("https://youtu.be/4eLlSGg2ToY?si=abc123"))
+                .isEqualTo("4eLlSGg2ToY");
+
+        // Create student & rename student username via Admin endpoint
+        String createdJson = mockMvc.perform(post("/api/admin/students")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"tempbrother\",\"password\":\"BrotherPass#99\",\"fullName\":\"Brother\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long studentId = objectMapper.readTree(createdJson).get("id").asLong();
+
+        mockMvc.perform(post("/api/admin/students/" + studentId + "/update-account")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newUsername\":\"ahmed.renamed\",\"fullName\":\"Ahmed Renamed\",\"newPassword\":\"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("ahmed.renamed"))
+                .andExpect(jsonPath("$.fullName").value("Ahmed Renamed"));
+
+        // Student can log in with the new username and original password
+        mockMvc.perform(post("/api/auth/login")
+                        .with(req -> { req.setRemoteAddr("10.0.9.1"); return req; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"ahmed.renamed\",\"password\":\"BrotherPass#99\"}"))
+                .andExpect(status().isOk());
+
+        // Rename Admin master username without changing password
+        MvcResult renameRes = mockMvc.perform(post("/api/auth/update-credentials")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"MasterStrongPass!2026\",\"newUsername\":\"mohamed_master\",\"newPassword\":\"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("mohamed_master"))
+                .andReturn();
+
+        String newAdminToken = "Bearer " + objectMapper.readTree(renameRes.getResponse().getContentAsString()).get("token").asText();
+        assertThat(userRepository.findByUsername("mohamed_master").orElseThrow().isCredentialsCustomized()).isTrue();
+
+        // Old admin token is immediately revoked; new admin username logs in cleanly
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, adminBearer))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/auth/login")
+                        .with(req -> { req.setRemoteAddr("10.0.9.2"); return req; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"mohamed_master\",\"password\":\"MasterStrongPass!2026\"}"))
+                .andExpect(status().isOk());
+
+        // Restore username to hqadmin so @BeforeEach on other tests remains consistent
+        mockMvc.perform(post("/api/auth/update-credentials")
+                        .header(HttpHeaders.AUTHORIZATION, newAdminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"MasterStrongPass!2026\",\"newUsername\":\"hqadmin\",\"newPassword\":\"\"}"))
+                .andExpect(status().isOk());
     }
 
     private Map<String, Object> buildWinningSubmission(Long episodeId, String watchMode) {

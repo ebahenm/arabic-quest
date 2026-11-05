@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>تراثُنا • Turathtona | Student Portal</title>
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=3">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
-    <script src="https://www.youtube.com/iframe_api"></script>
     <style>
         .student-user-pill {
             display: flex;
@@ -230,7 +230,15 @@
             </div>
 
             <div class="player-wrapper">
-                <div id="yt-player"></div>
+                <iframe
+                    id="yt-player"
+                    title="Turathtona Episode Video Player"
+                    src="about:blank"
+                    style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerpolicy="strict-origin-when-cross-origin"
+                    allowfullscreen>
+                </iframe>
             </div>
 
             <!-- Verified Watch Progress & Mode Lock Bar -->
@@ -317,6 +325,6 @@
         </div>
     </div>
 
-    <script src="/app.js"></script>
+    <script src="/app.js?v=3"></script>
 </body>
 </html>

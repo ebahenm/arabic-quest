@@ -49,16 +49,31 @@ document.addEventListener('DOMContentLoaded', () => {
 function wireEvents() {
     document.getElementById('btn-logout').addEventListener('click', handleLogout);
 
-    document.getElementById('btn-jump-password').addEventListener('click', () => {
+    const scrollToAdminLoginSettings = (focusFieldId) => {
         document.getElementById('password-security-card').scrollIntoView({ behavior: 'smooth' });
-        document.getElementById('admin-current-pw').focus();
+        const el = document.getElementById(focusFieldId);
+        if (el) el.focus();
+    };
+
+    document.getElementById('btn-header-admin-settings').addEventListener('click', () => {
+        scrollToAdminLoginSettings('admin-new-username');
+    });
+
+    document.getElementById('btn-jump-password').addEventListener('click', () => {
+        scrollToAdminLoginSettings('admin-current-pw');
     });
 
     document.getElementById('admin-student-select').addEventListener('change', handleStudentSelectChange);
 
     document.getElementById('btn-toggle-reset-pw').addEventListener('click', () => {
         const box = document.getElementById('reset-student-pw-box');
-        box.style.display = box.style.display === 'none' ? 'block' : 'none';
+        const opening = box.style.display === 'none';
+        box.style.display = opening ? 'block' : 'none';
+        if (opening && selectedStudent) {
+            document.getElementById('edit-student-username').value = selectedStudent.username || '';
+            document.getElementById('edit-student-fullname').value = selectedStudent.fullName || '';
+            document.getElementById('reset-student-newpw').value = '';
+        }
     });
 
     document.getElementById('form-reset-student-pw').addEventListener('submit', handleResetStudentPassword);
@@ -95,6 +110,10 @@ async function initAdmin() {
         }
 
         document.getElementById('admin-user-display').textContent = '🛡️ ' + (currentAdmin.username || 'Admin');
+        const adminUsernameInput = document.getElementById('admin-new-username');
+        if (adminUsernameInput) {
+            adminUsernameInput.value = currentAdmin.username || '';
+        }
 
         if (currentAdmin.defaultPasswordWarning) {
             document.getElementById('default-password-banner').style.display = 'flex';
@@ -171,6 +190,10 @@ function updateSelectedStudentHeader() {
     if (!selectedStudent) return;
     document.getElementById('current-student-title').textContent = `${selectedStudent.fullName} (${selectedStudent.username})`;
     document.getElementById('payout-title-label').textContent = `Issue Payout to ${selectedStudent.fullName}`;
+    const uInput = document.getElementById('edit-student-username');
+    const nInput = document.getElementById('edit-student-fullname');
+    if (uInput) uInput.value = selectedStudent.username || '';
+    if (nInput) nInput.value = selectedStudent.fullName || '';
 }
 
 async function loadAdminDashboard() {
@@ -477,19 +500,29 @@ async function handleResetStudentPassword(e) {
         return;
     }
 
+    const newUsername = document.getElementById('edit-student-username').value.trim();
+    const fullName = document.getElementById('edit-student-fullname').value.trim();
     const newPassword = document.getElementById('reset-student-newpw').value;
+
+    if (newPassword && newPassword.length < 8) {
+        showFeedback('reset-student-pw-msg', 'New password must be at least 8 characters.', true);
+        return;
+    }
+
     try {
-        const res = await apiFetch(`/api/admin/students/${selectedStudent.id}/reset-password`, {
+        const res = await apiFetch(`/api/admin/students/${selectedStudent.id}/update-account`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newPassword })
+            body: JSON.stringify({ newUsername, fullName, newPassword })
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
-            document.getElementById('form-reset-student-pw').reset();
-            showFeedback('reset-student-pw-msg', '✓ ' + (data.message || 'Student password updated.'));
+            document.getElementById('reset-student-newpw').value = '';
+            showFeedback('reset-student-pw-msg', `✓ Updated student account: ${data.fullName} (${data.username}).`);
+            await loadStudents(data.id);
+            await loadAdminDashboard();
         } else {
-            showFeedback('reset-student-pw-msg', data.error || 'Failed to reset password.', true);
+            showFeedback('reset-student-pw-msg', data.error || 'Failed to update student account.', true);
         }
     } catch (err) {
         showFeedback('reset-student-pw-msg', 'Connection error: ' + err.message, true);
@@ -624,11 +657,12 @@ async function handleChangeAdminPassword(e) {
     e.preventDefault();
     hideFeedback('change-admin-pw-msg');
 
+    const newUsername = document.getElementById('admin-new-username').value.trim();
     const currentPassword = document.getElementById('admin-current-pw').value;
     const newPassword = document.getElementById('admin-new-pw').value;
     const confirmPassword = document.getElementById('admin-confirm-pw').value;
 
-    if (newPassword !== confirmPassword) {
+    if (newPassword && newPassword !== confirmPassword) {
         showFeedback('change-admin-pw-msg', 'New password and confirmation do not match.', true);
         return;
     }
@@ -637,18 +671,27 @@ async function handleChangeAdminPassword(e) {
     btn.disabled = true;
 
     try {
-        const res = await apiFetch('/api/auth/change-password', {
+        const res = await apiFetch('/api/auth/update-credentials', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ currentPassword, newPassword })
+            body: JSON.stringify({ currentPassword, newUsername, newPassword })
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
-            document.getElementById('form-change-admin-pw').reset();
-            document.getElementById('default-password-banner').style.display = 'none';
-            showFeedback('change-admin-pw-msg', '✓ ' + (data.message || 'Master password updated!'));
+            if (data.username) {
+                currentAdmin.username = data.username;
+                document.getElementById('admin-user-display').textContent = '🛡️ ' + data.username;
+                document.getElementById('admin-new-username').value = data.username;
+            }
+            document.getElementById('admin-current-pw').value = '';
+            document.getElementById('admin-new-pw').value = '';
+            document.getElementById('admin-confirm-pw').value = '';
+            if (newPassword) {
+                document.getElementById('default-password-banner').style.display = 'none';
+            }
+            showFeedback('change-admin-pw-msg', `✓ Admin login updated! Current username: "${currentAdmin.username}".`);
         } else {
-            showFeedback('change-admin-pw-msg', data.error || 'Failed to update password.', true);
+            showFeedback('change-admin-pw-msg', data.error || 'Failed to update admin login.', true);
         }
     } catch (err) {
         showFeedback('change-admin-pw-msg', 'Connection error: ' + err.message, true);

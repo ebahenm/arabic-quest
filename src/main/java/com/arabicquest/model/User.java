@@ -30,6 +30,10 @@ public class User {
     @Column(name = "token_version")
     private Integer tokenVersion = 0;
 
+    @JsonIgnore
+    @Column(name = "credentials_customized")
+    private Boolean credentialsCustomized = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -49,6 +53,9 @@ public class User {
         this.createdAt = LocalDateTime.now();
         if (this.tokenVersion == null) {
             this.tokenVersion = 0;
+        }
+        if (this.credentialsCustomized == null) {
+            this.credentialsCustomized = false;
         }
     }
 
@@ -102,6 +109,14 @@ public class User {
 
     public void incrementTokenVersion() {
         this.tokenVersion = getTokenVersion() + 1;
+    }
+
+    public boolean isCredentialsCustomized() {
+        return Boolean.TRUE.equals(credentialsCustomized);
+    }
+
+    public void setCredentialsCustomized(Boolean credentialsCustomized) {
+        this.credentialsCustomized = credentialsCustomized;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -73,7 +73,7 @@ public class AuthController {
         loginRateLimiter.checkAllowed(clientIp, rawUsername);
 
         User user = userRepository.findByUsername(rawUsername)
-                .or(() -> userRepository.findByUsername(rawUsername.toLowerCase()))
+                .or(() -> userRepository.findByUsernameIgnoreCase(rawUsername))
                 .orElse(null);
 
         if (user == null) {
@@ -223,6 +223,7 @@ public class AuthController {
         }
 
         user.setPassword(passwordEncoder.encode(request.newPassword()));
+        user.setCredentialsCustomized(true);
         user.incrementTokenVersion();
         userRepository.save(user);
 
@@ -232,6 +233,80 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
                 .body(Map.of("message", "Password updated successfully. All previous sessions have been invalidated."));
+    }
+
+    @Transactional
+    @PostMapping("/update-credentials")
+    public ResponseEntity<?> updateCredentials(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @Valid @RequestBody UpdateCredentialsRequest request,
+            HttpServletRequest httpRequest) {
+        if (userDetails == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Authentication required"));
+        }
+
+        User user = userRepository.findByUsername(userDetails.getUsername())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "Current password is incorrect"));
+        }
+
+        boolean changed = false;
+
+        if (request.newUsername() != null && !request.newUsername().isBlank()) {
+            String cleanUsername = request.newUsername().trim();
+            if (cleanUsername.length() < 3) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Username must be at least 3 characters"));
+            }
+            if (!cleanUsername.equals(user.getUsername())) {
+                if (userRepository.existsByUsernameIgnoreCaseAndIdNot(cleanUsername, user.getId())) {
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                            .body(Map.of("error", "Username '" + cleanUsername + "' is already taken"));
+                }
+                user.setUsername(cleanUsername);
+                changed = true;
+            }
+        }
+
+        if (request.newPassword() != null && !request.newPassword().isBlank()) {
+            String newPw = request.newPassword();
+            if (newPw.length() < 8) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "New password must be at least 8 characters"));
+            }
+            if ("admin123".equals(newPw) || "learn123".equals(newPw)) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Please choose a strong, non-default password"));
+            }
+            user.setPassword(passwordEncoder.encode(newPw));
+            changed = true;
+        }
+
+        if (!changed) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "Please enter a new username or a new password to save changes"));
+        }
+
+        user.setCredentialsCustomized(true);
+        user.incrementTokenVersion();
+        userRepository.save(user);
+
+        String freshToken = jwtService.generateToken(user);
+        ResponseCookie cookie = buildAuthCookie(freshToken, httpRequest);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(Map.of(
+                        "message", "Login credentials updated successfully!",
+                        "username", user.getUsername(),
+                        "fullName", user.getFullName(),
+                        "role", user.getRole().name(),
+                        "token", freshToken
+                ));
     }
 
     @GetMapping("/me")

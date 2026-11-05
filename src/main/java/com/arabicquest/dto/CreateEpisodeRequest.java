@@ -19,8 +19,8 @@ public class CreateEpisodeRequest {
     @Size(max = 250, message = "Episode title must not exceed 250 characters")
     private String title;
 
-    @NotBlank(message = "YouTube video ID is required")
-    @Pattern(regexp = "^[A-Za-z0-9_-]{6,20}$", message = "Invalid YouTube video ID format")
+    @NotBlank(message = "YouTube video ID or URL is required")
+    @Size(max = 200, message = "YouTube video ID or URL is too long")
     private String youtubeVideoId;
 
     private Integer durationSeconds;

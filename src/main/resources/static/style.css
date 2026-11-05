@@ -411,17 +411,29 @@ header {
     border-radius: var(--radius-lg);
     overflow: hidden;
     position: relative;
-    padding-bottom: 56.25%; /* 16:9 */
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    padding-bottom: 56.25%;
     height: 0;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
-.player-wrapper div#yt-player {
+@supports (aspect-ratio: 16 / 9) {
+    .player-wrapper {
+        height: auto;
+        padding-bottom: 0;
+    }
+}
+
+.player-wrapper #yt-player,
+.player-wrapper iframe {
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    width: 100% !important;
+    height: 100% !important;
+    border: 0;
+    display: block;
 }
 
 /* Playback Alert / Unlock Strip */

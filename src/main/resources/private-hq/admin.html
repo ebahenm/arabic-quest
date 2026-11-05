@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <title>Turathtona (تراثُنا) | Admin Command Center</title>
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=3">
     <style>
         .admin-nav-actions {
             display: flex;
@@ -176,6 +176,7 @@
 
         <div class="admin-nav-actions">
             <a href="/student" target="_blank" rel="noopener noreferrer" class="btn-ghost">👁️ Preview Student Portal</a>
+            <button type="button" class="btn-ghost" id="btn-header-admin-settings">⚙️ Change Admin Login</button>
             <span id="admin-user-display" style="font-size: 0.85rem; font-weight: 700; color: var(--gold);">🛡️ Admin</span>
             <button class="btn-logout" id="btn-logout" type="button">Sign Out</button>
         </div>
@@ -206,18 +207,34 @@
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                     <label for="admin-student-select" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Student:</label>
                     <select id="admin-student-select" class="select-input" style="width: 260px;"></select>
-                    <button type="button" class="btn-ghost" id="btn-toggle-reset-pw">🔑 Reset Student Password</button>
+                    <button type="button" class="btn-ghost" id="btn-toggle-reset-pw">✏️ Edit Student Username / Password</button>
                 </div>
             </div>
 
-            <!-- Collapsible Student Password Reset Panel -->
+            <!-- Collapsible Student Account Edit Panel (Username, Full Name, & Optional Password) -->
             <div id="reset-student-pw-box" class="admin-card-section" style="display: none; border-color: rgba(245, 158, 11, 0.4);">
-                <form id="form-reset-student-pw" style="display: flex; gap: 0.85rem; align-items: flex-end; flex-wrap: wrap;">
-                    <div style="flex: 1; min-width: 220px;">
-                        <label for="reset-student-newpw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">New Password for Selected Student (min 8 chars)</label>
-                        <input type="password" id="reset-student-newpw" class="text-input" minlength="8" maxlength="128" placeholder="Enter new student password" required>
+                <div style="margin-bottom: 0.85rem;">
+                    <strong style="color: var(--gold); font-size: 0.95rem;">✏️ Edit Selected Student Account</strong>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">
+                        Change this student's username (or set it to their Gmail for Google Sign-In), display name, or password. Leave New Password blank to keep their current password.
+                    </p>
+                </div>
+                <form id="form-reset-student-pw">
+                    <div class="form-row">
+                        <div>
+                            <label for="edit-student-username" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Student Username / Gmail</label>
+                            <input type="text" id="edit-student-username" class="text-input" minlength="3" maxlength="100" placeholder="e.g. ahmed or ahmed@gmail.com" required>
+                        </div>
+                        <div>
+                            <label for="edit-student-fullname" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Student Full Name</label>
+                            <input type="text" id="edit-student-fullname" class="text-input" maxlength="100" placeholder="e.g. Brother Ahmed" required>
+                        </div>
+                        <div>
+                            <label for="reset-student-newpw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">New Password (Optional, min 8 chars)</label>
+                            <input type="password" id="reset-student-newpw" class="text-input" minlength="8" maxlength="128" placeholder="Leave blank to keep current">
+                        </div>
                     </div>
-                    <button type="submit" class="btn-primary" style="padding: 0.75rem 1.35rem;">Save New Password</button>
+                    <button type="submit" class="btn-primary" style="padding: 0.7rem 1.35rem;">Save Student Account Changes ➔</button>
                 </form>
                 <div id="reset-student-pw-msg" class="feedback-msg"></div>
             </div>
@@ -349,8 +366,8 @@
                             <input type="text" id="new-ep-title" class="text-input" maxlength="250" placeholder="e.g. 16- 100 سؤال في التاريخ | ..." required>
                         </div>
                         <div>
-                            <label for="new-ep-videoid" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">YouTube Video ID</label>
-                            <input type="text" id="new-ep-videoid" class="text-input" maxlength="20" placeholder="e.g. EXrpLeyeSeU" required>
+                            <label for="new-ep-videoid" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">YouTube Video ID or URL</label>
+                            <input type="text" id="new-ep-videoid" class="text-input" maxlength="200" placeholder="e.g. EXrpLeyeSeU or https://youtu.be/..." required>
                         </div>
                     </div>
                     <button type="submit" id="btn-add-episode" class="btn-primary" style="padding: 0.7rem 1.5rem;">Save Episode ➔</button>
@@ -412,13 +429,13 @@
                 </table>
             </div>
 
-            <!-- Change Admin Master Password -->
+            <!-- Change Admin Master Username & Password -->
             <div id="password-security-card" class="admin-card-section" style="border-color: rgba(245, 158, 11, 0.4);">
                 <div class="card-header-bar">
                     <div>
-                        <h3 style="color: var(--gold);">🔐 Rotate Admin Master Password</h3>
+                        <h3 style="color: var(--gold);">🔐 Admin Login Settings — Change Master Username &amp; Password</h3>
                         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                            Updates your master password in PostgreSQL and immediately invalidates all previously issued session tokens.
+                            Change your admin username, your master password, or both. Changes are saved permanently to PostgreSQL (and override startup defaults).
                         </p>
                     </div>
                 </div>
@@ -426,20 +443,24 @@
                 <form id="form-change-admin-pw">
                     <div class="form-row">
                         <div>
-                            <label for="admin-current-pw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Current Master Password</label>
-                            <input type="password" id="admin-current-pw" class="text-input" autocomplete="current-password" required>
+                            <label for="admin-new-username" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Master Username</label>
+                            <input type="text" id="admin-new-username" class="text-input" minlength="3" maxlength="100" placeholder="Enter desired master username" autocomplete="username" required>
                         </div>
                         <div>
-                            <label for="admin-new-pw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">New Strong Password (min 8 chars)</label>
-                            <input type="password" id="admin-new-pw" class="text-input" minlength="8" maxlength="128" autocomplete="new-password" required>
+                            <label for="admin-current-pw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Current Master Password (Required)</label>
+                            <input type="password" id="admin-current-pw" class="text-input" placeholder="Confirm current password" autocomplete="current-password" required>
+                        </div>
+                        <div>
+                            <label for="admin-new-pw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">New Password (Optional, min 8 chars)</label>
+                            <input type="password" id="admin-new-pw" class="text-input" minlength="8" maxlength="128" placeholder="Leave blank to keep current" autocomplete="new-password">
                         </div>
                         <div>
                             <label for="admin-confirm-pw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Confirm New Password</label>
-                            <input type="password" id="admin-confirm-pw" class="text-input" minlength="8" maxlength="128" autocomplete="new-password" required>
+                            <input type="password" id="admin-confirm-pw" class="text-input" minlength="8" maxlength="128" placeholder="Repeat if changing password" autocomplete="new-password">
                         </div>
                     </div>
                     <button type="submit" id="btn-change-admin-pw" class="btn-primary" style="padding: 0.7rem 1.5rem;">
-                        Update Master Password ➔
+                        Save Admin Login Changes ➔
                     </button>
                 </form>
                 <div id="change-admin-pw-msg" class="feedback-msg"></div>
