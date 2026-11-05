@@ -5,6 +5,8 @@ let userRole = localStorage.getItem('aq_role');
 let username = localStorage.getItem('aq_username');
 let lastOwedAmount = 0;
 let episodes = [];
+let allStudents = [];
+let selectedStudent = null;
 
 // Enforce Admin Auth
 if (!authToken || userRole !== 'ROLE_ADMIN') {
@@ -20,9 +22,10 @@ document.addEventListener('DOMContentLoaded', () => {
     initAdmin();
 });
 
-function initAdmin() {
-    loadAdminDashboard();
-    loadEpisodesForAi();
+async function initAdmin() {
+    await loadStudents();
+    await loadAdminDashboard();
+    await loadEpisodesForAi();
 }
 
 function handleLogout() {
@@ -33,10 +36,58 @@ function handleLogout() {
     window.location.href = 'admin-login.html';
 }
 
+// Load Students for Dropdown
+async function loadStudents() {
+    try {
+        const res = await fetch('/api/admin/students', {
+            headers: { 'Authorization': getAuthHeader() }
+        });
+        if (res.ok) {
+            const users = await res.json();
+            // Filter students or all users
+            allStudents = users.filter(u => u.role === 'ROLE_STUDENT');
+            if (allStudents.length === 0) {
+                allStudents = users; // Fallback
+            }
+
+            const select = document.getElementById('admin-student-select');
+            select.innerHTML = '';
+            allStudents.forEach((s) => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = `${s.fullName} (${s.username})`;
+                select.appendChild(opt);
+            });
+
+            if (allStudents.length > 0) {
+                selectedStudent = allStudents[0];
+                updateSelectedStudentHeader();
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load students:', e);
+    }
+}
+
+function handleStudentSelectChange() {
+    const selId = parseInt(document.getElementById('admin-student-select').value, 10);
+    selectedStudent = allStudents.find(s => s.id === selId) || allStudents[0];
+    updateSelectedStudentHeader();
+    loadAdminDashboard();
+}
+
+function updateSelectedStudentHeader() {
+    if (!selectedStudent) return;
+    document.getElementById('current-student-title').textContent = `${selectedStudent.fullName} (${selectedStudent.username})`;
+    document.getElementById('payout-title-label').textContent = `Issue Payout to ${selectedStudent.fullName}`;
+}
+
 // Load Metrics & Attempts
 async function loadAdminDashboard() {
+    if (!selectedStudent) return;
+
     try {
-        const earningsRes = await fetch('/api/admin/students/brother/earnings', {
+        const earningsRes = await fetch(`/api/admin/students/${selectedStudent.username}/earnings`, {
             headers: { 'Authorization': getAuthHeader() }
         });
         if (earningsRes.ok) {
@@ -131,7 +182,7 @@ async function handleGenerateAiQuiz() {
         if (res.ok) {
             const quiz = await res.json();
             resultBox.style.display = 'block';
-            let html = `<strong>Generated ${quiz.questions.length} Questions:</strong><ol style="margin-left:1.5rem; margin-top:0.5rem;">`;
+            let html = `<strong>Generated ${quiz.questions.length} Questions for Episode:</strong><ol style="margin-left:1.5rem; margin-top:0.5rem;">`;
             quiz.questions.forEach((q) => {
                 html += `<li><strong>${q.questionText}</strong> (${q.options.length} options)</li>`;
             });
@@ -148,6 +199,41 @@ async function handleGenerateAiQuiz() {
     }
 }
 
+// Add New Episode
+async function handleAddEpisodeSubmit(e) {
+    e.preventDefault();
+    const epNum = parseInt(document.getElementById('new-ep-num').value, 10);
+    const title = document.getElementById('new-ep-title').value.trim();
+    const videoId = document.getElementById('new-ep-videoid').value.trim();
+
+    try {
+        const res = await fetch('/api/admin/episodes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': getAuthHeader()
+            },
+            body: JSON.stringify({
+                playlistId: 1,
+                episodeNumber: epNum,
+                title: title,
+                youtubeVideoId: videoId
+            })
+        });
+
+        if (res.ok) {
+            alert(`✓ Successfully added Episode ${epNum}: "${title}"!`);
+            document.getElementById('form-add-episode').reset();
+            loadEpisodesForAi();
+            loadAdminDashboard();
+        } else {
+            alert('Failed to add episode.');
+        }
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
 // Payout Presets
 function setPayoutInput(val) {
     document.getElementById('payout-amount').value = val;
@@ -158,6 +244,7 @@ function setPayoutFullOwed() {
 }
 
 async function handleRecordPayout() {
+    if (!selectedStudent) return;
     const amount = document.getElementById('payout-amount').value;
     if (!amount || parseFloat(amount) <= 0) {
         alert('Please enter a valid payout amount.');
@@ -165,12 +252,12 @@ async function handleRecordPayout() {
     }
 
     try {
-        const res = await fetch(`/api/admin/payouts?studentId=2&amount=${encodeURIComponent(amount)}&note=Cash Transfer`, {
+        const res = await fetch(`/api/admin/payouts?studentId=${selectedStudent.id}&amount=${encodeURIComponent(amount)}&note=Transfer via Turathtona`, {
             method: 'POST',
             headers: { 'Authorization': getAuthHeader() }
         });
         if (res.ok) {
-            alert(`✓ Successfully recorded payout of $${parseFloat(amount).toFixed(2)} to Brother!`);
+            alert(`✓ Successfully recorded payout of $${parseFloat(amount).toFixed(2)} to ${selectedStudent.fullName}!`);
             loadAdminDashboard();
         } else {
             alert('Failed to record payout.');

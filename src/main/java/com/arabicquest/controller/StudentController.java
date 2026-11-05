@@ -3,6 +3,7 @@ package com.arabicquest.controller;
 import com.arabicquest.dto.*;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.EpisodeRepository;
+import com.arabicquest.repository.PayoutRepository;
 import com.arabicquest.repository.QuizAttemptRepository;
 import com.arabicquest.repository.QuizRepository;
 import com.arabicquest.repository.UserRepository;
@@ -31,6 +32,7 @@ public class StudentController {
     private final QuizAttemptRepository quizAttemptRepository;
     private final UserRepository userRepository;
     private final AiQuizService aiQuizService;
+    private final PayoutRepository payoutRepository;
 
     public StudentController(EpisodeRepository episodeRepository,
                              QuizRepository quizRepository,
@@ -38,7 +40,8 @@ public class StudentController {
                              PayoutService payoutService,
                              QuizAttemptRepository quizAttemptRepository,
                              UserRepository userRepository,
-                             AiQuizService aiQuizService) {
+                             AiQuizService aiQuizService,
+                             PayoutRepository payoutRepository) {
         this.episodeRepository = episodeRepository;
         this.quizRepository = quizRepository;
         this.quizService = quizService;
@@ -46,6 +49,7 @@ public class StudentController {
         this.quizAttemptRepository = quizAttemptRepository;
         this.userRepository = userRepository;
         this.aiQuizService = aiQuizService;
+        this.payoutRepository = payoutRepository;
     }
 
     @GetMapping("/episodes")
@@ -121,5 +125,12 @@ public class StudentController {
     public ResponseEntity<EarningsSummaryResponse> getEarnings(@AuthenticationPrincipal UserDetails userDetails) {
         EarningsSummaryResponse summary = payoutService.getStudentEarnings(userDetails.getUsername());
         return ResponseEntity.ok(summary);
+    }
+
+    @GetMapping("/payouts")
+    public ResponseEntity<List<Payout>> getMyPayouts(@AuthenticationPrincipal UserDetails userDetails) {
+        User student = userRepository.findByUsername(userDetails.getUsername())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        return ResponseEntity.ok(payoutRepository.findByStudentIdOrderByCreatedAtDesc(student.getId()));
     }
 }

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arabic Quest | Admin Command Center</title>
+    <title>Turathtona (تراثُنا) | Admin Command Center</title>
     <link rel="stylesheet" href="style.css">
     <style>
         .admin-nav-actions {
@@ -131,6 +131,20 @@
     <div class="app-layout" style="grid-template-columns: 1fr;">
         <main class="content-area">
 
+            <!-- Student Selector Banner -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <span style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em;">Selected Student</span>
+                    <h3 id="current-student-title" style="font-size: 1.25rem; font-weight: 800; color: #a7f3d0; margin-top: 0.15rem;">Brother (brother)</h3>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <label style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Student:</label>
+                    <select id="admin-student-select" class="select-input" style="width: 250px;" onchange="handleStudentSelectChange()">
+                        <!-- Populated dynamically with all students -->
+                    </select>
+                </div>
+            </div>
+
             <!-- Metrics -->
             <div class="admin-metrics-grid">
                 <div class="metric-card">
@@ -154,9 +168,9 @@
             <!-- Payout Action Bar -->
             <div class="admin-action-bar">
                 <div>
-                    <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">Issue Payout to Brother</h3>
+                    <h3 id="payout-title-label" style="font-size: 1.1rem; margin-bottom: 0.25rem;">Issue Payout to Student</h3>
                     <p style="font-size: 0.85rem; color: var(--text-muted);">
-                        Record cash or digital transfer to deduct from his balance owed.
+                        Record cash or digital transfer to deduct from this student's balance owed.
                     </p>
                 </div>
 
@@ -201,6 +215,36 @@
                     <h4 style="color: #c4b5fd; font-weight: 800; margin-bottom: 0.5rem;" id="ai-result-title">Quiz Generated Successfully!</h4>
                     <div id="ai-result-content" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6;"></div>
                 </div>
+            </div>
+
+            <!-- Add Episode Tool -->
+            <div class="admin-card-section">
+                <div class="card-header-bar">
+                    <div>
+                        <h3>➕ Add New Episode to Course</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                            Add more episodes from the Tareekhuna playlist to expand your brother's learning path.
+                        </p>
+                    </div>
+                </div>
+
+                <form id="form-add-episode" onsubmit="handleAddEpisodeSubmit(event)">
+                    <div class="form-row">
+                        <div>
+                            <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Number</label>
+                            <input type="number" id="new-ep-num" class="text-input" placeholder="e.g. 13" required>
+                        </div>
+                        <div style="flex: 2;">
+                            <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Title (Arabic)</label>
+                            <input type="text" id="new-ep-title" class="text-input" placeholder="e.g. الحلقة 13: ..." required>
+                        </div>
+                        <div>
+                            <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">YouTube Video ID</label>
+                            <input type="text" id="new-ep-videoid" class="text-input" placeholder="e.g. dQw4w9WgXcQ" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary" style="padding: 0.7rem 1.5rem;">Save Episode ➔</button>
+                </form>
             </div>
 
             <!-- Quiz Attempts Audit Log -->
