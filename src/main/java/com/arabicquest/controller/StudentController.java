@@ -6,6 +6,7 @@ import com.arabicquest.repository.EpisodeRepository;
 import com.arabicquest.repository.QuizAttemptRepository;
 import com.arabicquest.repository.QuizRepository;
 import com.arabicquest.repository.UserRepository;
+import com.arabicquest.service.AiQuizService;
 import com.arabicquest.service.PayoutService;
 import com.arabicquest.service.QuizService;
 import jakarta.validation.Valid;
@@ -29,19 +30,22 @@ public class StudentController {
     private final PayoutService payoutService;
     private final QuizAttemptRepository quizAttemptRepository;
     private final UserRepository userRepository;
+    private final AiQuizService aiQuizService;
 
     public StudentController(EpisodeRepository episodeRepository,
                              QuizRepository quizRepository,
                              QuizService quizService,
                              PayoutService payoutService,
                              QuizAttemptRepository quizAttemptRepository,
-                             UserRepository userRepository) {
+                             UserRepository userRepository,
+                             AiQuizService aiQuizService) {
         this.episodeRepository = episodeRepository;
         this.quizRepository = quizRepository;
         this.quizService = quizService;
         this.payoutService = payoutService;
         this.quizAttemptRepository = quizAttemptRepository;
         this.userRepository = userRepository;
+        this.aiQuizService = aiQuizService;
     }
 
     @GetMapping("/episodes")
@@ -66,8 +70,12 @@ public class StudentController {
 
     @GetMapping("/quizzes/{episodeId}")
     public ResponseEntity<QuizViewResponse> getQuizForEpisode(@PathVariable Long episodeId) {
-        Quiz quiz = quizRepository.findByEpisodeId(episodeId)
-                .orElseThrow(() -> new IllegalArgumentException("No quiz found for episode: " + episodeId));
+        Quiz quiz = quizRepository.findByEpisodeId(episodeId).orElse(null);
+
+        // If no quiz exists yet, auto-generate one with AI!
+        if (quiz == null || quiz.getQuestions().isEmpty()) {
+            quiz = aiQuizService.generateQuizForEpisode(episodeId);
+        }
 
         List<QuestionViewResponse> questionViews = quiz.getQuestions().stream().map(q -> {
             List<OptionViewResponse> optionViews = q.getOptions().stream()
@@ -78,6 +86,27 @@ public class StudentController {
 
         QuizViewResponse response = new QuizViewResponse(quiz.getId(), episodeId, quiz.getPassingScorePercentage(), questionViews);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/quizzes/generate/{episodeId}")
+    public ResponseEntity<QuizViewResponse> regenerateQuizWithAi(@PathVariable Long episodeId) {
+        Quiz quiz = aiQuizService.generateQuizForEpisode(episodeId);
+
+        List<QuestionViewResponse> questionViews = quiz.getQuestions().stream().map(q -> {
+            List<OptionViewResponse> optionViews = q.getOptions().stream()
+                    .map(opt -> new OptionViewResponse(opt.getId(), opt.getOptionText()))
+                    .collect(Collectors.toList());
+            return new QuestionViewResponse(q.getId(), q.getQuestionText(), q.getQuestionOrder(), optionViews);
+        }).collect(Collectors.toList());
+
+        QuizViewResponse response = new QuizViewResponse(quiz.getId(), episodeId, quiz.getPassingScorePercentage(), questionViews);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/episodes/{episodeId}/vocab-guide")
+    public ResponseEntity<List<Map<String, String>>> getVocabularyGuide(@PathVariable Long episodeId) {
+        List<Map<String, String>> guide = aiQuizService.getVocabularyGuide(episodeId);
+        return ResponseEntity.ok(guide);
     }
 
     @PostMapping("/quizzes/submit")

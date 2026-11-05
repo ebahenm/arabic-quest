@@ -3,12 +3,122 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arabic Quest | 100 سؤال في التاريخ</title>
+    <title>Arabic Quest | Student Portal</title>
     <link rel="stylesheet" href="style.css">
     <!-- Confetti Effects for Passing Quizzes -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
     <!-- YouTube IFrame Player API -->
     <script src="https://www.youtube.com/iframe_api"></script>
+    <style>
+        .student-user-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 0.35rem 0.85rem;
+            border-radius: var(--radius-sm);
+        }
+        .btn-signout {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 0.35rem 0.75rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-signout:hover {
+            color: #f87171;
+            border-color: #f87171;
+        }
+        .extension-support-banner {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.15));
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: var(--radius-md);
+            padding: 0.85rem 1.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .btn-yt-external {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 0.55rem 1rem;
+            border-radius: var(--radius-sm);
+            font-weight: 700;
+            font-size: 0.82rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            text-decoration: none;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+        .btn-yt-external:hover {
+            background: #dc2626;
+            transform: translateY(-1px);
+        }
+        .vocab-drawer {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem 1.5rem;
+        }
+        .vocab-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.85rem;
+            margin-top: 1rem;
+        }
+        .vocab-card {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 0.85rem;
+        }
+        .vocab-arabic {
+            font-family: 'Cairo', sans-serif;
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #a7f3d0;
+            margin-bottom: 0.2rem;
+        }
+        .vocab-translit {
+            font-size: 0.75rem;
+            color: var(--text-subtle);
+            font-style: italic;
+        }
+        .vocab-english {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: white;
+            margin-top: 0.35rem;
+        }
+        .vocab-note {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+        .btn-ai-auto-badge {
+            background: rgba(139, 92, 246, 0.15);
+            color: #c4b5fd;
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.3rem 0.65rem;
+            border-radius: var(--radius-full);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+    </style>
 </head>
 <body>
 
@@ -30,19 +140,16 @@
                 <div class="earnings-metric owed">Owed: <strong id="val-owed">$0.00</strong></div>
             </div>
 
-            <!-- Role Switcher -->
-            <div class="role-pill">
-                <label>View:</label>
-                <select id="user-selector" onchange="handleUserSwitch()">
-                    <option value="brother" selected>Student: Brother</option>
-                    <option value="admin">Admin: Parent/Teacher</option>
-                </select>
+            <!-- Student Profile & Logout -->
+            <div class="student-user-pill">
+                <span id="student-name-display" style="font-size: 0.85rem; font-weight: 700; color: #a7f3d0;">Brother</span>
+                <button class="btn-signout" onclick="handleStudentLogout()">Log Out</button>
             </div>
         </div>
     </header>
 
     <!-- Student Experience Layout -->
-    <div id="student-view" class="app-layout">
+    <div class="app-layout">
         <!-- Sidebar: Episode Roadmap & Course Progress -->
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -91,30 +198,56 @@
                 </div>
             </div>
 
-            <!-- YouTube Video Player -->
+            <!-- YouTube Video Player Frame -->
             <div class="player-wrapper">
                 <div id="yt-player"></div>
             </div>
 
-            <!-- Player Status Strip -->
-            <div class="player-status-strip">
-                <div class="status-badge">
-                    <div class="pulse-dot"></div>
-                    <span id="video-status-text">Watch the episode to completion to unlock the comprehension quiz!</span>
+            <!-- Extension & Subtitles Banner -->
+            <div class="extension-support-banner">
+                <div>
+                    <strong style="color: #93c5fd; font-size: 0.88rem;">Need auto-translated subtitles or browser extensions?</strong>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">
+                        If English dub or auto-captions aren't working in the embedded player, watch natively on YouTube using your extensions (e.g. YouTube Comment/Subtitle Translator)!
+                    </p>
                 </div>
-                <button class="btn-dev-skip" onclick="devUnlockQuiz()">[Dev Test: Skip to Quiz]</button>
+                <div style="display: flex; gap: 0.65rem; align-items: center;">
+                    <a id="btn-yt-external-link" href="#" target="_blank" class="btn-yt-external">
+                        <span>▶ Watch on YouTube</span>
+                        <span>↗</span>
+                    </a>
+                    <button class="btn-dev-skip" onclick="devUnlockQuiz()">[I watched on YouTube ➔ Unlock Quiz]</button>
+                </div>
             </div>
 
-            <!-- Interactive Quiz Box -->
+            <!-- AI Vocabulary & Translation Study Guide -->
+            <div class="vocab-drawer">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h3 style="font-size: 1.05rem; font-weight: 800;">📚 Episode Vocabulary &amp; Translation Guide</h3>
+                        <p style="font-size: 0.82rem; color: var(--text-muted);">Key Arabic words and meanings for this episode to boost your comprehension:</p>
+                    </div>
+                    <span class="btn-ai-auto-badge">⚡ AI Vocabulary Helper</span>
+                </div>
+
+                <div id="vocab-grid" class="vocab-grid">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Interactive Quiz Box (Unlocked after watching or on external return) -->
             <section id="quiz-section" class="quiz-box" style="display: none;">
                 <div class="quiz-header">
                     <div>
-                        <h3>Comprehension Quiz</h3>
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <h3>Comprehension Quiz</h3>
+                            <span class="btn-ai-auto-badge">🤖 AI Generated</span>
+                        </div>
                         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                            Answer the questions based on the dialogue you just heard.
+                            Answer the questions based on the dialogue you just heard. Pass mark is 80%.
                         </p>
                     </div>
-                    <div class="quiz-pass-badge">Pass Mark: 80%</div>
+                    <button class="btn-dev-skip" onclick="regenerateQuizWithAi()">[↻ AI Regenerate Quiz]</button>
                 </div>
 
                 <form id="quiz-form" onsubmit="handleQuizSubmit(event)">
@@ -123,80 +256,11 @@
                     </div>
 
                     <button type="submit" class="btn-primary" style="margin-top: 1.25rem;">
-                        <span>Submit for Grading & Reward</span>
+                        <span>Submit for Grading &amp; Reward</span>
                         <span>➔</span>
                     </button>
                 </form>
             </section>
-        </main>
-    </div>
-
-    <!-- Admin Dashboard Layout -->
-    <div id="admin-view" class="app-layout" style="display: none; grid-template-columns: 1fr;">
-        <main class="content-area">
-            <!-- Key Metrics Overview -->
-            <div class="admin-metrics-grid">
-                <div class="metric-card">
-                    <div class="metric-label">Student Total Earned</div>
-                    <div id="admin-metric-earned" class="metric-value green">$0.00</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">Total Paid Out</div>
-                    <div id="admin-metric-paid" class="metric-value">$0.00</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">Outstanding Balance Owed</div>
-                    <div id="admin-metric-owed" class="metric-value gold">$0.00</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">Episodes Completed</div>
-                    <div id="admin-metric-episodes" class="metric-value">0 / 0</div>
-                </div>
-            </div>
-
-            <!-- Payout Action Bar -->
-            <div class="admin-action-bar">
-                <div>
-                    <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">Issue Payout to Brother</h3>
-                    <p style="font-size: 0.85rem; color: var(--text-muted);">
-                        Record cash or digital transfer to deduct from his balance owed.
-                    </p>
-                </div>
-
-                <div style="display: flex; gap: 0.85rem; align-items: center; flex-wrap: wrap;">
-                    <div class="payout-presets">
-                        <button class="preset-btn" onclick="setPayoutInput(15)">+$15</button>
-                        <button class="preset-btn" onclick="setPayoutInput(30)">+$30</button>
-                        <button class="preset-btn" onclick="setPayoutInput(50)">+$50</button>
-                        <button class="preset-btn" onclick="setPayoutFullOwed()">Full Balance</button>
-                    </div>
-                    <input type="number" id="payout-amount" placeholder="Amount ($)" style="padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-subtle); color: white; width: 130px; font-weight: 700;">
-                    <button class="btn-primary" style="padding: 0.65rem 1.25rem;" onclick="handleRecordPayout()">Mark as Paid</button>
-                </div>
-            </div>
-
-            <!-- Quiz Attempts Audit Log -->
-            <div class="table-container">
-                <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border);">
-                    <h3 style="font-size: 1.05rem;">Student Attempts Audit Log</h3>
-                </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Student</th>
-                            <th>Episode</th>
-                            <th>Mode</th>
-                            <th>Score</th>
-                            <th>Status</th>
-                            <th>Reward Earned</th>
-                            <th>Date & Time</th>
-                        </tr>
-                    </thead>
-                    <tbody id="admin-attempts-tbody">
-                        <!-- Dynamically filled -->
-                    </tbody>
-                </table>
-            </div>
         </main>
     </div>
 

@@ -1,25 +1,26 @@
-// Arabic Quest Frontend Application Logic
+// Arabic Quest Student Application Logic
 
-let currentUser = {
-    username: 'brother',
-    password: 'learn123',
-    role: 'STUDENT'
-};
-
+let authToken = localStorage.getItem('aq_auth_token');
 let currentMode = 'ARABIC_SUB';
 let currentEpisode = null;
 let episodes = [];
 let currentQuiz = null;
 let ytPlayer = null;
-let lastOwedAmount = 0;
 
-// Base Auth Header
-function getAuthHeader() {
-    return 'Basic ' + btoa(currentUser.username + ':' + currentUser.password);
+// Auth check: If not logged in, redirect to Student Login
+if (!authToken) {
+    window.location.href = 'login.html';
 }
 
-// App Initialization
+function getAuthHeader() {
+    return 'Basic ' + authToken;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    const studentName = localStorage.getItem('aq_fullname') || localStorage.getItem('aq_username') || 'Student';
+    const displayEl = document.getElementById('student-name-display');
+    if (displayEl) displayEl.textContent = '🎓 ' + studentName;
+
     initApp();
 });
 
@@ -28,23 +29,12 @@ function initApp() {
     fetchEpisodes();
 }
 
-// Role Switcher
-function handleUserSwitch() {
-    const sel = document.getElementById('user-selector').value;
-    if (sel === 'brother') {
-        currentUser = { username: 'brother', password: 'learn123', role: 'STUDENT' };
-        document.getElementById('student-view').style.display = 'grid';
-        document.getElementById('admin-view').style.display = 'none';
-        document.getElementById('student-earnings-pill').style.display = 'flex';
-        fetchEarnings();
-        fetchEpisodes();
-    } else {
-        currentUser = { username: 'admin', password: 'admin123', role: 'ADMIN' };
-        document.getElementById('student-view').style.display = 'none';
-        document.getElementById('admin-view').style.display = 'grid';
-        document.getElementById('student-earnings-pill').style.display = 'none';
-        loadAdminDashboard();
-    }
+function handleStudentLogout() {
+    localStorage.removeItem('aq_auth_token');
+    localStorage.removeItem('aq_role');
+    localStorage.removeItem('aq_username');
+    localStorage.removeItem('aq_fullname');
+    window.location.href = 'login.html';
 }
 
 // Fetch Student Earnings & Update Progress Bar
@@ -55,7 +45,6 @@ async function fetchEarnings() {
         });
         if (res.ok) {
             const data = await res.json();
-            lastOwedAmount = data.balanceOwed;
             document.getElementById('val-earned').textContent = '$' + data.totalEarned.toFixed(2);
             document.getElementById('val-paid').textContent = '$' + data.totalPaid.toFixed(2);
             document.getElementById('val-owed').textContent = '$' + data.balanceOwed.toFixed(2);
@@ -66,6 +55,8 @@ async function fetchEarnings() {
             document.getElementById('badge-course-count').textContent = `${data.passedEpisodesCount}/${data.totalEpisodesCount}`;
             document.getElementById('progress-percent-label').textContent = `${percent}%`;
             document.getElementById('progress-bar-fill').style.width = `${percent}%`;
+        } else if (res.status === 401) {
+            handleStudentLogout();
         }
     } catch (e) {
         console.warn('Earnings fetch failed:', e);
@@ -137,19 +128,59 @@ function selectEpisode(ep) {
     document.getElementById('current-episode-title').textContent = ep.title;
     renderEpisodeList();
 
-    // Reset Quiz
+    // Reset Quiz UI
     document.getElementById('quiz-section').style.display = 'none';
-    document.getElementById('video-status-text').textContent = 'Watch the episode to completion to unlock the comprehension quiz!';
 
-    // Load in YouTube player
-    if (ytPlayer && ytPlayer.loadVideoById) {
-        ytPlayer.loadVideoById(ep.youtubeVideoId);
+    // Update Watch on YouTube External Link
+    const ytExternalLink = document.getElementById('btn-yt-external-link');
+    if (ytExternalLink) {
+        ytExternalLink.href = `https://www.youtube.com/watch?v=${ep.youtubeVideoId}&list=PLVVfonyXVJI3BXB9Wd2C5yXMr63w3SGXB`;
     }
 
+    // Load in YouTube embedded player with CC policy
+    if (ytPlayer && ytPlayer.loadVideoById) {
+        ytPlayer.loadVideoById({
+            videoId: ep.youtubeVideoId,
+            suggestedQuality: 'hd720'
+        });
+    }
+
+    // Fetch Vocabulary Guide & Quiz
+    fetchVocabGuide(ep.id);
     fetchQuiz(ep.id);
 }
 
-// Fetch Quiz
+// Fetch Vocabulary Guide for Episode
+async function fetchVocabGuide(episodeId) {
+    const container = document.getElementById('vocab-grid');
+    if (!container) return;
+    container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">Loading vocabulary study guide...</p>';
+
+    try {
+        const res = await fetch(`/api/student/episodes/${episodeId}/vocab-guide`, {
+            headers: { 'Authorization': getAuthHeader() }
+        });
+        if (res.ok) {
+            const words = await res.json();
+            container.innerHTML = '';
+            words.forEach((w) => {
+                const card = document.createElement('div');
+                card.className = 'vocab-card';
+                card.innerHTML = `
+                    <div class="vocab-arabic">${w.arabic}</div>
+                    <div class="vocab-translit">${w.translit}</div>
+                    <div class="vocab-english">${w.english}</div>
+                    <div class="vocab-note">${w.note}</div>
+                `;
+                container.appendChild(card);
+            });
+        }
+    } catch (e) {
+        console.warn('Vocab fetch failed:', e);
+    }
+}
+
+// Fetch Quiz (Auto-generates with AI on backend if missing)
 async function fetchQuiz(episodeId) {
     try {
         const res = await fetch(`/api/student/quizzes/${episodeId}`, {
@@ -166,13 +197,35 @@ async function fetchQuiz(episodeId) {
     }
 }
 
+// Regenerate Quiz with AI on Demand
+async function regenerateQuizWithAi() {
+    if (!currentEpisode) return;
+    const container = document.getElementById('questions-container');
+    container.innerHTML = '<p style="color:#c4b5fd; font-size:0.9rem; padding:1.5rem; text-align:center;">🤖 AI is analyzing the episode and generating new questions...</p>';
+
+    try {
+        const res = await fetch(`/api/student/quizzes/generate/${currentEpisode.id}`, {
+            method: 'POST',
+            headers: { 'Authorization': getAuthHeader() }
+        });
+        if (res.ok) {
+            currentQuiz = await res.json();
+            renderQuizQuestions();
+        } else {
+            alert('Failed to regenerate quiz.');
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
 // Render Quiz Questions
 function renderQuizQuestions() {
     const container = document.getElementById('questions-container');
     container.innerHTML = '';
 
     if (!currentQuiz || !currentQuiz.questions || currentQuiz.questions.length === 0) {
-        container.innerHTML = '<p style="color:var(--text-muted); padding:1rem;">No quiz configured for this episode yet.</p>';
+        container.innerHTML = '<p style="color:var(--text-muted); padding:1rem;">No quiz ready. Click [AI Regenerate Quiz] to generate one.</p>';
         return;
     }
 
@@ -228,7 +281,9 @@ function onYouTubeIframeAPIReady() {
         playerVars: {
             'playsinline': 1,
             'rel': 0,
-            'modestbranding': 1
+            'modestbranding': 1,
+            'cc_load_policy': 1, // Enable closed captions / subtitles automatically
+            'hl': 'en'
         },
         events: {
             'onStateChange': onPlayerStateChange
@@ -245,10 +300,18 @@ function onPlayerStateChange(event) {
 
 // Unlock Quiz Action
 function devUnlockQuiz() {
-    document.getElementById('quiz-section').style.display = 'block';
-    document.getElementById('video-status-text').innerHTML = 
-        '<strong style="color:var(--primary);">🎉 Episode completed! The quiz is now unlocked below!</strong>';
-    document.getElementById('quiz-section').scrollIntoView({ behavior: 'smooth' });
+    const quizSection = document.getElementById('quiz-section');
+    quizSection.style.display = 'block';
+    quizSection.scrollIntoView({ behavior: 'smooth' });
+
+    // Little celebration for finishing video
+    if (typeof confetti === 'function') {
+        confetti({
+            particleCount: 50,
+            spread: 50,
+            origin: { y: 0.7 }
+        });
+    }
 }
 
 // Submit Quiz Form
@@ -307,7 +370,7 @@ function showResultModal(result) {
         score.textContent = result.scorePercentage.toFixed(0) + '%';
         message.textContent = result.message;
 
-        // Confetti Celebration
+        // Big Confetti Celebration
         if (typeof confetti === 'function') {
             confetti({
                 particleCount: 120,
@@ -327,87 +390,4 @@ function showResultModal(result) {
 
 function closeModal() {
     document.getElementById('result-modal').style.display = 'none';
-}
-
-// Admin Dashboard Functions
-async function loadAdminDashboard() {
-    try {
-        const earningsRes = await fetch('/api/admin/students/brother/earnings', {
-            headers: { 'Authorization': getAuthHeader() }
-        });
-        if (earningsRes.ok) {
-            const data = await earningsRes.json();
-            lastOwedAmount = data.balanceOwed;
-            document.getElementById('admin-metric-earned').textContent = '$' + data.totalEarned.toFixed(2);
-            document.getElementById('admin-metric-paid').textContent = '$' + data.totalPaid.toFixed(2);
-            document.getElementById('admin-metric-owed').textContent = '$' + data.balanceOwed.toFixed(2);
-            document.getElementById('admin-metric-episodes').textContent = `${data.passedEpisodesCount} / ${data.totalEpisodesCount}`;
-            document.getElementById('payout-amount').value = data.balanceOwed > 0 ? data.balanceOwed : '';
-        }
-
-        const attemptsRes = await fetch('/api/admin/attempts', {
-            headers: { 'Authorization': getAuthHeader() }
-        });
-        if (attemptsRes.ok) {
-            const attempts = await attemptsRes.json();
-            const tbody = document.getElementById('admin-attempts-tbody');
-            tbody.innerHTML = '';
-            
-            if (attempts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">No quiz attempts logged yet.</td></tr>';
-            } else {
-                attempts.slice().reverse().forEach((a) => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td><strong>${a.student.fullName || a.student.username}</strong></td>
-                        <td style="font-family:'Cairo';">Ep. ${a.episode.episodeNumber}: ${a.episode.title}</td>
-                        <td><span style="font-size:0.8rem; background:rgba(255,255,255,0.06); padding:0.2rem 0.5rem; border-radius:4px;">${a.watchMode}</span></td>
-                        <td><strong>${a.scorePercentage.toFixed(0)}%</strong></td>
-                        <td>
-                            <span style="color:${a.passed ? '#10b981':'#ef4444'}; font-weight:800; font-size:0.82rem;">
-                                ${a.passed ? '✓ PASSED' : '✗ FAILED'}
-                            </span>
-                        </td>
-                        <td style="color:#f59e0b; font-weight:800;">+$${a.rewardAmount.toFixed(2)}</td>
-                        <td style="color:var(--text-muted); font-size:0.82rem;">${new Date(a.attemptedAt).toLocaleString()}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            }
-        }
-    } catch (e) {
-        console.warn('Admin load failed:', e);
-    }
-}
-
-// Payout Presets
-function setPayoutInput(val) {
-    document.getElementById('payout-amount').value = val;
-}
-
-function setPayoutFullOwed() {
-    document.getElementById('payout-amount').value = lastOwedAmount > 0 ? lastOwedAmount : 0;
-}
-
-async function handleRecordPayout() {
-    const amount = document.getElementById('payout-amount').value;
-    if (!amount || parseFloat(amount) <= 0) {
-        alert('Please enter a valid payout amount.');
-        return;
-    }
-
-    try {
-        const res = await fetch(`/api/admin/payouts?studentId=2&amount=${encodeURIComponent(amount)}&note=Cash Transfer`, {
-            method: 'POST',
-            headers: { 'Authorization': getAuthHeader() }
-        });
-        if (res.ok) {
-            alert(`✓ Successfully recorded payout of $${parseFloat(amount).toFixed(2)} to Brother!`);
-            loadAdminDashboard();
-        } else {
-            alert('Failed to record payout.');
-        }
-    } catch (e) {
-        alert('Error recording payout: ' + e.message);
-    }
 }

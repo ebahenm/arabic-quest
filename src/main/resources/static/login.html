@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arabic Quest | Student Login</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .auth-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1.5rem;
+            background: radial-gradient(circle at top, #13271f, #090d16 65%);
+        }
+        .auth-card {
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: var(--radius-lg);
+            padding: 2.5rem 2.25rem;
+            max-width: 440px;
+            width: 100%;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 24px var(--primary-glow);
+            text-align: center;
+        }
+        .auth-logo {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            margin: 0 auto 1.25rem auto;
+            box-shadow: 0 8px 20px var(--primary-glow);
+        }
+        .auth-title {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: white;
+            margin-bottom: 0.35rem;
+        }
+        .auth-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 1.75rem;
+        }
+        .form-group {
+            text-align: left;
+            margin-bottom: 1.25rem;
+        }
+        .form-label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .form-input {
+            width: 100%;
+            padding: 0.85rem 1rem;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: white;
+            font-size: 0.95rem;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.2s;
+        }
+        .form-input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+        }
+        .auth-btn {
+            width: 100%;
+            padding: 0.9rem;
+            background: linear-gradient(135deg, #10b981, #059669);
+            border: none;
+            border-radius: var(--radius-sm);
+            color: white;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 0.5rem;
+            box-shadow: 0 6px 16px var(--primary-glow);
+        }
+        .auth-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+        }
+        .auth-error {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fca5a5;
+            padding: 0.65rem 0.85rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            margin-bottom: 1.25rem;
+            display: none;
+        }
+        .portal-switch-link {
+            display: inline-block;
+            margin-top: 1.75rem;
+            font-size: 0.85rem;
+            color: var(--text-subtle);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .portal-switch-link:hover {
+            color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-logo">⚔️</div>
+            <h1 class="auth-title">Student Portal</h1>
+            <p class="auth-subtitle">Log in to watch episodes, take quizzes, and earn rewards!</p>
+
+            <div id="error-box" class="auth-error"></div>
+
+            <form id="student-login-form" onsubmit="handleStudentLogin(event)">
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" id="username" class="form-input" placeholder="e.g. brother" value="brother" required autofocus>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="password" class="form-input" placeholder="••••••••" value="learn123" required>
+                </div>
+
+                <button type="submit" id="btn-submit" class="auth-btn">Enter Quest ➔</button>
+            </form>
+
+            <a href="admin-login.html" class="portal-switch-link">
+                🛡️ Parent or Administrator? Go to Admin Portal ➔
+            </a>
+        </div>
+    </div>
+
+    <script>
+        async function handleStudentLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const errBox = document.getElementById('error-box');
+            const submitBtn = document.getElementById('btn-submit');
+
+            errBox.style.display = 'none';
+            submitBtn.textContent = 'Verifying...';
+            submitBtn.disabled = true;
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    localStorage.setItem('aq_auth_token', data.token);
+                    localStorage.setItem('aq_username', data.username);
+                    localStorage.setItem('aq_fullname', data.fullName);
+                    localStorage.setItem('aq_role', data.role);
+
+                    // Redirect to student portal
+                    window.location.href = 'index.html';
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    errBox.textContent = err.error || 'Invalid username or password';
+                    errBox.style.display = 'block';
+                }
+            } catch (err) {
+                errBox.textContent = 'Connection error. Please try again.';
+                errBox.style.display = 'block';
+            } finally {
+                submitBtn.textContent = 'Enter Quest ➔';
+                submitBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

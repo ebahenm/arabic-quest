@@ -5,6 +5,7 @@ import com.arabicquest.dto.CreateQuizRequest;
 import com.arabicquest.dto.EarningsSummaryResponse;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
+import com.arabicquest.service.AiQuizService;
 import com.arabicquest.service.PayoutService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ public class AdminController {
     private final PlaylistRepository playlistRepository;
     private final EpisodeRepository episodeRepository;
     private final QuizRepository quizRepository;
+    private final AiQuizService aiQuizService;
 
     public AdminController(UserRepository userRepository,
                            QuizAttemptRepository quizAttemptRepository,
@@ -32,7 +34,8 @@ public class AdminController {
                            PayoutService payoutService,
                            PlaylistRepository playlistRepository,
                            EpisodeRepository episodeRepository,
-                           QuizRepository quizRepository) {
+                           QuizRepository quizRepository,
+                           AiQuizService aiQuizService) {
         this.userRepository = userRepository;
         this.quizAttemptRepository = quizAttemptRepository;
         this.payoutRepository = payoutRepository;
@@ -40,6 +43,7 @@ public class AdminController {
         this.playlistRepository = playlistRepository;
         this.episodeRepository = episodeRepository;
         this.quizRepository = quizRepository;
+        this.aiQuizService = aiQuizService;
     }
 
     @GetMapping("/students")
@@ -77,6 +81,12 @@ public class AdminController {
                 .orElseThrow(() -> new IllegalArgumentException("Playlist not found"));
         Episode episode = new Episode(playlist, request.getEpisodeNumber(), request.getTitle(), request.getYoutubeVideoId());
         return ResponseEntity.ok(episodeRepository.save(episode));
+    }
+
+    @PostMapping("/episodes/{episodeId}/generate-quiz")
+    public ResponseEntity<Quiz> generateQuizWithAi(@PathVariable Long episodeId) {
+        Quiz quiz = aiQuizService.generateQuizForEpisode(episodeId);
+        return ResponseEntity.ok(quiz);
     }
 
     @Transactional
