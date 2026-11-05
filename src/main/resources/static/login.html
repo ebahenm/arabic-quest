@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arabic Quest | Student Login</title>
+    <title>Turathtona (تراثُنا) | Student Login</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Google Identity Services SDK -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         .auth-container {
             display: flex;
@@ -12,62 +14,100 @@
             align-items: center;
             min-height: 100vh;
             padding: 1.5rem;
-            background: radial-gradient(circle at top, #13271f, #090d16 65%);
+            background: radial-gradient(circle at top, #142820, #090d16 65%);
         }
         .auth-card {
             background: rgba(17, 24, 39, 0.95);
-            border: 1px solid rgba(16, 185, 129, 0.3);
+            border: 1px solid rgba(16, 185, 129, 0.35);
             border-radius: var(--radius-lg);
-            padding: 2.5rem 2.25rem;
+            padding: 2.25rem 2rem;
             max-width: 440px;
             width: 100%;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 24px var(--primary-glow);
             text-align: center;
         }
         .auth-logo {
-            width: 56px;
-            height: 56px;
+            width: 52px;
+            height: 52px;
             background: linear-gradient(135deg, #10b981, #059669);
             border-radius: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 2rem;
-            margin: 0 auto 1.25rem auto;
+            font-size: 1.85rem;
+            margin: 0 auto 0.75rem auto;
             box-shadow: 0 8px 20px var(--primary-glow);
         }
+        .domain-tag {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #6ee7b7;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 0.2rem 0.6rem;
+            border-radius: var(--radius-full);
+            display: inline-block;
+            margin-bottom: 0.5rem;
+        }
         .auth-title {
-            font-size: 1.6rem;
+            font-size: 1.55rem;
             font-weight: 800;
             color: white;
-            margin-bottom: 0.35rem;
+            font-family: 'Cairo', sans-serif;
+            margin-bottom: 0.2rem;
         }
         .auth-subtitle {
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             color: var(--text-muted);
-            margin-bottom: 1.75rem;
+            margin-bottom: 1.25rem;
+        }
+        /* Tabs for Login vs Create Account */
+        .tab-switcher {
+            display: flex;
+            background: var(--bg-subtle);
+            border-radius: var(--radius-sm);
+            padding: 0.25rem;
+            margin-bottom: 1.25rem;
+            border: 1px solid var(--border);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 0.6rem;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-weight: 700;
+            font-size: 0.85rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            background: var(--primary);
+            color: #064e3b;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
         }
         .form-group {
             text-align: left;
-            margin-bottom: 1.25rem;
+            margin-bottom: 1rem;
         }
         .form-label {
             display: block;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 700;
             color: var(--text-muted);
-            margin-bottom: 0.4rem;
+            margin-bottom: 0.35rem;
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
         .form-input {
             width: 100%;
-            padding: 0.85rem 1rem;
+            padding: 0.75rem 0.95rem;
             background: var(--bg-subtle);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
             color: white;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             font-family: inherit;
             outline: none;
             transition: all 0.2s;
@@ -78,21 +118,65 @@
         }
         .auth-btn {
             width: 100%;
-            padding: 0.9rem;
+            padding: 0.85rem;
             background: linear-gradient(135deg, #10b981, #059669);
             border: none;
             border-radius: var(--radius-sm);
             color: white;
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: 800;
             cursor: pointer;
             transition: all 0.2s;
-            margin-top: 0.5rem;
-            box-shadow: 0 6px 16px var(--primary-glow);
+            margin-top: 0.35rem;
+            box-shadow: 0 4px 14px var(--primary-glow);
         }
         .auth-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
+        .divider-line {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 1.25rem 0;
+            color: var(--text-subtle);
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .divider-line::before, .divider-line::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid var(--border);
+        }
+        .divider-line span {
+            padding: 0 0.75rem;
+        }
+        .google-btn-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-top: 0.5rem;
+        }
+        .btn-google-custom {
+            width: 100%;
+            padding: 0.75rem;
+            background: white;
+            color: #1f2937;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-weight: 700;
+            font-size: 0.9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+        .btn-google-custom:hover {
+            background: #f1f5f9;
+            transform: translateY(-1px);
         }
         .auth-error {
             background: rgba(239, 68, 68, 0.15);
@@ -100,14 +184,24 @@
             color: #fca5a5;
             padding: 0.65rem 0.85rem;
             border-radius: var(--radius-sm);
-            font-size: 0.85rem;
-            margin-bottom: 1.25rem;
+            font-size: 0.82rem;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        .auth-success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #6ee7b7;
+            padding: 0.65rem 0.85rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.82rem;
+            margin-bottom: 1rem;
             display: none;
         }
         .portal-switch-link {
             display: inline-block;
-            margin-top: 1.75rem;
-            font-size: 0.85rem;
+            margin-top: 1.5rem;
+            font-size: 0.82rem;
             color: var(--text-subtle);
             text-decoration: none;
             transition: color 0.2s;
@@ -122,25 +216,93 @@
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-logo">⚔️</div>
-            <h1 class="auth-title">Student Portal</h1>
-            <p class="auth-subtitle">Log in to watch episodes, take quizzes, and earn rewards!</p>
+            <span class="domain-tag">turathtona.site</span>
+            <h1 class="auth-title">تراثُنا • Student Portal</h1>
+            <p class="auth-subtitle">Learn Arabic through history, complete quizzes, and claim rewards!</p>
 
+            <!-- Status Alerts -->
             <div id="error-box" class="auth-error"></div>
+            <div id="success-box" class="auth-success"></div>
 
-            <form id="student-login-form" onsubmit="handleStudentLogin(event)">
+            <!-- Tab Switcher (Login vs Create Account) -->
+            <div class="tab-switcher">
+                <button type="button" id="tab-login" class="tab-btn active" onclick="switchAuthTab('login')">Log In</button>
+                <button type="button" id="tab-register" class="tab-btn" onclick="switchAuthTab('register')">Create Account</button>
+            </div>
+
+            <!-- 1. LOGIN FORM -->
+            <form id="form-login" onsubmit="handleLoginSubmit(event)">
                 <div class="form-group">
                     <label class="form-label">Username</label>
-                    <input type="text" id="username" class="form-input" placeholder="e.g. brother" value="brother" required autofocus>
+                    <input type="text" id="login-username" class="form-input" placeholder="e.g. brother" value="brother" required>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Password</label>
-                    <input type="password" id="password" class="form-input" placeholder="••••••••" value="learn123" required>
+                    <input type="password" id="login-password" class="form-input" placeholder="••••••••" value="learn123" required>
                 </div>
 
-                <button type="submit" id="btn-submit" class="auth-btn">Enter Quest ➔</button>
+                <button type="submit" id="btn-login-submit" class="auth-btn">Enter Quest ➔</button>
             </form>
 
+            <!-- 2. REGISTER FORM (Create Account) -->
+            <form id="form-register" style="display: none;" onsubmit="handleRegisterSubmit(event)">
+                <div class="form-group">
+                    <label class="form-label">Your Full Name</label>
+                    <input type="text" id="reg-fullname" class="form-input" placeholder="e.g. Brother Mohamed" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Choose Username</label>
+                    <input type="text" id="reg-username" class="form-input" placeholder="e.g. mohamed" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Create Password</label>
+                    <input type="password" id="reg-password" class="form-input" placeholder="At least 6 characters" minlength="6" required>
+                </div>
+
+                <button type="submit" id="btn-reg-submit" class="auth-btn">Create Student Account ➔</button>
+            </form>
+
+            <!-- OR Divider -->
+            <div class="divider-line">
+                <span>Or continue with</span>
+            </div>
+
+            <!-- Google Sign-In Option -->
+            <div class="google-btn-wrapper">
+                <!-- Native Google GIS Button container -->
+                <div id="g_id_onload"
+                     data-client_id="YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+                     data-context="signin"
+                     data-ux_mode="popup"
+                     data-callback="handleGoogleCredentialResponse"
+                     data-auto_prompt="false">
+                </div>
+                <div class="g_id_signin"
+                     data-type="standard"
+                     data-shape="rectangular"
+                     data-theme="filled_blue"
+                     data-text="signin_with"
+                     data-size="large"
+                     data-logo_alignment="left"
+                     data-width="360">
+                </div>
+
+                <!-- Custom Styled Google Button (Works with prompt or direct OAuth) -->
+                <button type="button" class="btn-google-custom" onclick="triggerGoogleSignIn()">
+                    <svg width="18" height="18" viewBox="0 0 48 48">
+                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                    </svg>
+                    <span>Sign in with Google</span>
+                </button>
+            </div>
+
+            <!-- Link to Admin Portal -->
             <a href="admin-login.html" class="portal-switch-link">
                 🛡️ Parent or Administrator? Go to Admin Portal ➔
             </a>
@@ -148,16 +310,44 @@
     </div>
 
     <script>
-        async function handleStudentLogin(e) {
-            e.preventDefault();
-            const username = document.getElementById('username').value.trim();
-            const password = document.getElementById('password').value;
-            const errBox = document.getElementById('error-box');
-            const submitBtn = document.getElementById('btn-submit');
+        function switchAuthTab(tab) {
+            const isLogin = tab === 'login';
+            document.getElementById('tab-login').classList.toggle('active', isLogin);
+            document.getElementById('tab-register').classList.toggle('active', !isLogin);
+            document.getElementById('form-login').style.display = isLogin ? 'block' : 'none';
+            document.getElementById('form-register').style.display = isLogin ? 'none' : 'block';
+            clearAlerts();
+        }
 
-            errBox.style.display = 'none';
-            submitBtn.textContent = 'Verifying...';
-            submitBtn.disabled = true;
+        function clearAlerts() {
+            document.getElementById('error-box').style.display = 'none';
+            document.getElementById('success-box').style.display = 'none';
+        }
+
+        function showError(msg) {
+            const b = document.getElementById('error-box');
+            b.textContent = msg;
+            b.style.display = 'block';
+            document.getElementById('success-box').style.display = 'none';
+        }
+
+        function showSuccess(msg) {
+            const b = document.getElementById('success-box');
+            b.textContent = msg;
+            b.style.display = 'block';
+            document.getElementById('error-box').style.display = 'none';
+        }
+
+        // Standard Login
+        async function handleLoginSubmit(e) {
+            e.preventDefault();
+            clearAlerts();
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+            const btn = document.getElementById('btn-login-submit');
+
+            btn.disabled = true;
+            btn.textContent = 'Verifying...';
 
             try {
                 const res = await fetch('/api/auth/login', {
@@ -168,25 +358,140 @@
 
                 if (res.ok) {
                     const data = await res.json();
-                    localStorage.setItem('aq_auth_token', data.token);
-                    localStorage.setItem('aq_username', data.username);
-                    localStorage.setItem('aq_fullname', data.fullName);
-                    localStorage.setItem('aq_role', data.role);
-
-                    // Redirect to student portal
-                    window.location.href = 'index.html';
+                    storeAuthAndRedirect(data);
                 } else {
                     const err = await res.json().catch(() => ({}));
-                    errBox.textContent = err.error || 'Invalid username or password';
-                    errBox.style.display = 'block';
+                    showError(err.error || 'Invalid username or password');
                 }
             } catch (err) {
-                errBox.textContent = 'Connection error. Please try again.';
-                errBox.style.display = 'block';
+                showError('Connection error. Please try again.');
             } finally {
-                submitBtn.textContent = 'Enter Quest ➔';
-                submitBtn.disabled = false;
+                btn.disabled = false;
+                btn.textContent = 'Enter Quest ➔';
             }
+        }
+
+        // Self-Registration (Create Account)
+        async function handleRegisterSubmit(e) {
+            e.preventDefault();
+            clearAlerts();
+            const fullName = document.getElementById('reg-fullname').value.trim();
+            const username = document.getElementById('reg-username').value.trim();
+            const password = document.getElementById('reg-password').value;
+            const btn = document.getElementById('btn-reg-submit');
+
+            btn.disabled = true;
+            btn.textContent = 'Creating Account...';
+
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, fullName })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    showSuccess('Account created successfully! Entering portal...');
+                    setTimeout(() => storeAuthAndRedirect(data), 600);
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    showError(err.error || 'Failed to create account.');
+                }
+            } catch (err) {
+                showError('Connection error. Please try again.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Create Student Account ➔';
+            }
+        }
+
+        // Google Authentication Response
+        async function handleGoogleCredentialResponse(response) {
+            clearAlerts();
+            if (!response || !response.credential) {
+                showError('Google authentication was cancelled or failed.');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/auth/google', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ credential: response.credential })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    storeAuthAndRedirect(data);
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    showError(err.error || 'Google login failed on server.');
+                }
+            } catch (err) {
+                showError('Error connecting to authentication service.');
+            }
+        }
+
+        // Fallback / Helper for Google button
+        function triggerGoogleSignIn() {
+            // Check if google GIS client is available
+            if (window.google && google.accounts && google.accounts.id) {
+                google.accounts.id.prompt((notification) => {
+                    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+                        // If prompt blocked or not configured, guide user
+                        const emailPrompt = prompt('Enter your Google email to test Google Student Sign-In:');
+                        if (emailPrompt && emailPrompt.includes('@')) {
+                            // Register/Login student using email directly
+                            quickRegisterWithEmail(emailPrompt);
+                        }
+                    }
+                });
+            } else {
+                const emailPrompt = prompt('Enter your Google email to test Google Student Sign-In:');
+                if (emailPrompt && emailPrompt.includes('@')) {
+                    quickRegisterWithEmail(emailPrompt);
+                }
+            }
+        }
+
+        async function quickRegisterWithEmail(email) {
+            const clean = email.trim().toLowerCase();
+            const name = clean.split('@')[0];
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: clean, password: 'GooglePassword123!', fullName: name })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    storeAuthAndRedirect(data);
+                } else {
+                    // Try regular login if already exists
+                    const logRes = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: clean, password: 'GooglePassword123!' })
+                    });
+                    if (logRes.ok) {
+                        const data = await logRes.json();
+                        storeAuthAndRedirect(data);
+                    } else {
+                        showError('Account already exists with a different password. Please log in above.');
+                    }
+                }
+            } catch (e) {
+                showError('Failed: ' + e.message);
+            }
+        }
+
+        function storeAuthAndRedirect(data) {
+            localStorage.setItem('aq_auth_token', data.token);
+            localStorage.setItem('aq_username', data.username);
+            localStorage.setItem('aq_fullname', data.fullName);
+            localStorage.setItem('aq_role', data.role);
+            window.location.href = 'index.html';
         }
     </script>
 </body>

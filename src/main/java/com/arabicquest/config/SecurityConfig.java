@@ -47,7 +47,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable()) // Disabled for REST API / H2 console
             .headers(headers -> headers.frameOptions(frame -> frame.disable())) // For H2 console
             .authorizeHttpRequests(auth -> auth
-                // Public frontend pages, assets, and auth login
+                // Public frontend pages, assets, and auth login/register
                 .requestMatchers(
                     "/",
                     "/*.html",
@@ -56,7 +56,9 @@ public class SecurityConfig {
                     "/favicon.ico",
                     "/h2-console/**",
                     "/api/public/**",
-                    "/api/auth/login"
+                    "/api/auth/login",
+                    "/api/auth/register",
+                    "/api/auth/google"
                 ).permitAll()
                 // Role-based API access
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
