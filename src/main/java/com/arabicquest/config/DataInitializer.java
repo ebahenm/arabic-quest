@@ -44,10 +44,30 @@ public class DataInitializer {
             @Value("${FORCE_ADMIN_ENV_SYNC:false}") boolean forceAdminEnvSync) {
         return args -> {
             TransactionTemplate tx = new TransactionTemplate(transactionManager);
-            tx.executeWithoutResult(status -> {
-                syncAdminAccount(userRepository, passwordEncoder, adminUsername, adminPassword, forceAdminEnvSync);
-                seedOrUpgradeCurriculum(playlistRepository, episodeRepository, quizRepository);
-            });
+            int maxAttempts = 3;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    tx.executeWithoutResult(status -> {
+                        syncAdminAccount(userRepository, passwordEncoder, adminUsername, adminPassword, forceAdminEnvSync);
+                        seedOrUpgradeCurriculum(playlistRepository, episodeRepository, quizRepository);
+                    });
+                    return;
+                } catch (Exception ex) {
+                    if (attempt < maxAttempts) {
+                        log.warn("DataInitializer attempt {}/{} encountered transient error ({}); retrying in 3s...",
+                                attempt, maxAttempts, ex.getMessage());
+                        try {
+                            Thread.sleep(3000L);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                    } else {
+                        log.error("DataInitializer failed after {} attempts; continuing server startup without aborting container.",
+                                maxAttempts, ex);
+                    }
+                }
+            }
         };
     }
 
@@ -62,8 +82,10 @@ public class DataInitializer {
                 ? "admin"
                 : configuredUsername.trim();
 
-        User existingAdmin = userRepository.findByUsernameIgnoreCase(cleanAdminUser)
-                .or(() -> userRepository.findByRole(Role.ROLE_ADMIN).stream().findFirst())
+        User existingAdmin = userRepository.findByRole(Role.ROLE_ADMIN).stream().findFirst()
+                .or(() -> userRepository.findAllByOrderByIdAsc().stream()
+                        .filter(u -> u.getUsername() != null && u.getUsername().equalsIgnoreCase(cleanAdminUser))
+                        .findFirst())
                 .orElse(null);
 
         if (existingAdmin != null && existingAdmin.isCredentialsCustomized() && !forceAdminEnvSync) {
@@ -83,14 +105,17 @@ public class DataInitializer {
                 userRepository.save(admin);
                 log.info("Created administrator account '{}' from ADMIN_PASSWORD environment variable.", cleanAdminUser);
             } else {
-                boolean usernameChanged = !existingAdmin.getUsername().equals(cleanAdminUser);
+                boolean canUseTargetUsername = existingAdmin.getUsername().equalsIgnoreCase(cleanAdminUser)
+                        || !userRepository.existsByUsernameIgnoreCaseAndIdNot(cleanAdminUser, existingAdmin.getId());
+                String targetUsername = canUseTargetUsername ? cleanAdminUser : existingAdmin.getUsername();
+                boolean usernameChanged = !existingAdmin.getUsername().equals(targetUsername);
                 boolean passwordChanged = !passwordEncoder.matches(configuredPassword, existingAdmin.getPassword());
                 if (usernameChanged || passwordChanged) {
-                    existingAdmin.setUsername(cleanAdminUser);
+                    existingAdmin.setUsername(targetUsername);
                     existingAdmin.setPassword(passwordEncoder.encode(configuredPassword));
                     existingAdmin.incrementTokenVersion();
                     userRepository.save(existingAdmin);
-                    log.info("Synchronized administrator credentials for '{}' from environment configuration.", cleanAdminUser);
+                    log.info("Synchronized administrator credentials for '{}' from environment configuration.", targetUsername);
                 }
             }
         } else if (existingAdmin == null) {

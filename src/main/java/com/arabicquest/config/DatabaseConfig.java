@@ -1,8 +1,11 @@
 package com.arabicquest.config;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -16,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 @Configuration
 @Profile("prod")
 public class DatabaseConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(DatabaseConfig.class);
 
     public record ParsedJdbcConfig(String jdbcUrl, String username, String password) {}
 
@@ -46,12 +51,33 @@ public class DatabaseConfig {
             password = parsed.password();
         }
 
-        return DataSourceBuilder.create()
-                .driverClassName("org.postgresql.Driver")
-                .url(url)
-                .username(username)
-                .password(password)
-                .build();
+        HikariConfig hikari = new HikariConfig();
+        hikari.setPoolName("TurathtonaNeonPool");
+        hikari.setDriverClassName("org.postgresql.Driver");
+        hikari.setJdbcUrl(url);
+        hikari.setUsername(username);
+        hikari.setPassword(password);
+
+        // Tuned specifically for Render 512MB + Neon Serverless PostgreSQL (cold-wakeup resilient)
+        hikari.setMaximumPoolSize(4);
+        hikari.setMinimumIdle(0);
+        hikari.setConnectionTimeout(60_000L);
+        hikari.setValidationTimeout(10_000L);
+        hikari.setIdleTimeout(120_000L);
+        hikari.setMaxLifetime(240_000L);
+        hikari.setKeepaliveTime(60_000L);
+        // Never abort SpringApplication.run with status 1 if Neon compute is waking from sleep
+        hikari.setInitializationFailTimeout(-1L);
+
+        // PostgreSQL driver-level socket & PgBouncer compatibility guards
+        hikari.addDataSourceProperty("connectTimeout", "20");
+        hikari.addDataSourceProperty("loginTimeout", "20");
+        hikari.addDataSourceProperty("socketTimeout", "60");
+        hikari.addDataSourceProperty("tcpKeepAlive", "true");
+        hikari.addDataSourceProperty("prepareThreshold", "0");
+
+        log.info("Initialized resilient HikariDataSource (maxPoolSize=4, minIdle=0, connTimeout=60s) for url={}", url);
+        return new HikariDataSource(hikari);
     }
 
     public static ParsedJdbcConfig parseDatabaseUrl(String rawUrl, String fallbackUsername, String fallbackPassword) {

@@ -1,12 +1,19 @@
 server:
   port: ${PORT:8080}
   forward-headers-strategy: framework
+  tomcat:
+    threads:
+      max: 25
+      min-spare: 3
 
 management:
   endpoints:
     web:
       exposure:
         include: health
+  health:
+    db:
+      enabled: false
 
 spring:
   application:

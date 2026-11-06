@@ -9,8 +9,8 @@ COPY src ./src
 # Package production jar
 RUN mvn clean package -DskipTests
 
-# Stage 2: Minimal runtime image
-FROM eclipse-temurin:21-jre-alpine
+# Stage 2: Minimal glibc runtime image tuned strictly for Render 512MB / fractional-CPU container
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
 # Copy compiled jar
@@ -19,5 +19,5 @@ COPY --from=build /app/target/*.jar app.jar
 # Expose dynamic port
 EXPOSE 8080
 
-# Run Spring Boot app with production profile
-ENTRYPOINT ["java", "-Dspring.profiles.active=prod", "-jar", "app.jar"]
+# Bound heap, metaspace, codecache, and thread stacks under 512MB + fast C1 startup on fractional CPU
+ENTRYPOINT ["java", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Xms96m", "-Xmx240m", "-XX:MaxMetaspaceSize=160m", "-XX:ReservedCodeCacheSize=48m", "-Xss512k", "-Djava.security.egd=file:/dev/./urandom", "-Dspring.profiles.active=prod", "-jar", "app.jar"]
