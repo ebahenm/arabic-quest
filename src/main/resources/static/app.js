@@ -6,13 +6,14 @@
 });
 
 const PLAYLIST_ID = 'PLVVfonyXVJI3BXB9Wd2C5yXMr63w3SGXB';
+const STANDARD_WATCH_MODE = 'ARABIC_SUB';
+const DEFAULT_REQUIRED_WATCH_SECONDS = 600; // 10 minutes
 const isBetaRoute = window.location.pathname === '/beta' || window.location.pathname.startsWith('/beta/');
 
 let currentUser = null;
 let hasBetaAccess = false;
 let betaUnlockAllEpisodes = false;
 
-let currentMode = 'ARABIC_SUB';
 let currentEpisode = null;
 let episodes = [];
 let currentQuiz = null;
@@ -23,7 +24,6 @@ let ytReady = false;
 let ytApiRequested = false;
 let pendingPlayerBuild = null;
 let currentLoadedVideoId = null;
-let currentLoadedPlayerMode = null;
 
 let serverVerifiedSeconds = 0;
 let requiredWatchSeconds = 600;
@@ -91,7 +91,6 @@ async function initApp() {
             if (shortcut) shortcut.style.display = 'inline-flex';
         }
 
-        updateModeBannerUI();
         await Promise.all([fetchEarnings(), fetchEpisodes()]);
     } catch (e) {
         window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
@@ -172,7 +171,7 @@ function showLockedEpisodeToast(ep) {
     const toast = document.getElementById('episode-lock-toast');
     if (!toast) return;
     const prereq = ep.unlockAfterEpisodeNumber || (ep.episodeNumber - 1);
-    toast.textContent = `🔒 Episode ${ep.episodeNumber} is locked! Watch and pass Episode ${prereq} (80%+ score) first to unlock the next video in order.`;
+    toast.textContent = `🔒 Episode ${ep.episodeNumber} is locked! Watch 10 minutes and score 100% (20/20) on Episode ${prereq} first to unlock the next video in order.`;
     toast.style.display = 'block';
     toast.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
@@ -222,7 +221,7 @@ function renderEpisodeList() {
             tag.textContent = `Pass Episode ${ep.unlockAfterEpisodeNumber || (ep.episodeNumber - 1)} first`;
         } else {
             const mins = Math.max(1, Math.round((ep.durationSeconds || 1200) / 60));
-            tag.textContent = `~${mins} min • Up to +$15.00 Reward`;
+            tag.textContent = `~${mins} min • +$15.00 Reward`;
         }
         info.appendChild(tag);
 
@@ -262,18 +261,14 @@ function selectEpisode(ep) {
     document.getElementById('current-episode-title').textContent = ep.title;
 
     if (ep.watchStatus) {
-        if (ep.watchStatus.modeLocked && ep.watchStatus.lockedWatchMode) {
-            currentMode = ep.watchStatus.lockedWatchMode;
-        }
         applyWatchStatus(ep.watchStatus, ep.passed);
     } else {
         serverVerifiedSeconds = 0;
-        requiredWatchSeconds = Math.round((ep.durationSeconds || 1200) * 0.85);
+        requiredWatchSeconds = Math.min(DEFAULT_REQUIRED_WATCH_SECONDS, Math.max(60, ep.durationSeconds || DEFAULT_REQUIRED_WATCH_SECONDS));
         document.getElementById('quiz-section').style.display = 'none';
     }
 
     renderEpisodeList();
-    updateModeBannerUI();
     updateExternalYoutubeLink();
 
     const cleanVid = extractYouTubeId(ep.youtubeVideoId);
@@ -289,8 +284,7 @@ function updateExternalYoutubeLink() {
     const ytExternalLink = document.getElementById('btn-yt-external-link');
     if (!ytExternalLink) return;
 
-    const hl = currentMode === 'ARABIC_SUB' ? 'ar' : 'en';
-    ytExternalLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(cleanVid)}&list=${PLAYLIST_ID}&hl=${hl}&cc_lang_pref=en&cc_load_policy=1`;
+    ytExternalLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(cleanVid)}&list=${PLAYLIST_ID}`;
 }
 
 function formatClock(totalSeconds) {
@@ -303,15 +297,9 @@ function formatClock(totalSeconds) {
 function applyWatchStatus(status, episodePassed) {
     if (!status) return;
 
-    if (status.modeLocked && status.lockedWatchMode) {
-        currentMode = status.lockedWatchMode;
-    }
-
     serverVerifiedSeconds = status.verifiedWatchSeconds || 0;
-    requiredWatchSeconds = status.requiredWatchSeconds || 600;
+    requiredWatchSeconds = status.requiredWatchSeconds || DEFAULT_REQUIRED_WATCH_SECONDS;
 
-    updateModeButtonsUI(status.modeLocked, episodePassed);
-    updateModeBannerUI();
     updateExternalYoutubeLink();
     renderLiveWatchBar(status, episodePassed);
 
@@ -330,136 +318,23 @@ function renderLiveWatchBar(statusOverride = null, episodePassedOverride = null)
     const status = statusOverride || currentEpisode.watchStatus || {};
     const episodePassed = episodePassedOverride !== null ? episodePassedOverride : Boolean(currentEpisode.passed);
 
-    const required = Math.max(1, requiredWatchSeconds || status.requiredWatchSeconds || 600);
+    const required = Math.max(1, requiredWatchSeconds || status.requiredWatchSeconds || DEFAULT_REQUIRED_WATCH_SECONDS);
     const liveWatched = Math.min(required, serverVerifiedSeconds + pendingWatchedDeltaSeconds);
     const pct = episodePassed ? 100 : Math.min(100, Math.round((liveWatched / required) * 100));
 
     const statusLabel = document.getElementById('watch-status-label');
-    const lockedBadge = document.getElementById('locked-mode-badge');
-    const resetBtn = document.getElementById('btn-reset-mode');
     const fill = document.getElementById('watch-progress-fill');
 
-    fill.style.width = pct + '%';
+    if (fill) fill.style.width = pct + '%';
+    if (!statusLabel) return;
 
     if (episodePassed) {
-        statusLabel.textContent = '✓ Episode Passed — Comprehension Quiz Completed';
-        lockedBadge.textContent = '';
-        resetBtn.style.display = 'none';
+        statusLabel.textContent = '✓ Episode Passed — 100% Comprehension Quiz Completed';
     } else if (status.quizUnlocked || liveWatched >= required) {
-        statusLabel.textContent = `✓ Watch Target Reached (${formatClock(liveWatched)} / ${formatClock(required)}) — Quiz Unlocked Below!`;
-        lockedBadge.textContent = status.modeLocked
-            ? `🔒 Locked Reward Mode: ${currentMode === 'ARABIC_SUB' ? 'Arabic + English Subs (+$15)' : 'English Dub (+$10)'}`
-            : '';
-        resetBtn.style.display = status.modeLocked ? 'inline-block' : 'none';
+        statusLabel.textContent = `✓ Watch Target Reached (${formatClock(liveWatched)} / ${formatClock(required)}) — 20-Question Quiz Unlocked Below!`;
     } else {
         const statePrefix = isPlayerCurrentlyPlaying ? '▶️ Watching Live:' : '⏸️ Watch Progress (Paused):';
         statusLabel.textContent = `${statePrefix} ${formatClock(liveWatched)} / ${formatClock(required)} (${pct}%)`;
-        lockedBadge.textContent = status.modeLocked
-            ? `🔒 Mode: ${currentMode === 'ARABIC_SUB' ? 'Arabic + Subs (+$15)' : 'English Dub (+$10)'}`
-            : `Selected: ${currentMode === 'ARABIC_SUB' ? 'Arabic + Subs (+$15)' : 'English Dub (+$10)'}`;
-        resetBtn.style.display = status.modeLocked ? 'inline-block' : 'none';
-    }
-}
-
-function updateModeButtonsUI(isLocked, episodePassed) {
-    const arBtn = document.getElementById('btn-mode-arabic');
-    const enBtn = document.getElementById('btn-mode-english');
-    if (!arBtn || !enBtn) return;
-
-    arBtn.classList.toggle('active', currentMode === 'ARABIC_SUB');
-    enBtn.classList.toggle('active', currentMode === 'ENGLISH_DUB');
-
-    const disableSwitch = Boolean(isLocked && !episodePassed);
-    if (disableSwitch) {
-        arBtn.style.opacity = currentMode === 'ARABIC_SUB' ? '1' : '0.55';
-        enBtn.style.opacity = currentMode === 'ENGLISH_DUB' ? '1' : '0.55';
-    } else {
-        arBtn.style.opacity = '1';
-        enBtn.style.opacity = '1';
-    }
-}
-
-function updateModeBannerUI() {
-    const banner = document.getElementById('active-mode-banner');
-    const text = document.getElementById('active-mode-banner-text');
-    if (!banner || !text) return;
-
-    if (currentMode === 'ARABIC_SUB') {
-        banner.className = 'mode-status-banner';
-        text.textContent = '🎧 Active Mode: Original Arabic Audio + English Subtitles (+$15.00 Reward) — Player configured for Arabic audio & English CC (if needed, click ⚙️ Settings → Subtitles → Auto-translate → English).';
-    } else {
-        banner.className = 'mode-status-banner english-mode';
-        text.textContent = '🔊 Active Mode: English Dub / Translated Mode (+$10.00 Reward) — Player configured for English audio/locale (click ⚙️ Settings → Audio track → English when available on YouTube, or use English CC).';
-    }
-}
-
-function selectMode(mode) {
-    if (!currentEpisode) {
-        currentMode = mode;
-        updateModeButtonsUI(false, false);
-        updateModeBannerUI();
-        return;
-    }
-
-    const ws = currentEpisode.watchStatus;
-    if (ws && ws.modeLocked && !currentEpisode.passed && ws.lockedWatchMode !== mode) {
-        handleSwitchLockedMode(mode);
-        return;
-    }
-
-    const changed = currentMode !== mode;
-    currentMode = mode;
-    updateModeButtonsUI(ws ? ws.modeLocked : false, currentEpisode.passed);
-    updateModeBannerUI();
-    updateExternalYoutubeLink();
-    renderLiveWatchBar();
-
-    // Actively reconfigure the live YouTube player for the chosen language/caption mode!
-    applyModeToLivePlayer(changed);
-}
-
-function applyModeToLivePlayer(forceReload = false) {
-    if (!currentEpisode) return;
-    const cleanVid = extractYouTubeId(currentEpisode.youtubeVideoId);
-    const resumeAt = getSafeCurrentTime();
-    const shouldAutoPlay = isPlayerCurrentlyPlaying;
-
-    if (forceReload || currentLoadedPlayerMode !== currentMode) {
-        mountYouTubePlayer(cleanVid, Math.floor(resumeAt), shouldAutoPlay);
-    } else {
-        applyCaptionsPreference();
-    }
-}
-
-async function handleSwitchLockedMode(targetMode) {
-    if (!currentEpisode) return;
-    const nextMode = targetMode || (currentMode === 'ARABIC_SUB' ? 'ENGLISH_DUB' : 'ARABIC_SUB');
-    const label = nextMode === 'ARABIC_SUB' ? 'Arabic + English Subs (+$15.00)' : 'English Dub (+$10.00)';
-    if (!confirm(`Switch viewing mode to "${label}"? Your watch timer for this episode will reset to 00:00 and the player will reload in ${label} mode.`)) {
-        return;
-    }
-
-    stopExternalWatchTimer();
-    pendingWatchedDeltaSeconds = 0;
-    serverVerifiedSeconds = 0;
-    isPlayerCurrentlyPlaying = false;
-
-    try {
-        const res = await fetch(`/api/student/episodes/${currentEpisode.id}/reset-session?watchMode=${encodeURIComponent(nextMode)}`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: apiHeaders()
-        });
-        if (res.ok) {
-            const status = await res.json();
-            currentMode = nextMode;
-            currentEpisode.watchStatus = status;
-            applyWatchStatus(status, currentEpisode.passed);
-            const cleanVid = extractYouTubeId(currentEpisode.youtubeVideoId);
-            mountYouTubePlayer(cleanVid, 0, false);
-        }
-    } catch (e) {
-        console.warn('Reset session failed:', e);
     }
 }
 
@@ -498,7 +373,7 @@ function getSafeDurationSeconds() {
 
 function mountYouTubePlayer(videoId, startSeconds = 0, autoplay = false) {
     const cleanId = extractYouTubeId(videoId);
-    pendingPlayerBuild = { videoId: cleanId, startSeconds, autoplay, mode: currentMode };
+    pendingPlayerBuild = { videoId: cleanId, startSeconds, autoplay };
 
     if (!(window.YT && window.YT.Player)) {
         ensureYouTubeIframeScriptLoaded();
@@ -527,7 +402,7 @@ function ensureYouTubeIframeScriptLoaded() {
 
 function buildPlayerFromPending() {
     if (!pendingPlayerBuild || !(window.YT && window.YT.Player)) return;
-    const { videoId, startSeconds, autoplay, mode } = pendingPlayerBuild;
+    const { videoId, startSeconds, autoplay } = pendingPlayerBuild;
     pendingPlayerBuild = null;
 
     const wrapper = document.getElementById('player-wrapper');
@@ -545,15 +420,11 @@ function buildPlayerFromPending() {
     wrapper.appendChild(mountDiv);
 
     currentLoadedVideoId = videoId;
-    currentLoadedPlayerMode = mode;
 
     const playerVars = {
         enablejsapi: 1,
         playsinline: 1,
         rel: 0,
-        cc_load_policy: 1,
-        cc_lang_pref: 'en',
-        hl: mode === 'ARABIC_SUB' ? 'ar' : 'en',
         origin: window.location.origin
     };
     if (startSeconds > 0) {
@@ -711,7 +582,7 @@ async function flushWatchHeartbeat(opts = {}) {
     heartbeatInFlight = true;
     try {
         const bodyPayload = {
-            watchMode: currentMode,
+            watchMode: STANDARD_WATCH_MODE,
             external: isExternal,
             videoEnded: Boolean(opts.videoEnded),
             watchedDeltaSeconds: isExternal ? null : deltaToSend,
@@ -780,7 +651,7 @@ function setBetaStatusMessage(msg) {
 async function betaInstantUnlockQuiz() {
     if (!currentEpisode || !hasBetaAccess) return;
     try {
-        const res = await fetch(`/api/beta/episodes/${currentEpisode.id}/unlock-watch?watchMode=${encodeURIComponent(currentMode)}`, {
+        const res = await fetch(`/api/beta/episodes/${currentEpisode.id}/unlock-watch?watchMode=${encodeURIComponent(STANDARD_WATCH_MODE)}`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: apiHeaders()
@@ -790,7 +661,7 @@ async function betaInstantUnlockQuiz() {
             pendingWatchedDeltaSeconds = 0;
             currentEpisode.watchStatus = status;
             applyWatchStatus(status, currentEpisode.passed);
-            setBetaStatusMessage(`✓ Quiz unlocked instantly for Ep. ${currentEpisode.episodeNumber} in ${currentMode} mode.`);
+            setBetaStatusMessage(`✓ 10m watch target unlocked instantly for Ep. ${currentEpisode.episodeNumber}.`);
             document.getElementById('quiz-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
             const err = await res.json().catch(() => ({}));
@@ -963,6 +834,19 @@ async function fetchQuiz(episodeId) {
     }
 }
 
+function updateQuizAnsweredCounter() {
+    const answeredBadge = document.getElementById('quiz-answered-badge');
+    if (!answeredBadge || !currentQuiz || !currentQuiz.questions) return;
+    const total = currentQuiz.questions.length;
+    let answered = 0;
+    currentQuiz.questions.forEach((q) => {
+        if (document.querySelector(`input[name="question_${q.id}"]:checked`)) {
+            answered++;
+        }
+    });
+    answeredBadge.textContent = `Answered: ${answered} / ${total}`;
+}
+
 function renderQuizQuestions() {
     const container = document.getElementById('questions-container');
     container.textContent = '';
@@ -976,13 +860,26 @@ function renderQuizQuestions() {
         return;
     }
 
+    const totalQ = currentQuiz.questions.length;
+    const passPct = Math.round(currentQuiz.passingScorePercentage || 100);
+    const requiredCorrect = Math.ceil((passPct / 100) * totalQ);
+
+    const quizHeading = document.getElementById('quiz-heading-title');
+    if (quizHeading) {
+        quizHeading.textContent = `Comprehension Quiz (${totalQ} Questions)`;
+    }
+    const passBadge = document.getElementById('quiz-pass-badge');
+    if (passBadge) {
+        passBadge.textContent = `Pass Mark: ${passPct}% (${requiredCorrect}/${totalQ})`;
+    }
+
     currentQuiz.questions.forEach((q, idx) => {
         const block = document.createElement('div');
         block.className = 'question-block';
 
         const heading = document.createElement('div');
         heading.className = 'question-heading';
-        heading.textContent = `السؤال ${idx + 1}: ${q.questionText}`;
+        heading.textContent = `السؤال ${idx + 1} (${idx + 1}/${totalQ}): ${q.questionText}`;
         block.appendChild(heading);
 
         const grid = document.createElement('div');
@@ -997,6 +894,7 @@ function renderQuizQuestions() {
             radio.name = `question_${q.id}`;
             radio.value = String(opt.id);
             radio.required = true;
+            radio.addEventListener('change', updateQuizAnsweredCounter);
 
             const span = document.createElement('span');
             span.textContent = opt.optionText;
@@ -1009,6 +907,8 @@ function renderQuizQuestions() {
         block.appendChild(grid);
         container.appendChild(block);
     });
+
+    updateQuizAnsweredCounter();
 }
 
 async function handleQuizSubmit(event) {
@@ -1028,7 +928,7 @@ async function handleQuizSubmit(event) {
 
     const payload = {
         episodeId: currentEpisode.id,
-        watchMode: currentMode,
+        watchMode: STANDARD_WATCH_MODE,
         answers: answers
     };
 

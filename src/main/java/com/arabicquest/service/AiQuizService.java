@@ -22,6 +22,7 @@ import java.util.*;
 @Service
 public class AiQuizService {
 
+    public static final int TARGET_QUESTION_COUNT = 20;
     private static final Logger log = LoggerFactory.getLogger(AiQuizService.class);
 
     private final QuizRepository quizRepository;
@@ -53,25 +54,46 @@ public class AiQuizService {
         Quiz quiz = quizRepository.findByEpisodeId(episodeId)
                 .orElseGet(() -> new Quiz(episode));
 
-        quiz.setPassingScorePercentage(80.0);
-        quiz.getQuestions().clear();
+        quiz.setPassingScorePercentage(100.0);
+        if (!quiz.getQuestions().isEmpty()) {
+            quiz.getQuestions().clear();
+            if (quiz.getId() != null) {
+                quiz = quizRepository.saveAndFlush(quiz);
+            }
+        }
 
-        List<GeneratedQuestion> generatedQuestions = null;
+        List<GeneratedQuestion> finalQuestions = new ArrayList<>();
+        Set<String> seenQuestions = new HashSet<>();
 
         if (geminiApiKey != null && !geminiApiKey.isBlank()) {
             try {
-                generatedQuestions = callGeminiForQuestions(episode.getTitle(), episode.getEpisodeNumber());
+                List<GeneratedQuestion> aiList = callGeminiForQuestions(episode.getTitle(), episode.getEpisodeNumber());
+                if (aiList != null) {
+                    for (GeneratedQuestion gq : aiList) {
+                        if (finalQuestions.size() >= TARGET_QUESTION_COUNT) break;
+                        if (seenQuestions.add(gq.questionText)) {
+                            finalQuestions.add(gq);
+                        }
+                    }
+                }
             } catch (Exception e) {
                 log.warn("Gemini quiz generation failed for episode {}: {}", episodeId, e.getClass().getSimpleName());
             }
         }
 
-        if (generatedQuestions == null || generatedQuestions.isEmpty()) {
-            generatedQuestions = generateFallbackQuestions(episode.getTitle(), episode.getEpisodeNumber());
+        if (finalQuestions.size() < TARGET_QUESTION_COUNT) {
+            for (GeneratedQuestion fb : generateFallbackQuestions(episode.getTitle(), episode.getEpisodeNumber())) {
+                if (finalQuestions.size() >= TARGET_QUESTION_COUNT) break;
+                if (seenQuestions.add(fb.questionText)) {
+                    finalQuestions.add(fb);
+                }
+            }
         }
 
+        Collections.shuffle(finalQuestions, secureRandom);
+
         int order = 1;
-        for (GeneratedQuestion gq : generatedQuestions) {
+        for (GeneratedQuestion gq : finalQuestions) {
             Question question = new Question(quiz, gq.questionText, order++);
             List<GeneratedOption> shuffledOpts = new ArrayList<>(gq.options);
             Collections.shuffle(shuffledOpts, secureRandom);
@@ -127,10 +149,10 @@ public class AiQuizService {
     }
 
     private List<GeneratedQuestion> callGeminiForQuestions(String title, int episodeNumber) throws Exception {
-        String prompt = "You are an Arabic language & Islamic history professor creating a comprehension quiz for Episode "
+        String prompt = "You are an Arabic language & Islamic history professor creating a 20-question comprehension quiz for Episode "
                 + episodeNumber + " titled: \"" + title + "\" from the series '100 سؤال في التاريخ' by Muhammad Elhami.\n"
-                + "Generate 5 multiple-choice questions testing historical comprehension and key Arabic vocabulary from this topic.\n"
-                + "Each question must be in vocalized/clear Arabic followed by concise English in parentheses, with 4 distinct options (exactly 1 correct and 3 plausible distractors).";
+                + "Generate exactly 20 distinct multiple-choice questions testing historical comprehension and key Arabic vocabulary from this topic.\n"
+                + "Each question must be in clear Arabic followed by concise English in parentheses, with 4 distinct options (exactly 1 correct and 3 clearly incorrect distractors).";
 
         Map<String, Object> optionSchema = Map.of(
                 "type", "OBJECT",
@@ -325,6 +347,156 @@ public class AiQuizService {
                         new GeneratedOption("للاستغناء عن التفكير والتحليل العقلي (To dispense with critical thinking and analysis)", false),
                         new GeneratedOption("لأن الكتب الحديثة ممنوعة من الطباعة (Because modern books are banned from printing)", false),
                         new GeneratedOption("لتعلم الرسم والزخرفة فقط (Solely to learn drawing and ornamentation)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما معنى مصطلح «التَّحْقِيق العِلْمِي» في دراسة التاريخ الإسلامي؟ (What does 'At-Tahqiq al-Ilmi' mean in Islamic historical study?)",
+                List.of(
+                        new GeneratedOption("التثبت من صحة الأخبار والنصوص بالأدلة الموثقة (Establishing the authenticity of reports and texts through verified evidence)", true),
+                        new GeneratedOption("كتابة القصص الخيالية للتسلية (Writing fictional stories for entertainment)", false),
+                        new GeneratedOption("حذف التواريخ والأسانيد من الكتب (Removing dates and chains from books)", false),
+                        new GeneratedOption("الترجمة الحرفية دون مراجعة (Literal translation without verification)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما المقصود بـ«المَصَادِر الأَصِيلَة» في البحث التاريخي؟ (What is meant by 'Al-Masadir al-Asilah' in historical research?)",
+                List.of(
+                        new GeneratedOption("المراجع الأولية المعاصرة للأحداث أو القريبة منها بالأسانيد (Primary historical sources contemporaneous or close to the events with documented chains)", true),
+                        new GeneratedOption("المقالات الصحفية المجهولة المؤلف (Anonymous newspaper articles)", false),
+                        new GeneratedOption("الأعمال الدرامية والمسرحية الحديثة (Modern theatrical and dramatic works)", false),
+                        new GeneratedOption("الشائعات المتداولة شفوياً بلا سند (Unverified oral rumors)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "لماذا يجب مراعاة «السِّيَاق التَّارِيخِي» عند قراءة الوقائع الماضية؟ (Why must 'As-Siyaq at-Tarikhi' — historical context — be observed when reading past events?)",
+                List.of(
+                        new GeneratedOption("لفهم الأحداث في ظروفها الزمنية والاجتماعية الصحيحة دون إسقاط مغلوط (To understand events within their true temporal and social conditions without anachronistic distortion)", true),
+                        new GeneratedOption("لتبرير الكذب وتزوير الوثائق (To justify fabrication of documents)", false),
+                        new GeneratedOption("لإلغاء دراسة الجغرافيا واللغة (To abolish the study of geography and language)", false),
+                        new GeneratedOption("للاقتصار على قراءة عنوان الكتاب فقط (To read only a book's title)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما معنى كلمة «الِاسْتِنْبَاط» في منهج العلماء والمؤرخين؟ (What does 'Al-Istinbat' mean in scholarly methodology?)",
+                List.of(
+                        new GeneratedOption("استخراج الفوائد والسنن والأحكام من النصوص والوقائع بدقة (Extracting sound lessons, laws, and insights carefully from texts and events)", true),
+                        new GeneratedOption("نسخ الصفحات بالخط اليدوي فقط (Copying pages by hand without reading)", false),
+                        new GeneratedOption("السفر في البحار للتجارة (Sailing the seas for commerce)", false),
+                        new GeneratedOption("جمع العملات المعدنية القديمة (Collecting ancient metal coins)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما دور «الإِسْنَاد» في حفظ التاريخ الإسلامي من الضياع والتزوير؟ (What role did 'Al-Isnad' play in preserving Islamic history from forgery?)",
+                List.of(
+                        new GeneratedOption("توثيق سلسلة الرواة ومعرفة عدالتهم وضبطهم لتمييز الصحيح من المكذوب (Documenting the chain of narrators and testing their integrity and accuracy)", true),
+                        new GeneratedOption("إطالة حجم الكتب دون فائدة علمية (Lengthening books without scholarly benefit)", false),
+                        new GeneratedOption("منع الطلاب من قراءة كتب التاريخ (Preventing students from reading history books)", false),
+                        new GeneratedOption("تزيين أغلفة المخطوطات بالذهب (Decorating manuscript covers with gold)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "بماذا يتميز «علم التراجم والطبقات» عند علماء المسلمين؟ (What distinguishes 'Ilm at-Tarajim wat-Tabaqat' among Muslim scholars?)",
+                List.of(
+                        new GeneratedOption("تدوين سِيَر آلاف العلماء والرواة والأعلام عبر الأجيال بدقة غير مسبوقة (Documenting biographies of thousands of scholars, narrators, and figures across generations)", true),
+                        new GeneratedOption("دراسة طبقات الأرض الجيولوجية فقط (Studying geological rock strata only)", false),
+                        new GeneratedOption("بناء الأبراج العالية في المدن (Constructing tall towers in cities)", false),
+                        new GeneratedOption("تصنيف النباتات والأعشاب البرية (Classifying wild herbs and plants)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما الفرق بين «التاريخ السياسي» و«التاريخ الحضاري» للأمة الإسلامية؟ (What is the difference between political history and civilizational history?)",
+                List.of(
+                        new GeneratedOption("التاريخ السياسي يرصد الدول والمعارك، والحضاري يرصد العلم والعمران والقيم والمؤسسات (Political history tracks states/wars, while civilizational history captures science, institutions, and morals)", true),
+                        new GeneratedOption("كلاهما يقتصر على أخبار الملوك فقط (Both cover news of kings exclusively)", false),
+                        new GeneratedOption("التاريخ الحضاري لا وجود له في التراث (Civilizational history does not exist in heritage)", false),
+                        new GeneratedOption("التاريخ السياسي يدرس علم الفلك والنجوم (Political history studies astronomy and stars)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "كيف يتعامل الباحث المنصف مع الروايات التاريخية المتعارضة في ظاهرها؟ (How does a fair researcher handle seemingly conflicting historical reports?)",
+                List.of(
+                        new GeneratedOption("يجمع الروايات ويفحص أسانيدها ومتونها ويرجح بالأدلة العلمية (Compiles all reports, audits their chains and texts, and weighs them by scholarly evidence)", true),
+                        new GeneratedOption("يختار الرواية الأغرب لنشر الإثارة (Picks the strangest rumor for sensationalism)", false),
+                        new GeneratedOption("يرفض الحدث التاريخي كله بلا بحث (Rejects the entire historical era without study)", false),
+                        new GeneratedOption("يعتمد أول نتيجة غير موثقة يصادفها (Relies on the first unverified claim encountered)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "من العالم المسلم الذي أسس «علم العمران البشري» في مقدمته الشهيرة؟ (Which Muslim scholar founded the science of human society — 'Ilm al-'Umran — in his famous Muqaddimah?)",
+                List.of(
+                        new GeneratedOption("عبد الرحمن بن خلدون (Ibn Khaldun)", true),
+                        new GeneratedOption("أرخميدس اليوناني (Archimedes)", false),
+                        new GeneratedOption("ماركو بولو البندقي (Marco Polo)", false),
+                        new GeneratedOption("فاسكو دا غاما البرتغالي (Vasco da Gama)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما الغاية العملية الكبرى من دراسة برنامج «100 سؤال في التاريخ» كما يقررها الأستاذ محمد إلهامي؟ (What overarching practical goal does '100 Questions in History' pursue?)",
+                List.of(
+                        new GeneratedOption("تحصين الوعي وبناء الثقة بالهوية الإسلامية وفهم سنن النهوض والعمل (Fortifying historical awareness, confidence in Islamic identity, and understanding laws of revival)", true),
+                        new GeneratedOption("التسلية بالألغاز الترفيهية العابرة فقط (Casual entertainment through trivia puzzles alone)", false),
+                        new GeneratedOption("الانقطاع عن الواقع المعاصر وترك العمل (Withdrawing from the modern world and abandoning effort)", false),
+                        new GeneratedOption("تقليد مناهج المستشرقين بلا نقد (Imitating Orientalist claims uncritically)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما معنى كلمة «المَتْن» عند علماء الحديث والتاريخ في مقابل «السَّنَد»؟ (What does 'Al-Matn' mean in contrast to 'As-Sanad'?)",
+                List.of(
+                        new GeneratedOption("نص الخبر أو الكلام المروي نفسه بعد سلسلة الرواة (The actual text/content of the report transmitted at the end of the narrator chain)", true),
+                        new GeneratedOption("غلاف المخطوطة الجلدي الخارجي (The outer leather binding of a manuscript)", false),
+                        new GeneratedOption("اسم المدينة التي طُبع فيها الكتاب (The city where the book was printed)", false),
+                        new GeneratedOption("رقم الصفحة في الفهرس الحديث (The page number in a modern index)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "لماذا يدون المؤرخون غالباً الحروب والأزمات أكثر من سنوات الاستقرار الطويلة؟ (Why do chroniclers often record wars and crises more than long decades of peaceful stability?)",
+                List.of(
+                        new GeneratedOption("لأن الحروب أحداث استثنائية صارخة، بينما الهدوء والعمران اليومي هو الأصل المستمر (Because wars are exceptional disruptions, whereas peaceful daily life is the ongoing norm)", true),
+                        new GeneratedOption("لأنه لم يمر يوم واحد من السلام في تاريخ البشر (Because humanity never experienced a single peaceful day)", false),
+                        new GeneratedOption("لأن العلماء منعوا تأليف كتب العلم والأدب (Because scholars banned books on science and literature)", false),
+                        new GeneratedOption("لأن الكتابة لم تُعرف إلا في ساحات القتال (Because writing was known only on battlefields)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما الموقف العلمي الصحيح من أخطاء الأفراد أو الحكام في التاريخ الإسلامي؟ (What is the sound scholarly stance regarding mistakes made by individuals or rulers in history?)",
+                List.of(
+                        new GeneratedOption("تُوزن بميزان الشرع والعدل دون تقديس للأشخاص ودون تشويه لأصل الحضارة الإسلامية (Weigh them fairly by Islamic justice—neither sanctifying fallible rulers nor slandering Islamic civilization)", true),
+                        new GeneratedOption("إنكار وقوع أي خطأ بشري بعد عصر النبوة (Denying any human error ever occurred after the Prophet's era)", false),
+                        new GeneratedOption("هدم التراث الإسلامي كله بسبب خطأ فردي (Discarding all Islamic heritage over an individual's mistake)", false),
+                        new GeneratedOption("اعتماد روايات الخصوم وحدها دون تثبت (Accepting hostile fabrications without verification)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "ما العلاقة بين اللغة العربية وفهم المصادر التاريخية الإسلامية الأصيلة؟ (What is the relationship between the Arabic language and understanding primary Islamic historical sources?)",
+                List.of(
+                        new GeneratedOption("العربية مفتاح أساسي لفهم القرآن والسنة ودقائق المصطلحات في كتب التراث مباشرة (Arabic is the essential key to directly grasping the Quran, Sunnah, and nuanced heritage terminology)", true),
+                        new GeneratedOption("لا علاقة للغة العربية بكتب التاريخ الإسلامي (Arabic has no connection to Islamic history books)", false),
+                        new GeneratedOption("كُتبت جميع المصادر الإسلامية الأولى باللغة اللاتينية (All early Islamic sources were written in Latin)", false),
+                        new GeneratedOption("تكفي الترجمات الآلية الحرفية لإتقان علوم التراث (Literal machine translation suffices to master classical sciences)", false)
+                )
+        ));
+
+        list.add(new GeneratedQuestion(
+                "في الحلقة " + episodeNumber + " («" + title + "»)، ما المنهج الذي يجمع بين الأصالة والإنصاف عند عرض المسألة؟ (In Episode " + episodeNumber + ", what method combines authenticity and fairness?)",
+                List.of(
+                        new GeneratedOption("الاستدلال بالوحيين والوقائع الموثقة مع الرد العلمي الهادئ على الشبهات (Grounding analysis in revelation and verified facts while refuting misconceptions calmly and rigorously)", true),
+                        new GeneratedOption("الاكتفاء بالعاطفة والخطابة دون أدلة تاريخية (Relying on emotion and rhetoric without historical evidence)", false),
+                        new GeneratedOption("ترديد الشبهات دون تقديم أي جواب علمي (Repeating doubts without offering any scholarly answer)", false),
+                        new GeneratedOption("الاعتماد على الأساطير غير الموثقة (Relying on unverified legends)", false)
                 )
         ));
 

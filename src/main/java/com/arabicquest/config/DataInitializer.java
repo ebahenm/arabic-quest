@@ -171,7 +171,10 @@ public class DataInitializer {
         List<EpisodeSeed> seeds = buildAuthenticCurriculumSeeds();
         int upgradedOrCreated = 0;
 
-        for (EpisodeSeed seed : seeds) {
+        for (int idx = 0; idx < seeds.size(); idx++) {
+            EpisodeSeed seed = seeds.get(idx);
+            List<QuestionData> fullTwentyQuestions = buildFullTwentyQuestionsForEpisode(idx, seeds);
+
             Episode existing = episodeRepository
                     .findByPlaylistIdAndEpisodeNumber(playlist.getId(), seed.episodeNumber)
                     .orElse(null);
@@ -182,24 +185,33 @@ public class DataInitializer {
                 Episode created = new Episode(playlist, seed.episodeNumber, seed.title, seed.videoId, seed.durationSeconds);
                 created.setVocabularyJson(vocabJson);
                 created = episodeRepository.save(created);
-                saveShuffledQuiz(quizRepository, created, seed.questions);
+                saveShuffledQuiz(quizRepository, created, fullTwentyQuestions);
                 upgradedOrCreated++;
             } else {
                 boolean wasFakeVideo = LEGACY_PLACEHOLDER_VIDEO_IDS.contains(existing.getYoutubeVideoId())
                         || (existing.getTitle() != null && existing.getTitle().startsWith("Episode "));
                 boolean missingVocab = existing.getVocabularyJson() == null || existing.getVocabularyJson().isBlank();
 
-                if (wasFakeVideo || missingVocab) {
-                    if (wasFakeVideo) {
-                        existing.setYoutubeVideoId(seed.videoId);
-                        existing.setTitle(seed.title);
-                        existing.setDurationSeconds(seed.durationSeconds);
-                    }
-                    existing.setVocabularyJson(vocabJson);
-                    existing = episodeRepository.save(existing);
+                Quiz existingQuiz = quizRepository.findByEpisodeId(existing.getId()).orElse(null);
+                boolean needsQuizUpgrade = wasFakeVideo
+                        || existingQuiz == null
+                        || existingQuiz.getQuestions().size() < 20
+                        || existingQuiz.getPassingScorePercentage() == null
+                        || existingQuiz.getPassingScorePercentage() < 100.0;
 
-                    if (wasFakeVideo) {
-                        saveShuffledQuiz(quizRepository, existing, seed.questions);
+                if (wasFakeVideo || missingVocab || needsQuizUpgrade) {
+                    if (wasFakeVideo || missingVocab) {
+                        if (wasFakeVideo) {
+                            existing.setYoutubeVideoId(seed.videoId);
+                            existing.setTitle(seed.title);
+                            existing.setDurationSeconds(seed.durationSeconds);
+                        }
+                        existing.setVocabularyJson(vocabJson);
+                        existing = episodeRepository.save(existing);
+                    }
+
+                    if (needsQuizUpgrade) {
+                        saveShuffledQuiz(quizRepository, existing, fullTwentyQuestions);
                     }
                     upgradedOrCreated++;
                 }
@@ -207,17 +219,25 @@ public class DataInitializer {
         }
 
         if (upgradedOrCreated > 0) {
-            log.info("Initialized/upgraded {} authentic '100 سؤال في التاريخ' episodes with shuffled 5-question quizzes.", upgradedOrCreated);
+            log.info("Initialized/upgraded {} authentic '100 سؤال في التاريخ' episodes with shuffled 20-question (100% pass) quizzes.", upgradedOrCreated);
         }
     }
 
     private void saveShuffledQuiz(QuizRepository quizRepository, Episode episode, List<QuestionData> questionsData) {
         Quiz quiz = quizRepository.findByEpisodeId(episode.getId()).orElseGet(() -> new Quiz(episode));
-        quiz.setPassingScorePercentage(80.0);
-        quiz.getQuestions().clear();
+        quiz.setPassingScorePercentage(100.0);
+        if (!quiz.getQuestions().isEmpty()) {
+            quiz.getQuestions().clear();
+            if (quiz.getId() != null) {
+                quiz = quizRepository.saveAndFlush(quiz);
+            }
+        }
+
+        List<QuestionData> orderedQuestions = new ArrayList<>(questionsData);
+        Collections.shuffle(orderedQuestions, secureRandom);
 
         int qOrder = 1;
-        for (QuestionData qd : questionsData) {
+        for (QuestionData qd : orderedQuestions) {
             Question q = new Question(quiz, qd.text, qOrder++);
             List<OptionData> shuffled = new ArrayList<>(qd.options);
             Collections.shuffle(shuffled, secureRandom);
@@ -872,6 +892,466 @@ public class DataInitializer {
         ));
 
         return list;
+    }
+
+    private List<QuestionData> buildFullTwentyQuestionsForEpisode(int seedIdx, List<EpisodeSeed> allSeeds) {
+        EpisodeSeed seed = allSeeds.get(seedIdx);
+        List<QuestionData> twenty = new ArrayList<>(20);
+
+        // 1..5: Core episode historical questions
+        twenty.addAll(seed.questions);
+
+        // 6..10: Additional episode-specific historical & analytical comprehension questions
+        twenty.addAll(buildExtraEpisodeQuestions(seed.episodeNumber));
+
+        // 11..15: Arabic -> English Study Lexicon comprehension questions (5 unique episode terms)
+        int totalSeeds = allSeeds.size();
+        for (int vIdx = 0; vIdx < seed.vocab.size(); vIdx++) {
+            Map<String, String> v = seed.vocab.get(vIdx);
+            Map<String, String> d1 = allSeeds.get((seedIdx + 3) % totalSeeds).vocab.get((vIdx + 1) % 5);
+            Map<String, String> d2 = allSeeds.get((seedIdx + 7) % totalSeeds).vocab.get((vIdx + 2) % 5);
+            Map<String, String> d3 = allSeeds.get((seedIdx + 11) % totalSeeds).vocab.get((vIdx + 3) % 5);
+
+            twenty.add(q(
+                    "ما المعنى الدقيق للمصطلح العربي «" + v.get("arabic") + "» (" + v.get("translit")
+                            + ") الوارد في مفردات الحلقة " + seed.episodeNumber + "؟ (What is the accurate meaning of '"
+                            + v.get("translit") + "' from this episode's vocabulary guide?)",
+                    correct(v.get("english") + " — " + v.get("note")),
+                    wrong(d1.get("english") + " — " + d1.get("note")),
+                    wrong(d2.get("english") + " — " + d2.get("note")),
+                    wrong(d3.get("english") + " — " + d3.get("note"))
+            ));
+        }
+
+        // 16..20: Concept/Definition -> Vocalized Arabic term questions (5 unique episode terms)
+        for (int vIdx = 0; vIdx < seed.vocab.size(); vIdx++) {
+            Map<String, String> v = seed.vocab.get(vIdx);
+            Map<String, String> d1 = allSeeds.get((seedIdx + 4) % totalSeeds).vocab.get((vIdx + 2) % 5);
+            Map<String, String> d2 = allSeeds.get((seedIdx + 8) % totalSeeds).vocab.get((vIdx + 4) % 5);
+            Map<String, String> d3 = allSeeds.get((seedIdx + 12) % totalSeeds).vocab.get((vIdx + 1) % 5);
+
+            twenty.add(q(
+                    "أي مصطلح عربي في دليل مفردات الحلقة " + seed.episodeNumber + " يدل على هذا المفهوم: «"
+                            + v.get("english") + ": " + v.get("note") + "»؟ (Which Arabic term from Episode "
+                            + seed.episodeNumber + " expresses this concept?)",
+                    correct(v.get("arabic") + " (" + v.get("translit") + ")"),
+                    wrong(d1.get("arabic") + " (" + d1.get("translit") + ")"),
+                    wrong(d2.get("arabic") + " (" + d2.get("translit") + ")"),
+                    wrong(d3.get("arabic") + " (" + d3.get("translit") + ")")
+            ));
+        }
+
+        return twenty.subList(0, Math.min(20, twenty.size()));
+    }
+
+    private List<QuestionData> buildExtraEpisodeQuestions(int episodeNumber) {
+        return switch (episodeNumber) {
+            case 1 -> List.of(
+                    q("من هو الباحث والمؤرخ مقدم سلسلة «100 سؤال في التاريخ»؟ (Who is the historian presenting the '100 Questions in History' series?)",
+                            correct("الأستاذ محمد إلهامي (Ustadh Muhammad Elhami)"),
+                            wrong("طه حسين (Taha Hussein)"),
+                            wrong("جرجي زيدان (Jurji Zaydan)"),
+                            wrong("برنارد لويس (Bernard Lewis)")),
+                    q("لماذا لا يلزم من تزوير الإعلام لواقع اليوم ضياع حقائق التاريخ الإسلامي الموثقة؟ (Why doesn't modern media distortion mean Islamic history was lost?)",
+                            correct("لأن علماء المسلمين دوّنوا التاريخ بأسانيد مستقلة عن سلطة الحكام وتعددت مصادرهم (Because Muslim scholars recorded history via independent chains outside state monopoly)"),
+                            wrong("لأن الإعلام المعاصر لم يبدأ إلا بالأمس (Because modern media started only yesterday)"),
+                            wrong("لأن المؤرخين القدماء لم يكتبوا عن السياسة قط (Because early historians never wrote about politics)"),
+                            wrong("لأن كتب التاريخ محفوظة باللغات الأوروبية فقط (Because history books survived only in European languages)")),
+                    q("ما خطورة الاكتفاء بـ«استشراف المستقبل» مع القعود عن العمل الشرعي والعلمي؟ (What is the danger of obsessing over predicting the future while neglecting practical work?)",
+                            correct("يصرف المسلم عن واجب السعي والبناء الذي سيُسأل عنه أمام الله (It distracts a Muslim from the duty of striving and building for which they are accountable)"),
+                            wrong("يؤدي إلى إتقان اللغة العربية بسرعة مفرطة (It causes people to master Arabic too fast)"),
+                            wrong("يزيد من عدد المكتبات العامة في المدن (It increases public libraries in cities)"),
+                            wrong("يجعل الإنسان يحفظ القرآن في أسبوع واحد (It makes one memorize the Quran in one week)")),
+                    q("كيف نظر الإسلام إلى تعدد الشعوب والأوطان ضمن رابطة الأمة الواحدة؟ (How does Islam view diverse peoples within the single Ummah?)",
+                            correct("التنوع للتعارف والتكامل تحت مظلة الأخوة الإسلامية الواحدة لا للتفرق القطري الضيق (Diversity serves mutual acquaintance and unity under Islamic brotherhood, not divisive nationalism)"),
+                            wrong("تقديس الحدود الاستعمارية فوق رابطة العقيدة (Placing colonial borders above the bond of faith)"),
+                            wrong("منع السفر والتجارة بين الأقاليم الإسلامية (Forbidding travel and trade across Muslim regions)"),
+                            wrong("إلغاء أسماء القبائل والمدن من اللغة (Erasing city and tribal names from language)")),
+                    q("ما الثمرة الأولى لدراسة التاريخ بوعي سليم كما افتتحت بها الحلقة الأولى؟ (What primary fruit comes from studying history with sound awareness in Episode 1?)",
+                            correct("تحصين الهوية وفهم السنن الإلهية في نهوض الأمم وسقوطها للعمل على بصيرة (Safeguarding identity and grasping divine laws of civilizational rise and fall to act with insight)"),
+                            wrong("جمع الحكايات الغريبة للتسلية الليلية فقط (Collecting strange tales solely for bedtime amusement)"),
+                            wrong("الهروب من مسؤوليات الحاضر إلى الماضي (Escaping present responsibilities into the past)"),
+                            wrong("حفظ تواريخ الوفيات دون فهم الأحداث (Memorizing death dates without understanding events)"))
+            );
+            case 2 -> List.of(
+                    q("لماذا ينكشف تزوير المنتصر الظالم للتاريخ بعد زوال دولته وسطوته؟ (Why does a tyrant victor's historical distortion unravel once their rule ends?)",
+                            correct("لبقاء الشهادات المستقلة ووثائق المعاصرين وآثار الواقع التي تفضح الكذب (Because independent testimonies, contemporary records, and material realities survive to expose falsehood)"),
+                            wrong("لأن الكتب تتحول تلقائياً إلى رماد بعد مائة عام (Because books turn to ash after 100 years)"),
+                            wrong("لأن اللغات القديمة تختفي كل جيل (Because languages vanish every generation)"),
+                            wrong("لأن المنتصر يكتب اعترافاته دائماً في الصفحة الأولى (Because victors always confess on page one)")),
+                    q("ما الدافع السياسي والاستعماري الذي صاحب كثيراً من الدراسات الاستشراقية؟ (What political motive accompanied much of Western Orientalist scholarship?)",
+                            correct("فهم مجتمعات المسلمين وثقافتهم لتمكين الهيمنة الغربية والتأثير الفكري فيها (Studying Muslim societies and texts to facilitate Western colonial dominance and ideological influence)"),
+                            wrong("الرغبة في نشر اللغة العربية لغةً رسمية في أوروبا (Making Arabic the official language of Europe)"),
+                            wrong("الدفاع عن الخلافة الإسلامية ضد خصومها (Defending the Islamic Caliphate against its rivals)"),
+                            wrong("تعليم الخط العربي الكوفي في المدارس الابتدائية فقط (Teaching Kufic calligraphy in grade schools only)")),
+                    q("لماذا لا يؤخذ تفسير الإسلام وعقيدته وفلسفة تاريخه من كتب المستشرقين؟ (Why shouldn't Islamic creed and philosophy of history be taken from Orientalists?)",
+                            correct("لأنهم ينطلقون من خلفية فكرية وعقدية مغايرة لا تؤمن بالوحي أصلاً فتسقط تصوراتها على تراثنا (Because they start from a non-believing worldview that denies revelation and projects foreign biases)"),
+                            wrong("لأن المستشرقين لم يتعلموا القراءة والكتابة (Because Orientalists could not read or write)"),
+                            wrong("لأن كتبهم كُتبت كلها باللغة الصينية القديمة (Because all their books were written in ancient Chinese)"),
+                            wrong("لأنهم لم يزوروا أي مكتبة في حياتهم (Because they never visited any library)")),
+                    q("ما أشهر عمل ببليوغرافي ومعجمي للمستشرقين يُستفاد منه تقنياً في فهرسة الحديث؟ (What type of technical Orientalist reference work did Muslim researchers benefit from cautiously?)",
+                            correct("المعاجم المفهرسة لألفاظ الحديث وفهارس المخطوطات مع وجوب مراجعتها وتدقيقها (Concordances of Hadith wording and manuscript catalogs, while verifying accuracy)"),
+                            wrong("كتب الفتاوى الفقهية المعتمدة في المحاكم الشرعية (Binding Islamic legal fatwa manuals)"),
+                            wrong("كتب التجويد والقراءات القرآنية المتواترة (Mutawatir Quranic recitation manuals)"),
+                            wrong("متون العقيدة الإسلامية الأصيلة (Foundational texts of Islamic creed)")),
+                    q("ما المشروع العلمي المقابل للاستشراق الذي دعا إليه مفكرو الأمة؟ (What scholarly counterpart to Orientalism is needed from Muslim scholars?)",
+                            correct("تأسيس علم «استغراب» يدرس الحضارة الغربية بميزان علمي إسلامي مستقل (Developing independent scholarship studying Western civilization critically from an Islamic lens)"),
+                            wrong("إغلاق أقسام التاريخ واللغات في الجامعات الإسلامية (Closing history and language departments in Muslim universities)"),
+                            wrong("ترجمة كتب المستشرقين دون تعليق أو تمحيص (Translating Orientalist books without critical review)"),
+                            wrong("منع دراسة التاريخ الأوروبي الحديث نهائياً (Banning any study of modern European history)"))
+            );
+            case 3 -> List.of(
+                    q("كيف يفضح علم الإسناد والتواريخ الكذّاب إذا ادعى سماع خبر من شيخ لم يدركه؟ (How do Isnad and biographical dates expose a fabricator claiming to hear from a scholar?)",
+                            correct("بمراجعة تواريخ الولادة والوفاة والبلدان في كتب التراجم فيتبين انقطاع اللقاء واستحالته (Checking birth/death dates and travels in biographical dictionaries proves they never met)"),
+                            wrong("بسؤال المنجمين والعرافين عن صدقه (By consulting astrologers about the narrator)"),
+                            wrong("بإجراء قرعة عشوائية بين الروايات (By drawing random lots among reports)"),
+                            wrong("بقياس طول الجملة وعدد حروفها فقط (By counting the letters in the sentence)")),
+                    q("ما اسم الكتاب التأسيسي الذي وضع فيه ابن خلدون قوانين الاجتماع البشري ونقد الأخبار؟ (What famous work did Ibn Khaldun write laying down laws of social history and source criticism?)",
+                            correct("مقدمة ابن خلدون (Muqaddimat Ibn Khaldun)"),
+                            wrong("ألف ليلة وليلة (One Thousand and One Nights)"),
+                            wrong("كليلة ودمنة (Kalilah wa Dimnah)"),
+                            wrong("طوق الحمامة لابن حزم (The Ring of the Dove)")),
+                    q("ماذا نعني بكتب «الخِطَط» في التراث التاريخي الإسلامي (كخطط المقريزي)؟ (What do 'Khitat' books — such as Al-Maqrizi's Khitat — document in Islamic historiography?)",
+                            correct("التاريخ العمراني والجغرافي للمدن وأحيائها ومساجدها ومدارسها وأسواقها (Detailed topographical, architectural, and institutional histories of cities, quarters, mosques, and schools)"),
+                            wrong("الخطط العسكرية السرية في المعارك البحرية فقط (Secret naval battle blueprints only)"),
+                            wrong("جداول حساب المثلثات الفلكية (Trigonometric astronomical tables)"),
+                            wrong("وصفات تحضير الأدوية العشبية (Herbal medicine recipes)")),
+                    q("من الإمام العالم صاحب تشبيه القلب أمام الشبهات بـ«الإسفنجة» أو «الزجاجة المصمتة»؟ (Which renowned scholar authored the metaphor of the sponge versus solid clear glass regarding doubts?)",
+                            correct("شيخ الإسلام ابن تيمية في وصيته لتلميذه ابن القيم (Ibn Taymiyyah, recorded by his student Ibn al-Qayyim)"),
+                            wrong("الجاحظ في كتاب الحيوان (Al-Jahiz in Kitab al-Hayawan)"),
+                            wrong("سيبويه في الكتاب النحوي (Sibawayh in his Grammar)"),
+                            wrong("ابن بطوطة في رحلته (Ibn Battuta in his Rihlah)")),
+                    q("لماذا يُنصح المبتدئ بالتدرج في القراءة التاريخية بدلاً من هجومه على الشبهات بلا تأصيل؟ (Why must a beginner build foundational historical literacy before wading into polemical doubts?)",
+                            correct("لأن الأصول المحكمة تمنحه الميزان العلمي الذي يردّ به المتشابهات والافتراءات بيسر (Because solid foundations provide the scholarly scale to weigh and refute distortions easily)"),
+                            wrong("لأن كتب التراث مكتوبة بلغة غير مفهومة للعرب (Because classical books are not written in Arabic)"),
+                            wrong("لأن القراءة المتدرجة تستغرق خمسين عاماً قبل قراءة أي كتاب (Because graded reading forbids books for 50 years)"),
+                            wrong("لأن التاريخ لا قواعد له ولا منهج (Because history has neither rules nor methodology)"))
+            );
+            case 4 -> List.of(
+                    q("لماذا يقع القارئ المعاصر في وهم كثرة الدماء حين يطالع كتب الحوليات التاريخية؟ (Why do uncritical modern readers misperceive annals as full of conflict?)",
+                            correct("لأن المؤرخ يسجل في الحوليات الحدث الاستثنائي الصاخب، أما عقود السلم والتعليم والتجارة فجريانها المعتاد لا يُفرد بالذكر كل سنة (Annals log unusual disruptions, whereas decades of quiet learning, trade, and peace were routine)"),
+                            wrong("لأن المسلمين كانوا في حرب أهلية في كل قرية كل يوم (Because every village fought daily without pause)"),
+                            wrong("لأنه لم تُبنَ مدرسة ولا مستشفى واحد في الحضارة الإسلامية (Because zero schools or hospitals were ever built)"),
+                            wrong("لأن المؤرخين كانوا جنوداً لا يعرفون القلم (Because historians were soldiers unfamiliar with scholarship)")),
+                    q("إذا قارنا عدد ضحايا الحروب في التاريخ الإسلامي كله بالحربين العالميتين في القرن العشرين، فماذا يتبين؟ (What emerges when comparing casualties across Islamic history with 20th-century secular world wars?)",
+                            correct("أن حروب القرن العشرين العلمانية حصدت في بضع سنوات عشرات الملايين بما يفوق قرون التاريخ القديم مجتمعة (Secular 20th-century wars killed tens of millions in a few years—vastly exceeding centuries of pre-modern conflicts)"),
+                            wrong("أن الحرب العالمية الأولى لم يُقتل فيها أحد (That nobody died in World War I)"),
+                            wrong("أن الأسلحة النووية استُخدمت في العصر العباسي (That nuclear weapons existed in the Abbasid era)"),
+                            wrong("أنه لا فرق في حجم التدمير الشامل للمدنيين (That civilian mass destruction was identical)")),
+                    q("ما المؤسسة الوقفية الرائدة التي ابتكرتها الحضارة الإسلامية لرعاية المرضى مجاناً؟ (What endowed institution did Islamic civilization pioneer to provide free medical care and training?)",
+                            correct("البيمارستانات (المستشفيات الوقفية التعليمية المجانية للغني والفقير) (Endowed Bimaristans—teaching hospitals treating rich and poor free of charge)"),
+                            wrong("المسارح الرومانية للمصارعة (Roman gladiatorial amphitheaters)"),
+                            wrong("البنوك الربوية التجارية (Usurious commercial banks)"),
+                            wrong("المحاكم التفتيشية السرية (Secret inquisitorial tribunals)")),
+                    q("كيف جمعت الحضارة الإسلامية بين «العلوم الشرعية» و«العلوم التطبيقية» دون صراع؟ (How did Islamic civilization harmonize revealed sciences with empirical natural sciences?)",
+                            correct("جعل الإسلام النظر في الكون وتسخيره عبادةً لله، فنبغ العلماء في الفقه والطب والفلك معاً دون خصومة بين الدين والعلم (Islam made studying nature an act of worship, so scholars excelled in both revealed and natural sciences without conflict)"),
+                            wrong("أحرق العلماء جميع كتب الطب والهندسة (Scholars burned all medical and engineering works)"),
+                            wrong("منعت الدولة الأطباء من دخول المساجد (Physicians were barred from mosques)"),
+                            wrong("فُصل العلم عن الأخلاق كما في المادية الحديثة (Science was stripped of all moral restraint)")),
+                    q("ماذا يعني التحلي بـ«الإنصاف العلمي» عند تقييم أي حقبة تاريخية؟ (What does scholarly fairness require when evaluating any historical era?)",
+                            correct("رؤية الصورة الكاملة بنسبها الحقيقية بين السياسة والعمران والعلم والقضاء والأخلاق (Viewing the whole picture in true proportion across governance, justice, science, and society)"),
+                            wrong("تضخيم خطأ واحد وإهدار قرون من العدل والعمران (Magnifying one incident to erase centuries of achievement)"),
+                            wrong("تزوير النصوص لإرضاء الأهواء المعاصرة (Altering texts to please modern trends)"),
+                            wrong("الاكتفاء بقراءة عناوين المقالات السريعة (Reading sensational headlines only)"))
+            );
+            case 5 -> List.of(
+                    q("من العالم المسلم الرائد الذي قلب نظريات الإبصار اليونانية وأسس علم البصريات التجريبي؟ (Which Muslim scientist overturned Greek vision theories and founded experimental optics?)",
+                            correct("الحسن بن الهيثم في كتابه «المناظر» (Ibn al-Haytham in Kitab al-Manazir)"),
+                            wrong("بطليموس الإسكندري (Ptolemy of Alexandria)"),
+                            wrong("أرسطو اليوناني (Aristotle)"),
+                            wrong("جاليليو جاليلي (Galileo Galilei)")),
+                    q("ما العيب الجوهري في العلم اليوناني القديم الذي صحّحه علماء الحضارة الإسلامية؟ (What fundamental limitation of ancient Greek thought did Muslim scientists correct?)",
+                            correct("كان اليونان يعتمدون الجدل الفلسفي النظري، فنقل المسلمون العلم إلى المختبر والتجربة والملاحظة الدقيقة (Greek thought leaned on abstract speculation, whereas Muslim scientists established laboratory experimentation and observation)"),
+                            wrong("كان اليونان يفرطون في التجارب المعملية الكيميائية (Greeks relied excessively on chemical laboratories)"),
+                            wrong("رفض المسلمون استخدام الأرقام والحساب في العلوم (Muslims rejected mathematics in science)"),
+                            wrong("لم يعرف المسلمون علم الفلك والمراصد (Muslims built zero astronomical observatories)")),
+                    q("من العالم المسلم الذي وضع علم «الجبر» وحمل اسمه مصطلح الخوارزميات (Algorithms)؟ (Which Muslim mathematician founded Algebra and gave his name to 'Algorithms'?)",
+                            correct("محمد بن موسى الخوارزمي (Muhammad ibn Musa al-Khwarizmi)"),
+                            wrong("إقليدس اليوناني (Euclid)"),
+                            wrong("فيثاغورس (Pythagoras)"),
+                            wrong("إسحاق نيوتن (Isaac Newton)")),
+                    q("بماذا تفوقت خرائط الجغرافيين والملاحين المسلمين (كالإدريسي وبيري ريس) في عصرهم؟ (How did Muslim geographers and cartographers like Al-Idrisi and Piri Reis excel?)",
+                            correct("برسم خرائط عالمية دقيقة للبحار والسواحل اعتمدت على القياس الفلكي والرحلات البحرية الموثقة (Producing remarkably accurate world and coastal maps grounded in astronomical measurement and voyages)"),
+                            wrong("باعتقادهم أن الأرض مسطحة محمولة على سلحفاة (Believing the Earth sat on a giant turtle)"),
+                            wrong("باقتصارهم على رسم الصحراء العربية دون البحار (Mapping only desert dunes and ignoring oceans)"),
+                            wrong("بنقلهم الخرائط عن كولومبوس في القرن العاشر الهجري فقط (Merely copying Columbus without original navigation)")),
+                    q("ما الدلالة التاريخية لإعادة العلماء المعاصرين تصنيع آلات الجزري وبني موسى وتقي الدين؟ (What did modern reconstructions of Al-Jazari's and Banu Musa's machines prove?)",
+                            correct("أثبتت أنها تصاميم هندسية وميكانيكية دقيقة قابلة للتشغيل الفعلي سبقت عصر النهضة الأوروبية بقرون (They proved those manuscripts contained working precision mechanical engineering centuries ahead of Renaissance Europe)"),
+                            wrong("أثبتت أنها زخارف ورقية لا تعمل ميكانيكياً (They showed the drawings were non-functional decorations)"),
+                            wrong("أثبتت أنها صُنعت في المصانع الأوروبية الحديثة (They showed Europe built them first)"),
+                            wrong("أثبتت خلو التراث الإسلامي من الهندسة التطبيقية (They showed Islam lacked applied engineering)"))
+            );
+            case 6 -> List.of(
+                    q("ما الدليل الواقعي الحي على أن المسلمين لم يمحوا لغات الشعوب المفتوحة بالإكراه؟ (What living linguistic reality proves Muslims never forcibly erased local languages?)",
+                            correct("بقاء الفارسية والتركية والكردية والأمازيغية والأوردية وغيرها حية يكتبها أهلها بالحرف العربي ويعتزون بالإسلام (Persian, Turkish, Kurdish, Amazigh, Urdu, and others thrived alongside Arabic for centuries)"),
+                            wrong("عدم وجود أي مسلم اليوم يتحدث بغير العربية (Zero Muslims today speak any language besides Arabic)"),
+                            wrong("صدور مراسيم أموية وعباسية بإعدام من يتكلم الفارسية (Caliphal decrees executing non-Arabic speakers)"),
+                            wrong("تحريم ترجمة معاني القرآن الكريم لغير العرب (Forbidding explaining Quranic meanings to non-Arabs)")),
+                    q("لماذا تعربت شعوب الشام ومصر والمغرب طواعية عبر الأجيال؟ (Why did peoples of the Levant, Egypt, and North Africa voluntarily adopt Arabic over generations?)",
+                            correct("شغفاً بلغة القرآن الكريم والعلم الشرعي والأدب والإدارة في ظل عدل الإسلام وانفتاحه (Out of devotion to the Quran, scholarship, literature, and shared civic life under Islam)"),
+                            wrong("بسبب غرامات مالية فُرضت على كل كلمة قبطية أو سريانية (Due to fines on every Coptic or Syriac word)"),
+                            wrong("لأن تلك الشعوب لم تكن لها أي لغة قبل الفتح الإسلامي (Because those lands had no prior language at all)"),
+                            wrong("بأمر من الإمبراطورية البيزنطية قبل رحيلها (By order of the departing Byzantine Empire)")),
+                    q("بماذا يختلف مفهوم «العصر الذهبي» في الرؤية الإسلامية عنه في الرؤية المادية الغربية؟ (How does the Islamic criterion for a 'Golden Age' differ from purely materialistic metrics?)",
+                            correct("يُقاس أولاً بتحقق العدل وكرامة الإنسان واستقامة الإيمان والأخلاق كما في الخلافة الراشدة، لا بمجرد الترف المادي (It is measured first by justice, human dignity, faith, and moral integrity—epitomized by the Rashidun Caliphate—not palace luxury alone)"),
+                            wrong("يُقاس بكثرة الذهب والقصور والغناء وحدها (It is measured solely by gold, palaces, and entertainment)"),
+                            wrong("يُقاس بعدد الحروب التوسعية دون النظر للعدل (It is measured purely by territorial conquest without justice)"),
+                            wrong("يرفض الإسلام الازدهار العلمي والعمراني في كل العصور (Islam rejects scientific and civic prosperity)")),
+                    q("كيف جمع كثير من كبار علماء التراث (كسيبويه والطبري والبيروني) بين أصولهم غير العربية وخدمة العربية؟ (How did non-Arab Muslim scholars like Sibawayh, Al-Tabari, and Al-Biruni relate to Arabic?)",
+                            correct("أحبوا العربية حبّاً عظيماً لخدمة الوحي فنبغوا فيها وألفوا أمهات كتب النحو والتفسير والعلم بها طواعية (They embraced Arabic wholeheartedly in service of revelation and authored foundational classics of Arabic grammar and science)"),
+                            wrong("أُجبروا في السجون على تأليف الكتب بالعربية (They were forced in prison to write in Arabic)"),
+                            wrong("كتبوا جميع مؤلفاتهم باللغة اليونانية فقط (They wrote all their works exclusively in Greek)"),
+                            wrong("دعوا إلى هجر اللغة العربية وترك تعلمها (They campaigned to abandon learning Arabic)")),
+                    q("ما أثر إحياء اللغة العربية الفصحى بين شباب الأمة اليوم كما أبرزت الحلقة السادسة؟ (What impact does reviving fluent Arabic among Muslim youth have today?)",
+                            correct("يوحّد الفهم الثقافي ويربط الجيل مباشرةً بالقرآن والسنة وميراث أربعة عشر قرناً من العلم (It unites cultural understanding and connects youth directly to the Quran, Sunnah, and 14 centuries of scholarship)"),
+                            wrong("يعزل الشباب عن العلوم الحديثة والتقنية (It isolates youth from modern technology)"),
+                            wrong("يمنع التواصل بين المشرق والمغرب (It blocks communication between East and West)"),
+                            wrong("لا أثر له في الهوية أو النهوض الحضاري (It has zero effect on identity or revival)"))
+            );
+            case 7 -> List.of(
+                    q("ما الميزان الشرعي والعقلي الذي طبّقه المسلمون عند ترجمة علوم الأمم السابقة؟ (What filter did Muslim scholars apply when translating works from earlier civilizations?)",
+                            correct("قَبول العلوم النافعة كالطب والحساب والإدارة وتنقيتها مما يخالف التوحيد والأخلاق (Accepting beneficial sciences like medicine, math, and administration while rejecting pagan superstitions)"),
+                            wrong("قبول العقائد الوثنية والخرافات الفلكية دون تمحيص (Adopting pagan myths and superstitions uncritically)"),
+                            wrong("رفض الحساب والطب بحجة أنهما من علوم غير المسلمين (Rejecting math and medicine simply because non-Muslims studied them)"),
+                            wrong("إحراق جميع الكتب الطبية والزراعية فور فتح المدن (Burning medical and agricultural books upon entering cities)")),
+                    q("كيف تعامل عمر بن الخطاب رضي الله عنه مع «تدوين الدواوين» الإدارية المقتبسة تنظيمياً؟ (How did Caliph 'Umar ibn al-Khattab handle administrative registries — Dawawin — adapted for governance?)",
+                            correct("اقتبس أداة التنظيم الإداري النافعة لضبط العطاء والجند والخراج بما يخدم العدل الإسلامي (He adopted beneficial administrative record-keeping tools to organize stipends and public finance justly)"),
+                            wrong("حرم استخدام الدفاتر والسجلات في الدولة الإسلامية (He banned written registries in the Islamic state)"),
+                            wrong("نقل القوانين الطبقية الساسانية الظالمة كما هي (He copied unjust Sasanian caste laws verbatim)"),
+                            wrong("سلّم إدارة بيت المال لحكام الفرس القدامى دون رقابة (He handed the treasury over without oversight)")),
+                    q("لماذا يحتاج العامل في «الإصلاح السياسي والنهوض» إلى دراسة التاريخ السياسي بعمق؟ (Why does someone working for societal reform especially need deep study of political history?)",
+                            correct("ليدرك سنن التدافع وتوازن القوى وأسباب قيام الدول وسقوطها فلا يكرر الأخطاء (To grasp laws of power dynamics, statecraft, and causes of rise and fall without repeating past blunders)"),
+                            wrong("ليحفظ أسماء الخيول والسيوف القديمة فقط (Merely to memorize names of ancient swords and horses)"),
+                            wrong("ليستغني عن الأخلاق والعدل في السياسة (To abandon ethics and justice in politics)"),
+                            wrong("لأن التاريخ الحضاري محرم على المصلحين (Because civilizational history is forbidden to reformers)")),
+                    q("ولماذا يحتاج المربي والداعية إلى استحضار «التاريخ الحضاري» في خطابه التثقيفي؟ (Why does an educator and caller need civilizational history in nurturing youth?)",
+                            correct("ليغرس الثقة والاعتزاز بنماذج العلم والوقف والرحمة والعمران التي أبدعتها الحضارة الإسلامية (To inspire confidence through Islam's radiant achievements in scholarship, endowments, mercy, and civic life)"),
+                            wrong("لإخفاء التاريخ السياسي وإنكار وجود الدول (To deny that Islamic states ever existed)"),
+                            wrong("لتحويل الدروس التربوية إلى جدل حزبي عقيم (To turn education into sterile partisan bickering)"),
+                            wrong("لتقليد الفن الروماني الوثني في المساجد (To imitate pagan statuary inside mosques)")),
+                    q("متى يكون التأثر بالأمم الأخرى علامة صحة ومتى يكون علامة ضعف وتبعية؟ (When is borrowing from other nations healthy versus a sign of weak dependency?)",
+                            correct("يكون صحياً حين تنتقي الأمة المستقلة النافع بعقل ناقد، وضعفاً حين تقلد الغالب في هويته وقيمه بلا تمييز (Healthy when an independent nation selectively adapts useful tools; weak when blindly aping a dominant power's values)"),
+                            wrong("كل استفادة تقنية من أي أمة تُعد كفراً وتبعية (Any technical borrowing is always slavish dependency)"),
+                            wrong("التقليد الأعمى للغالب هو طريق النهوض الوحيد (Blind imitation of the victor is the sole path to revival)"),
+                            wrong("الأمم لا تتبادل المنافع المادية في التاريخ أبداً (Nations never exchange practical tools in history)"))
+            );
+            case 8 -> List.of(
+                    q("أي مدينة أندلسية اشتهرت بمدرسة المترجمين التي نقلت مئات الكتب العربية إلى اللاتينية؟ (Which Andalusian city became famous as a translation hub rendering hundreds of Arabic works into Latin?)",
+                            correct("طُلَيْطِلَة (Toledo) إلى جانب حواضر قرطبة وإشبيلية (Toledo, alongside centers like Cordoba and Seville)"),
+                            wrong("ستوكهولم في السويد (Stockholm in Sweden)"),
+                            wrong("دبلن في أيرلندا (Dublin in Ireland)"),
+                            wrong("موسكو في روسيا (Moscow in Russia)")),
+                    q("كيف أسهم احتكاك الأوروبيين بالمسلمين زمن الحروب الصليبية في الشام ومصر في يقظة أوروبا؟ (How did European contact with the Muslim East during the Crusades impact Europe?)",
+                            correct("شاهد الأوروبيون تفوق المسلمين العلمي والطبي والعمراني والأخلاقي فنقلوا كثيراً من العلوم والصناعات (Europeans witnessed superior Muslim medicine, science, ethics, and institutions and carried knowledge back to Europe)"),
+                            wrong("علم الأوروبيون المسلمين مبادئ الطب والجبر لأول مرة (Crusaders taught Muslims medicine and algebra for the first time)"),
+                            wrong("انقطعت التجارة والمعرفة تماماً لخمسة قرون (All trade and knowledge transfer stopped completely)"),
+                            wrong("ترجم المسلمون كتب الطب من اللغة الإنجليزية الحديثة (Muslims translated medical books from modern English)")),
+                    q("من الملك النورماني في صقلية الذي قرّب العالم المسلم الشريف الإدريسي لرسم خريطة العالم؟ (Which ruler of Sicily commissioned the Muslim geographer Al-Idrisi to create his famous world map and geography?)",
+                            correct("روجر الثاني في صقلية (Roger II of Sicily — commissioning Nuzhat al-Mushtaq)"),
+                            wrong("شارلمان ملك الفرنجة في باريس (Charlemagne in Paris)"),
+                            wrong("هنري الثامن ملك إنجلترا (Henry VIII of England)"),
+                            wrong("إيفان الرهيب في روسيا (Ivan the Terrible)")),
+                    q("لماذا اعتبر المحاضر ستينيات القرن العشرين «قاع المنحنى» الذي تلاه بدء مسار الصحوة والنهوض؟ (Why did Episode 8 view the 1960s as the trough followed by a trajectory of Islamic awakening?)",
+                            correct("لأنه بعد أقصى تغريب وانكسار عسكري وفكري، عادت الأمة تدريجياً لهويتها وعلمها وحيويتها الشبابية (After peak secularization and defeat, broad grassroots return to Islamic identity, scholarship, and resilience began)"),
+                            wrong("لأن العالم الإسلامي اختفى جغرافياً في الستينيات (Because the Muslim world vanished geographically in the 1960s)"),
+                            wrong("لأن الخلافة الراشدة تأسست في عام 1965م (Because the Rashidun Caliphate began in 1965)"),
+                            wrong("لأن الاستعمار الأوروبي بدأ لأول مرة سنة 1990م (Because European colonialism first began in 1990)")),
+                    q("ما الدرس العملي الذي تمنحه معرفة «دورات الازدهار والضعف» لشباب الأمة اليوم؟ (What practical lesson does understanding historical cycles of flourishing and decline give youth today?)",
+                            correct("اليقين بأن الضعف طارئ يزول بالأخذ بأسباب العلم والإيمان والعمل الدؤوب دون يأس ولا استعجال (Confidence that decline is reversible through sustained knowledge, faith, and disciplined effort—without despair or haste)"),
+                            wrong("الاستسلام لليأس بزعم أن التاريخ انتهى إلى الأبد (Surrendering to despair claiming history has ended)"),
+                            wrong("انتظار معجزة خارقة دون بذل أي جهد علمي أو عملي (Waiting passively without scholarly or practical effort)"),
+                            wrong("القطيعة التامة مع التاريخ الإسلامي ولغته (Severing all ties with Islamic history and Arabic)"))
+            );
+            case 9 -> List.of(
+                    q("بماذا تمتاز روايات السيرة النبوية عن تواريخ ملوك وأمم العصور القديمة؟ (How do narrations of the Prophetic Sirah stand apart from ancient royal chronicles?)",
+                            correct("باتصال الأسانيد ونقد الرجال معرفةً بعدالة كل راوٍ وضبطه ومولده ووفاته (Unbroken chains backed by biographical scrutiny of every narrator's honesty, precision, and dates)"),
+                            wrong("بأن مؤلفيها مجهولو الأسماء والأزمان (Their authors are anonymous and undated)"),
+                            wrong("بأنها نُقلت شفهياً فقط دون كتابة لألف عام (They remained purely oral without writing for 1,000 years)"),
+                            wrong("بأنها خلت من ذكر التواريخ والأماكن والأسماء (They omit dates, places, and names)")),
+                    q("كيف تثبت «وثيقة المدينة» والرسائل النبوية للملوك التدوين المبكر في العهد النبوي نفسه؟ (What do the Charter of Medina and the Prophet's ﷺ letters to rulers prove about early documentation?)",
+                            correct("تثبت أن الكتابة والتوثيق السياسي والتشريعي باشره النبي ﷺ وكتّابه في حياته الشريفة (They prove official constitutional and diplomatic writing took place directly during the Prophet's ﷺ lifetime)"),
+                            wrong("تثبت أن العرب لم يعرفوا القلم إلا في القرن الرابع الهجري (They suggest Arabs learned writing only in the 4th century AH)"),
+                            wrong("تثبت أن الرسائل كُتبت باللغة اللاتينية في مكة (They show Meccan letters were written in Latin)"),
+                            wrong("تثبت عدم وجود دولة في المدينة المنورة (They show no governance existed in Medina)")),
+                    q("لماذا يفشل التفسير المادي والاقتصادي في تعليل دعوة النبي محمد ﷺ وصبر أصحابه؟ (Why do materialistic theories fail to explain the Prophet's ﷺ mission and his Companions' steadfastness?)",
+                            correct("لأنه ﷺ عُرض عليه الملك والمال والسيادة بمكة فرفضها، وتوفي ودرعه مرهونة، وبذل أصحابه أموالهم في سبيل الله (He refused Quraysh's offers of wealth and kingship, lived simply until passing away, and Companions sacrificed their fortunes for faith)"),
+                            wrong("لأن مكة كانت أغنى إمبراطورية زراعية في العالم (Because Mecca was the world's richest farming empire)"),
+                            wrong("لأن الصحابة اشترطوا رواتب ذهبية قبل إسلامهم في مكة (Because early Meccan converts received gold salaries)"),
+                            wrong("لأن قريشاً رحبت بالدعوة منذ اليوم الأول بالهدايا (Because Quraysh welcomed the message with gifts on day one)")),
+                    q("ما دور القرآن الكريم بوصفه المصدر الأول الأوثق لأحداث السيرة النبوية؟ (Why is the Noble Quran the supreme primary source anchoring key events of the Sirah?)",
+                            correct("لأنه وحي متواتر محفوظ بحفظ الله نزل مواكباً لوقائع البعثة والهجرة وبدر وأحد والأحزاب والحديبية والفتح (Transmitted by mass tawatur unchanged since revelation alongside the Hijrah, Badr, Uhud, Ahzab, Hudaybiyyah, and Opening of Mecca)"),
+                            wrong("لأن القرآن لا يشير إلى أي غزوة أو حدث في عصر النبوة (Because the Quran never mentions any event of the Prophet's life)"),
+                            wrong("لأن القرآن جُمع لأول مرة في العصر الأموي المتأخر (Because the Quran was first compiled centuries later)"),
+                            wrong("لأنه يرتب الأحداث حسب التقويم الميلادي الحديث (Because it lists events by Gregorian dates)")),
+                    q("ما واجب القارئ عند مصادفة رواية غريبة في كتب الأخبار تخالف الثابت في الصحيحين والقرآن؟ (What should a student do upon encountering an isolated report contradicting authentic Sunnah and Quran?)",
+                            correct("يرجع إلى تحقيق علماء الحديث والسيرة لبيان درجتها من الصحة أو الضعف ولا يبني حكماً على رواية واهية (Check Hadith and Sirah scholars' grading rather than building conclusions on weak or fabricated reports)"),
+                            wrong("يجعل الرواية الضعيفة أصلاً ويردّ بها الآيات المحكمة (Use the weak tale to override authentic scripture)"),
+                            wrong("ينشرها دون تثبت لأن كل مطبوع صحيح (Spread it unverified assuming everything printed is sahih)"),
+                            wrong("يترك دراسة السيرة النبوية بالكامل (Abandon studying the Prophetic biography altogether)"))
+            );
+            case 10 -> List.of(
+                    q("ما الشاهد القرآني الصريح على وجود صفة النبي ﷺ ومبشراته لدى أهل الكتاب؟ (What explicit Quranic testimony affirms the Prophet ﷺ was described in the Torah and Gospel?)",
+                            correct("قوله تعالى: ﴿الَّذِينَ يَتَّبِعُونَ الرَّسُولَ النَّبِيَّ الْأُمِّيَّ الَّذِي يَجِدُونَهُ مَكْتُوبًا عِندَهُمْ فِي التَّوْرَاةِ وَالْإِنجِيلِ﴾ (Surah Al-A'raf 7:157 affirming they find him written with them in the Torah and Gospel)"),
+                            wrong("عدم ورود لفظ التوراة أو الإنجيل في القرآن الكريم (Neither Torah nor Gospel is ever mentioned in the Quran)"),
+                            wrong("النهي عن محاورة أهل الكتاب بالحجة والبرهان (A prohibition against presenting proofs to People of the Book)"),
+                            wrong("القول بأن موسى وعيسى عليهما السلام بُعثا بعد محمد ﷺ (Claiming Moses and Jesus came after Muhammad ﷺ)")),
+                    q("لماذا كانت قبائل اليهود قد استوطنت يثرب (المدينة المنورة) قبل البعثة النبوية؟ (Why had Jewish tribes settled specifically in Yathrib — Medina — prior to the Prophet's ﷺ mission?)",
+                            correct("لأنهم كانوا يجدون في كتبهم أن مهاجَر النبي الخاتم أرض ذات نخل بين حرّتين فانتظروا ظهوره (Because their scriptures described the final Prophet's migration land as an oasis of palm groves between two volcanic plains)"),
+                            wrong("لأن يثرب كانت عاصمة الإمبراطورية الرومانية (Because Yathrib was the capital of Rome)"),
+                            wrong("لاشتغالهم بالملاحة البحرية في المحيط الأطلسي (To sail across the Atlantic Ocean)"),
+                            wrong("لعدم وجود أي نخيل أو آبار مياه في يثرب (Because Yathrib had neither palms nor water)")),
+                    q("ما قصة الصحابي الجليل سلمان الفارسي رضي الله عنه في دلالتها على البشارات النبوية؟ (How does Salman al-Farisi's journey illustrate the pre-Islamic prophecies of the final Messenger?)",
+                            correct("أخبره الرهبان الأحناف بقدوم نبي على دين إبراهيم يهاجر لأرض نخل، وذكروا له علامات النبوة الثلاث فتحققت كلها (Monks foretold a prophet reviving Abraham's faith migrating to palm-groves with three exact signs: accepting gifts, refusing charity, and the seal)"),
+                            wrong("التقى سلمان بالنبي ﷺ في بلاد فارس قبل الهجرة (Salman met the Prophet ﷺ inside Persia)"),
+                            wrong("لم يسمع سلمان عن النبوة إلا بعد فتح المدائن (Salman never heard of prophethood until Ctesiphon opened)"),
+                            wrong("كان سلمان تاجراً من قريش لم يغادر مكة (Salman was a Meccan merchant who never traveled)")),
+                    q("كيف تبطل دقة الأخبار الغيبية والتشريعية للنبي الأمي ﷺ دعوى «التأليف البشري الذكي»؟ (Why do fulfilled prophecies and comprehensive law from an unlettered Prophet ﷺ refute 'mere human authorship'?)",
+                            correct("لأن الذكاء البشري مهما بلغ لا يحيط بالغيب المستقبل المتحقِّق ولا يضع تشريعاً معجزاً خالياً من التناقض في بيئة أمية (No human intellect can know verified future unseen events or produce inimitable, contradiction-free revelation)"),
+                            wrong("لأن العرب في مكة كانوا يمتلكون مراكز أبحاث قانونية دولية (Because Mecca housed international law universities)"),
+                            wrong("لأن النبي ﷺ درس في جامعات أثينا والإسكندرية عشرين عاماً (Because he studied 20 years in Athens and Alexandria)"),
+                            wrong("لأن الوحي لم يتضمن أي تشريع أسري أو مالي (Because revelation contained no family or financial law)")),
+                    q("من هم أبرز علماء الإسلام الذين صنفوا مؤلفات مستقلة في بشارات الكتب السابقة ودلائل النبوة؟ (Which classical Muslim scholars authored famous works on biblical foretellings and proofs of prophethood?)",
+                            correct("أئمة كابن قتيبة والبيهقي والقرطبي وابن تيمية وابن القيم ورحمت الله الهندي في «إظهار الحق» (Scholars like Ibn Qutaybah, Al-Bayhaqi, Ibn Taymiyyah, Ibn al-Qayyim, and Rahmatullah al-Kairanawi)"),
+                            wrong("شعراء الجاهلية أصحاب المعلقات السبع (Pre-Islamic poets of the Mu'allaqat)"),
+                            wrong("فلاسفة اليونان قبل الميلاد (Pre-Christian Greek philosophers)"),
+                            wrong("لم يؤلف أي عالم مسلم كتاباً في دلائل النبوة (Zero Muslim scholars wrote on proofs of prophethood)"))
+            );
+            case 11 -> List.of(
+                    q("بماذا أجاب هرقل عظيم الروم أبا سفيان حين علم أن محمداً ﷺ لم يُجرب عليه كذب قط قبل البعثة؟ (What did Byzantine Emperor Heraclius conclude when Abu Sufyan testified Muhammad ﷺ never lied?)",
+                            correct("قال هرقل: ما كان ليذر الكذب على الناس ويكذب على الله! فشهد بصدقه عقلاً (Heraclius reasoned: He would never refrain from lying to people only to fabricate lies about God!)"),
+                            wrong("زعم هرقل أن الصدق دليل على طلب الملك الدنيوي (Heraclius claimed honesty disproves prophethood)"),
+                            wrong("رفض هرقل الاستماع لأسئلة أبي سفيان تماماً (Heraclius refused to ask Abu Sufyan anything)"),
+                            wrong("كان أبو سفيان مسلماً مهاجراً حين سأله هرقل (Abu Sufyan was already a Muslim emigrant during that questioning)")),
+                    q("ما دلالة مشاركة النبي ﷺ قبل البعثة في «حلف الفضول» ووضع الحجر الأسود بحكمة؟ (What did his pre-revelation participation in Hilf al-Fudul and arbitrating the Black Stone demonstrate?)",
+                            correct("تدل على رسوخ مؤهلات العدل ونصرة المظلوم والحكمة القيادية الجامعة للقلوب قبل الوحي (They demonstrated innate justice, defense of the wronged, and unifying leadership wisdom even before revelation)"),
+                            wrong("تدل على سعيه لتولي رئاسة تجارة الأصنام (They showed an interest in idol commerce)"),
+                            wrong("وقعت هاتان الحادثتان بعد فتح مكة في السنة الثامنة للهجرة (Both occurred after the Year 8 AH Opening of Mecca)"),
+                            wrong("شارك فيهما في مدينة الطائف لا في مكة (Both took place in Ta'if rather than Mecca)")),
+                    q("لماذا كان كون النبي ﷺ «أمّياً» في بيئة عربية محفوظة النسب والبيان حجةً قاطعة على ربانية القرآن؟ (Why was the Prophet's ﷺ unlettered state in an oral Arab environment decisive proof of the Quran's divine origin?)",
+                            correct("لانتفاء أي شبهة تلمذة على كتب الأولين مع تحدي أفصح العرب في أوج بيانهم فعجزوا عن الإتيان بسورة مثله (It ruled out copying earlier books while challenging history's most eloquent Arabs—who could not match even its shortest surah)"),
+                            wrong("لأن العرب لم يكونوا يهتمون بالفصاحة والبيان والشعر (Because Arabs cared nothing for eloquence or poetry)"),
+                            wrong("لأن الأمية تعني عدم القدرة على النطق بالكلام (Because Ummi meant inability to speak aloud)"),
+                            wrong("لأن مكة كانت مليئة بمكتبات الفلسفة الرومانية (Because Mecca was filled with Roman libraries)")),
+                    q("ماذا عنى النبي ﷺ بقوله: «ما بعث الله نبياً إلا رعى الغنم»؟ (What universal prophetic pattern did the Hadith 'Allah sent no prophet who did not shepherd sheep' establish?)",
+                            correct("أن الله ربّى أنبياءه جميعاً في مدرسة الرعاية العملية للصبر والرفق بالرعية قبل سياسة الأمم (Allah trained every prophet through practical shepherding to nurture patience and gentle care before leading humanity)"),
+                            wrong("أن التجارة والزراعة والحدادة محرمة على المؤمنين (That trade, farming, and crafts are forbidden)"),
+                            wrong("أن النبوة خاصة بسكان البادية دون المدن والحواضر (That prophets never lived in towns or cities)"),
+                            wrong("أن موسى وداود عليهما السلام لم يرعيا الغنم قط (That Moses and David never tended sheep)")),
+                    q("لماذا أعرض أبو جهل وأشراف قريش عن الإيمان مع اعترافهم في خلواتهم بصدق النبي ﷺ؟ (Why did Quraysh elites like Abu Jahl reject Islam despite privately acknowledging the Prophet's ﷺ truthfulness?)",
+                            correct("بسبب الكبر والتنافس القبلي وخوفهم على زعامتهم ومنافعهم الدنيوية العاجلة (Out of pride, tribal rivalry, and fear of losing their entrenched status and worldly privileges)"),
+                            wrong("لأنهم شكوا في نسبه الشريف وأمانته في مكة (Because they doubted his lineage or honesty)"),
+                            wrong("لأن القرآن نزل بلغة أعجمية لم يفهموا معانيها (Because the Quran was revealed in a foreign tongue)"),
+                            wrong("لأن النبي ﷺ طالبهم بدفع أموال شخصية له (Because he asked them for personal tribute)"))
+            );
+            case 12 -> List.of(
+                    q("كم كان عمر النبي ﷺ حين تزوج السيدة خديجة رضي الله عنها وكم كان عمرها على المشهور؟ (How old was the Prophet ﷺ when marrying Lady Khadijah, who remained his sole wife until her death?)",
+                            correct("تزوجها في الخامسة والعشرين من عمره وبقي معها وحدها نحو خمسٍ وعشرين سنة حتى وفاتها وهو في الخمسين (He married her at 25 and remained married exclusively to her for ~25 years until he was 50)"),
+                            wrong("تزوجها في الستين من عمره في المدينة المنورة (He married her at age 60 in Medina)"),
+                            wrong("تزوج معها عشر نساء في مكة قبل الهجرة (He married ten wives alongside her in Mecca)"),
+                            wrong("استمر زواجهما عاماً واحداً فقط قبل البعثة (Their marriage lasted only one single year)")),
+                    q("لماذا يُعد إسقاط قوانين وعادات القرن الحادي والعشرين على أعراف الزواج قبل أربعة عشر قرناً مغالطةً تاريخية؟ (Why is judging 7th-century marriage age norms everywhere by 21st-century statutes a historical fallacy?)",
+                            correct("لأن سن البلوغ والزواج المبكر كان عرفاً بشرياً عاماً في الشرق والغرب بلا نكير حتى العصر الحديث، ولم يعترض به أعدى خصومه في قريش (Marriage upon maturity was universal across pre-modern East and West; even his fiercest foes in 7th-century Arabia never saw anything unusual in it)"),
+                            wrong("لأن أوروبا في العصور الوسطى منعت الزواج قبل سن الثلاثين (Because medieval Europe banned marriage under age 30)"),
+                            wrong("لأن قريشاً اعترضت على هذا الزواج في دار الندوة (Because Quraysh objected to the marriage in Mecca)"),
+                            wrong("لأن التاريخ لا يدرس اختلاف البيئات والأزمنة (Because historians ignore historical context)")),
+                    q("كم حديثاً شريفاً تقريباً روت أم المؤمنين السيدة عائشة رضي الله عنها فكانت من أكثر الصحابة روايةً وفقهاً؟ (Roughly how vast was Lady 'A'ishah's scholarly transmission of Prophetic Hadith and jurisprudence?)",
+                            correct("روت أكثر من ألفي حديث شريف وكانت مرجعاً لكبار الصحابة في الفقه والتفسير والطب والشعر (She transmitted over 2,200 Hadiths and served as a juristic authority consulted by senior Companions)"),
+                            wrong("روت ثلاثة أحاديث قصيرة فقط طوال حياتها (She narrated only three short Hadiths)"),
+                            wrong("لم يكن الصحابة يسألونها في مسائل الفقه والمواريث (Companions never consulted her on inheritance or law)"),
+                            wrong("توفيت قبل الهجرة إلى المدينة المنورة (She passed away prior to the Hijrah)")),
+                    q("أي زيجات نبوية كريمة كان من آثارها عتق مئات الأسرى وإسلام قبائل بأكملها؟ (How did marriages such as that to Juwayriyah bint al-Harith impact Arabian tribes socially and politically?)",
+                            correct("أثمرت مصاهرة القبائل تأليف القلوب وعتق الأسرى كزواجه بجويرية بنت الحارث الذي أسلمت ببركته بنو المصطلق (Marriage alliances healed enmities, freed captives en masse, and brought entire tribes like Banu al-Mustaliq peacefully into Islam)"),
+                            wrong("أدت إلى قطيعة القبائل العربية ومنع دخولها في الإسلام (They alienated tribes from Islam)"),
+                            wrong("كانت مقتصرة على بنات ملوك الفرس والروم فقط (They involved only Persian and Byzantine princesses)"),
+                            wrong("لم يكن لها أي أثر اجتماعي أو تشريعي (They had zero social or legal effect)")),
+                    q("ما البدائل التاريخية التي ناقشها الصحابة قبل الاستقرار على «الهجرة» مبدأً للتقويم الإسلامي؟ (What events did the Companions consider before unanimously choosing the Hijrah to start the Islamic calendar?)",
+                            correct("ناقشوا المولد والبعثة والهجرة والوفاة، فاختاروا الهجرة لأنها فرّقت بين الحق والباطل وأقامت كيان الأمة المستقل (They weighed the Birth, Revelation, Hijrah, and Passing—choosing the Hijrah as the birth of the independent Muslim community and state)"),
+                            wrong("ناقشوا اعتماد سنة بناء الأهرامات أو تأسيس روما (They debated using Rome's founding date)"),
+                            wrong("لم يتشاور عمر بن الخطاب مع أي صحابي في الأمر (Caliph 'Umar consulted nobody)"),
+                            wrong("اختاروا يوم معركة اليرموك بدايةً للسنة الهجرية (They chose the Battle of Yarmuk as Year 1)"))
+            );
+            case 13 -> List.of(
+                    q("متى أُذن للمسلمين في القتال لأول مرة وبأي تعليل قرآني صريح؟ (When was permission to fight first granted to Muslims, and for what explicit Quranic reason?)",
+                            correct("بعد الهجرة للمدينة لرد الظلم وحماية حرية التدين: ﴿أُذِنَ لِلَّذِينَ يُقَاتَلُونَ بِأَنَّهُمْ ظُلِمُوا﴾ ودفع العدوان عن دور العبادة (After the Hijrah, strictly because they were wronged and expelled from their homes unjustly — Surah Al-Hajj 22:39-40)"),
+                            wrong("في السنة الأولى من البعثة بمكة المكرمة (In the very first year of revelation in Mecca)"),
+                            wrong("لمصادرة أموال القبائل المسالمة المجاورة (To seize wealth from peaceful neighbors)"),
+                            wrong("بعد وفاة الخلفاء الراشدين الأربعة فقط (Only after the four Rightly Guided Caliphs)")),
+                    q("ما الوصية العسكرية الأخلاقية الشهيرة التي كان يوصي بها النبي ﷺ وأبو بكر الصديق قادة الجيوش؟ (What ethical rules of engagement did the Prophet ﷺ and Abu Bakr command Muslim armies to uphold?)",
+                            correct("لا تخونوا ولا تغدروا ولا تمثّلوا ولا تقتلوا طفلاً ولا شيخاً كبيراً ولا امرأة ولا تقطعوا شجراً مثمراً ولا تتعرضوا للرهبان في صوامعهم (Forbidding treachery, mutilation, and harming children, women, elderly, monks in monasteries, or fruitful trees)"),
+                            wrong("إباحة إحراق المدن وقتل كل من فيها بلا استثناء (Permitting burning cities and harming civilians)"),
+                            wrong("إجبار الرهبان والفلاحين على القتال في الصفوف الأمامية (Forcing monks and farmers into combat)"),
+                            wrong("هدم الكنائس والأديرة فور دخول أي مدينة (Demolishing churches upon entering any city)")),
+                    q("كم استغرق تحول أغلبية سكان مصر والشام تدريجياً وطواعيةً إلى الإسلام بعد الفتح بحسب الدراسات التاريخية؟ (Over how long did the majority of populations in lands like Egypt and Syria voluntarily embrace Islam after the conquest?)",
+                            correct("استغرق قروناً متدرجة من التعايش السلمي والاقناع الفكري دون إكراه، مما يدحض خرافة السيف (It unfolded gradually over centuries of peaceful coexistence, decisively refuting coercion myths)"),
+                            wrong("تحول جميع السكان بالإجبار في أسبوع واحد سنة 20 هـ (Everyone was forced to convert in a single week in 20 AH)"),
+                            wrong("لم يدخل أحد من أهل مصر أو الشام في الإسلام قط (Nobody in Egypt or Syria ever became Muslim)"),
+                            wrong("طرد المسلمون كل السكان الأصليين إلى أوروبا (Muslims expelled native populations to Europe)")),
+                    q("ماذا نصّت «العهدة العمرية» لأهل إيلياء (القدس) حين فتحها عمر بن الخطاب رضي الله عنه؟ (What did Caliph 'Umar's Covenant of Jerusalem — Al-'Uhdah al-'Umariyyah — guarantee its Christian inhabitants?)",
+                            correct("الأمان لأنفسهم وأموالهم وكنائسهم وصلبانهم، وأنه لا يُكرهون على دينهم ولا يُضارّ أحد منهم (Full security for their lives, property, and churches, strictly guaranteeing none would be coerced in religion)"),
+                            wrong("مصادرة جميع الكنائس وتحويلها إلى مخازن عسكرية (Confiscating all churches as military depots)"),
+                            wrong("فرض اللغة العربية بالقوة خلال ثلاثة أيام (Enforcing fluent Arabic within three days)"),
+                            wrong("منع أهل القدس من ممارسة شعائرهم الدينية (Banning residents from practicing their worship)")),
+                    q("كيف يجتمع وصف النبي ﷺ بأنه «رحمة للعالمين» مع قيادته للغزوات الدفاعية العادلة؟ (How does the Prophet's ﷺ title 'Mercy to the Worlds' harmonize with leading defensive expeditions?)",
+                            correct("من تمام الرحمة بالبشرية كفُّ يد المعتدين الظالمين وحماية المستضعفين وإقامة العدل، كما يُستأصل الداء حفظاً للجسم (Restraining violent oppressors and protecting the weak is itself essential mercy and justice for humanity)"),
+                            wrong("الرحمة تعني ترك الظالمين يقتلون المستضعفين دون دفاع (Mercy means letting aggressors slaughter the defenseless)"),
+                            wrong("ألغت آيات القتال وصف الرحمة من الشريعة الإسلامية (Defense abolished mercy in Islamic ethics)"),
+                            wrong("لم يشارك النبي ﷺ في أي غزوة بنفسه قط (The Prophet ﷺ never attended any expedition)"))
+            );
+            case 14 -> List.of(
+                    q("ما أول عمل مؤسسي وحضاري بادر إليه النبي ﷺ فور وصوله إلى المدينة المنورة؟ (What were the very first civic institutions the Prophet ﷺ established upon arriving in Medina?)",
+                            correct("بناء المسجد مركزاً للعبادة والعلم والشورى، والمؤاخاة بين المهاجرين والأنصار، وكتابة وثيقة المدينة (Building the Mosque as community hub, forging the Muhajirun-Ansar Brotherhood, and drafting the Charter of Medina)"),
+                            wrong("تشييد قصر ملكي محاط بالحرس والأسوار (Building a royal palace surrounded by guards)"),
+                            wrong("إعلان الحرب على جميع القبائل العربية في يوم واحد (Declaring war on all tribes on day one)"),
+                            wrong("إغلاق أسواق المدينة ومنع البيع والشراء (Closing markets and halting commerce)")),
+                    q("كم تبلغ نسبة أوقات القتال الفعلي مقارنةً بمجموع سنوات البعثة النبوية الثلاث والعشرين؟ (Roughly what fraction of the 23-year Prophetic mission involved actual battlefield combat?)",
+                            correct("أيام معدودة لا تتجاوز جزءاً ضئيلاً جداً من ثلاثٍ وعشرين سنة قُضيت في التربية والتشريع والعمران والدعوة (Only a tiny fraction of days across 23 years devoted overwhelmingly to faith, education, law, ethics, and society-building)"),
+                            wrong("تسعون بالمائة من أيام الثلاث والعشرين سنة (90% of every single year for 23 years)"),
+                            wrong("ثلاث عشرة سنة متواصلة داخل مكة المكرمة (13 nonstop years inside Mecca)"),
+                            wrong("نصف العام في الشتاء ونصفه في الصيف بلا انقطاع (Every winter and summer without interruption)")),
+                    q("أين يجد الباحث تفاصيل الحضارة النبوية من قضاء واقتصاد وأسرة وآداب وتكافل اجتماعي؟ (Where in Islamic sources are the rich civic, legal, economic, and ethical details of the Prophetic era preserved?)",
+                            correct("في دواوين السنة النبوية وكتب الشمائل والأموال والأحكام الجليلية والآداب والتراجم إلى جانب كتب السيرة (Across the vast Hadith collections, Shama'il, public finance works, jurisprudence, and biographical literature)"),
+                            wrong("لا توجد لها أي مصادر مكتوبة في التراث الإسلامي (No written sources exist for them)"),
+                            wrong("في كتب الأساطير اليونانية وحدها (Only in Greek mythological texts)"),
+                            wrong("ضاعت جميعها ولم يبقَ إلا أسماء السرايا العسكرية (All were lost except lists of battles)")),
+                    q("بماذا تميزت «سوق المدينة الإسلامية» التي خطّها النبي ﷺ للمسلمين؟ (What characterized the independent market the Prophet ﷺ established in Medina?)",
+                            correct("تحرير الاقتصاد من الاحتكار والربا والغش والضرائب الجائرة مع الرقابة الأخلاقية العادلة (Freeing trade from usury, monopoly, fraud, and unjust market tolls under clear ethical rules)"),
+                            wrong("فرض ضرائب باهظة يومية على صغار الباعة (Imposing heavy daily taxes on small vendors)"),
+                            wrong("قصر البيع والشراء على الأغنياء وحدهم (Restricting commerce to wealthy elites)"),
+                            wrong("السماح بالربا والاحتكار لزيادة الأرباح (Permitting usury and hoarding)")),
+                    q("كيف تعامل النبي ﷺ مع الأسرى المتعلمين يوم بدر في دلالته على مكانة العلم؟ (What famous ransom policy after Badr demonstrated the Prophetic priority placed on literacy and education?)",
+                            correct("جعل فداء الأسير الكاتب أن يعلّم عشرةً من أبناء المسلمين القراءة والكتابة (Allowing literate captives to earn their freedom by teaching ten Muslim youths to read and write)"),
+                            wrong("منع أبناء الصحابة من تعلم الكتابة والخط (Forbidding youth from learning writing)"),
+                            wrong("اشترط دفع القناطير من الذهب فقط دون استثناء (Accepting massive gold sums exclusively)"),
+                            wrong("أمر بإتلاف جميع الأقلام والصحف المكتوبة (Ordering pens and scrolls destroyed)"))
+            );
+            default -> List.of(
+                    q("كم سنة استمرت فترة «الخلافة الراشدة» وفق الحديث النبوي الشريف والواقع التاريخي؟ (How many years did the Rightly Guided Caliphate span from Abu Bakr through 'Ali and Al-Hasan?)",
+                            correct("ثلاثين سنةً (من 11 هـ إلى 40/41 هـ) (Thirty years — from 11 AH to 40/41 AH)"),
+                            wrong("خمس سنوات فقط (Only five years)"),
+                            wrong("مائتي سنة متصلة في دمشق وبغداد (Two hundred years in Damascus and Baghdad)"),
+                            wrong("ثلاثة قرون في الأندلس (Three centuries in Al-Andalus)")),
+                    q("ما الترتيب التاريخي الصحيح للخلفاء الراشدين الأربعة رضي الله عنهم؟ (What is the exact chronological order of the four Rightly Guided Caliphs?)",
+                            correct("أبو بكر الصديق، ثم عمر بن الخطاب، ثم عثمان بن عفان، ثم علي بن أبي طالب رضي الله عنهم (Abu Bakr, then 'Umar, then 'Uthman, then 'Ali — may Allah be pleased with them)"),
+                            wrong("عمر، ثم علي، ثم أبو بكر، ثم عثمان ('Umar, then 'Ali, then Abu Bakr, then 'Uthman)"),
+                            wrong("عثمان، ثم أبو بكر، ثم عمر، ثم علي ('Uthman, then Abu Bakr, then 'Umar, then 'Ali)"),
+                            wrong("علي، ثم عثمان، ثم عمر، ثم أبو بكر ('Ali, then 'Uthman, then 'Umar, then Abu Bakr)")),
+                    q("ما الإنجاز العظيم الذي حُفظ به نص المصحف الشريف في عهد أبي بكر الصديق وعثمان بن عفان رضي الله عنهما؟ (What monumental preservation effort did Abu Bakr and 'Uthman accomplish for the Ummah?)",
+                            correct("جمع القرآن الكريم في مصحف إمام واحد متواتر ونسخه وتوزيعه على الأمصار حسماً للاختلاف (Compiling the Quran in a master Mushaf and distributing verified copies across major cities)"),
+                            wrong("تأليف كتب المنطق اليوناني بالعربية (Translating Greek logic manuals)"),
+                            wrong("بناء الأسطول البحري في المحيط الهندي وحده (Building fleets in the Indian Ocean only)"),
+                            wrong("نقل عاصمة الخلافة إلى مدينة قرطبة (Moving the capital to Cordoba)")),
+                    q("بماذا افتتح أبو بكر الصديق رضي الله عنه خطبته الدستورية الأولى بعد بيعته بالخلافة؟ (What constitutional principle did Abu Bakr proclaim in his inaugural address as Caliph?)",
+                            correct("«إني قد وُلّيت عليكم ولست بخيركم، فإن أحسنت فأعينوني وإن أسأت فقوّموني، والضعيف فيكم قوي عندي حتى آخذ الحق له» (Declaring accountability before the people, inviting correction, and pledging to secure the weak's right from the strong)"),
+                            wrong("إعلان عصمة الحاكم ومنع الرعية من النصيحة (Claiming ruler infallibility and forbidding counsel)"),
+                            wrong("تخصيص أموال بيت المال لأسرته وقبيلته (Reserving public funds for his own clan)"),
+                            wrong("إلغاء الشورى والقضاء المستقل (Abolishing consultation and independent courts)")),
+                    q("كيف أثبت القضاء في عهد علي بن أبي طالب وعمر بن الخطاب رضي الله عنهما استقلال العدالة الإسلامية؟ (How did court cases involving Caliph 'Umar and Caliph 'Ali prove judicial independence?)",
+                            correct("مثول الخليفة نفسه خصماً متساوياً أمام القاضي مع المواطن المسلم أو الذمي ويُقضى بالبينة العادلة ولو على الخليفة (The Caliph stood as an equal litigant beside an ordinary citizen or non-Muslim dhimmi, bound by the judge's evidence-based ruling)"),
+                            wrong("إعفاء الخليفة والولاة من المثول أمام القضاة مطلقاً (Exempting Caliphs and governors from courts)"),
+                            wrong("قصر التقاضي على أشراف قريش دون عامة الناس (Restricting courts to Quraishi nobles)"),
+                            wrong("الحكم لصالح الحاكم دائماً بلا شهود ولا بينة (Ruling automatically for the ruler without evidence)"))
+            );
+        };
     }
 
     private static Map<String, String> vocab(String arabic, String translit, String english, String note) {

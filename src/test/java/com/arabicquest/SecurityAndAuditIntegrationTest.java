@@ -44,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "ADMIN_SECRET_PATH=custom-vault-hq",
         "GOOGLE_CLIENT_ID=test-client-123.apps.googleusercontent.com",
         "JWT_SECRET=unit-test-jwt-secret-key-with-more-than-32-bytes-entropy-999",
-        "QUIZ_WATCH_CAP_SECONDS=60",
+        "QUIZ_WATCH_CAP_SECONDS=0",
         "QUIZ_RETRY_COOLDOWN_SECONDS=300",
         "LOGIN_MAX_ATTEMPTS=5",
         "LOGIN_LOCKOUT_SECONDS=600"
@@ -322,13 +322,14 @@ class SecurityAndAuditIntegrationTest {
         assertThat(active.get(0).getVocabularyJson()).isNotBlank();
         assertThat(active.get(0).getVocabularyJson()).isNotEqualTo(active.get(1).getVocabularyJson());
 
-        // Verify option #1 is NOT always true across seeded questions
+        // Verify all 15 episodes have 20 questions, 100% pass requirement, and shuffled options
         int[] stats = transactionTemplate.execute(status -> {
             int nonFirst = 0;
             int total = 0;
             for (Episode ep : active) {
                 Quiz qz = quizRepository.findByEpisodeId(ep.getId()).orElseThrow();
-                assertThat(qz.getQuestions()).hasSizeGreaterThanOrEqualTo(5);
+                assertThat(qz.getPassingScorePercentage()).isEqualTo(100.0);
+                assertThat(qz.getQuestions()).hasSize(20);
                 for (Question q : qz.getQuestions()) {
                     total++;
                     if (!Boolean.TRUE.equals(q.getOptions().get(0).getIsCorrect())) {
@@ -338,8 +339,12 @@ class SecurityAndAuditIntegrationTest {
             }
             return new int[]{total, nonFirst};
         });
-        assertThat(stats[0]).isGreaterThanOrEqualTo(70);
-        assertThat(stats[1]).isGreaterThan(20);
+        assertThat(stats[0]).isEqualTo(300);
+        assertThat(stats[1]).isGreaterThan(150);
+
+        // Verify mode buttons ("Arabic + English Subs" / "English Dub") were removed from index.html
+        String indexHtml = StreamUtils.copyToString(new ClassPathResource("static/index.html").getInputStream(), StandardCharsets.UTF_8);
+        assertThat(indexHtml).doesNotContain("Arabic + English Subs").doesNotContain("English Dub");
 
         // Verify no password hashes or isCorrect flags leak in API responses
         String studentsJson = mockMvc.perform(get("/api/admin/students")
@@ -383,7 +388,13 @@ class SecurityAndAuditIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().is4xxClientError());
 
-        // 2.2: Submitting quiz BEFORE watching is blocked with 403 Forbidden
+        // 2.2: Submitting quiz BEFORE 10 minutes (e.g. 599s) is blocked with 403 Forbidden
+        User earner = userRepository.findById(studentId).orElseThrow();
+        WatchSession ws1 = new WatchSession(earner, ep1, WatchMode.ENGLISH_DUB);
+        ws1.setModeLocked(true);
+        ws1.setVerifiedWatchSeconds(599);
+        watchSessionRepository.save(ws1);
+
         Map<String, Object> perfectEp1Payload = buildWinningSubmission(ep1.getId(), "ARABIC_SUB");
         mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
@@ -391,12 +402,28 @@ class SecurityAndAuditIntegrationTest {
                         .content(objectMapper.writeValueAsString(perfectEp1Payload)))
                 .andExpect(status().isForbidden());
 
-        // Simulate watching Episode 1 in ENGLISH_DUB ($10), then try spoofing ARABIC_SUB ($15) on submission!
-        User earner = userRepository.findById(studentId).orElseThrow();
-        WatchSession ws1 = new WatchSession(earner, ep1, WatchMode.ENGLISH_DUB);
-        ws1.setModeLocked(true);
+        // Reach exact 10-minute (600s) watch requirement!
         ws1.setVerifiedWatchSeconds(600);
         watchSessionRepository.save(ws1);
+
+        // Answering 19 out of 20 (95%) MUST FAIL because pass requirement is strictly 100% (20/20)!
+        Map<String, Object> nineteenOfTwentyPayload = buildAlmostWinningSubmission(ep1.getId(), "ARABIC_SUB");
+        MvcResult ep1AlmostRes = mockMvc.perform(post("/api/student/quizzes/submit")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(nineteenOfTwentyPayload)))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode ep1AlmostJson = objectMapper.readTree(ep1AlmostRes.getResponse().getContentAsString());
+        assertThat(ep1AlmostJson.get("passed").asBoolean()).isFalse();
+        assertThat(ep1AlmostJson.get("scorePercentage").asDouble()).isEqualTo(95.0);
+        assertThat(new BigDecimal(ep1AlmostJson.get("rewardAmount").asText())).isEqualByComparingTo("0.00");
+
+        // Clear cooldown from the 95% failed attempt so we can submit 20/20 (100%)
+        QuizAttempt ep1Fail = quizAttemptRepository
+                .findTopByStudentIdAndEpisodeIdAndPassedFalseOrderByAttemptedAtDesc(studentId, ep1.getId())
+                .orElseThrow();
+        quizAttemptRepository.delete(ep1Fail);
 
         MvcResult ep1PassRes = mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
@@ -654,6 +681,7 @@ class SecurityAndAuditIntegrationTest {
         long ep1Id = epNodes.get(0).get("id").asLong();
         long ep2Id = epNodes.get(1).get("id").asLong();
         assertThat(epNodes.get(0).get("locked").asBoolean()).isFalse();
+        assertThat(epNodes.get(0).get("watchStatus").get("requiredWatchSeconds").asInt()).isEqualTo(600);
         assertThat(epNodes.get(1).get("locked").asBoolean()).isTrue();
         assertThat(epNodes.get(1).get("unlockAfterEpisodeNumber").asInt()).isEqualTo(1);
 
@@ -738,6 +766,28 @@ class SecurityAndAuditIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalEarned").value(0.0));
+    }
+
+    private Map<String, Object> buildAlmostWinningSubmission(Long episodeId, String watchMode) {
+        return transactionTemplate.execute(status -> {
+            Quiz quiz = quizRepository.findByEpisodeId(episodeId).orElseThrow();
+            Map<String, Long> answers = new HashMap<>();
+            List<Question> questions = quiz.getQuestions();
+            for (int i = 0; i < questions.size(); i++) {
+                Question q = questions.get(i);
+                final boolean pickCorrect = (i > 0); // miss exactly 1 out of 20 -> 19/20 = 95%
+                QuestionOption chosen = q.getOptions().stream()
+                        .filter(opt -> Boolean.TRUE.equals(opt.getIsCorrect()) == pickCorrect)
+                        .findFirst()
+                        .orElseThrow();
+                answers.put(String.valueOf(q.getId()), chosen.getId());
+            }
+            return Map.of(
+                    "episodeId", episodeId,
+                    "watchMode", watchMode,
+                    "answers", answers
+            );
+        });
     }
 
     private Map<String, Object> buildWinningSubmission(Long episodeId, String watchMode) {

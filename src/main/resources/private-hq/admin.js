@@ -441,7 +441,7 @@ function renderAttemptsTable() {
     if (!filtered || filtered.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 7;
+        td.colSpan = 6;
         td.style.textAlign = 'center';
         td.style.color = 'var(--text-muted)';
         td.style.padding = '2rem';
@@ -462,15 +462,6 @@ function renderAttemptsTable() {
         const tdEp = document.createElement('td');
         tdEp.style.fontFamily = "'Cairo', sans-serif";
         tdEp.textContent = `Ep. ${a.episodeNumber}: ${a.episodeTitle}`;
-
-        const tdMode = document.createElement('td');
-        const modeSpan = document.createElement('span');
-        modeSpan.style.fontSize = '0.8rem';
-        modeSpan.style.background = 'rgba(255,255,255,0.06)';
-        modeSpan.style.padding = '0.2rem 0.5rem';
-        modeSpan.style.borderRadius = '4px';
-        modeSpan.textContent = a.watchMode;
-        tdMode.appendChild(modeSpan);
 
         const tdScore = document.createElement('td');
         const strongScore = document.createElement('strong');
@@ -497,7 +488,6 @@ function renderAttemptsTable() {
 
         tr.appendChild(tdStudent);
         tr.appendChild(tdEp);
-        tr.appendChild(tdMode);
         tr.appendChild(tdScore);
         tr.appendChild(tdStatus);
         tr.appendChild(tdReward);

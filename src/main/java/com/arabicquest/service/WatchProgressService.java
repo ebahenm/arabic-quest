@@ -25,7 +25,7 @@ import java.util.Set;
 public class WatchProgressService {
 
     private static final int MAX_HEARTBEAT_CREDIT_SECONDS = 25;
-    private static final double REQUIRED_WATCH_RATIO = 0.85;
+    private static final int DEFAULT_REQUIRED_WATCH_SECONDS = 600; // 10 minutes of verified video playback
 
     private final WatchSessionRepository watchSessionRepository;
     private final QuizAttemptRepository quizAttemptRepository;
@@ -51,7 +51,7 @@ public class WatchProgressService {
 
     public int computeRequiredWatchSeconds(Episode episode) {
         int duration = Math.max(60, episode.getDurationSeconds());
-        int required = Math.max(30, (int) Math.round(duration * REQUIRED_WATCH_RATIO));
+        int required = Math.min(DEFAULT_REQUIRED_WATCH_SECONDS, duration);
         if (watchCapSeconds > 0) {
             return Math.min(watchCapSeconds, required);
         }

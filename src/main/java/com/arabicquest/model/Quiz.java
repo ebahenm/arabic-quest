@@ -20,7 +20,7 @@ public class Quiz {
     private Episode episode;
 
     @Column(name = "passing_score_percentage", nullable = false)
-    private Double passingScorePercentage = 80.0;
+    private Double passingScorePercentage = 100.0;
 
     @OneToMany(mappedBy = "quiz", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("questionOrder ASC")

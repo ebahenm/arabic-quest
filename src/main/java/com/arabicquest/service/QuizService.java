@@ -59,8 +59,11 @@ public class QuizService {
         watchProgressService.assertEpisodeUnlocked(user, episode, betaUnlockRequested);
 
         Quiz quiz = quizRepository.findByEpisodeId(episodeId).orElse(null);
-        if (quiz == null || quiz.getQuestions().isEmpty()) {
+        if (quiz == null || quiz.getQuestions().size() < AiQuizService.TARGET_QUESTION_COUNT) {
             quiz = aiQuizService.generateQuizForEpisode(episodeId);
+        } else if (quiz.getPassingScorePercentage() == null || quiz.getPassingScorePercentage() < 100.0) {
+            quiz.setPassingScorePercentage(100.0);
+            quiz = quizRepository.save(quiz);
         }
 
         List<QuestionViewResponse> questionViews = quiz.getQuestions().stream().map(q -> {
@@ -144,7 +147,10 @@ public class QuizService {
         }
 
         double scorePercentage = ((double) correctAnswers / totalQuestions) * 100.0;
-        boolean passed = scorePercentage >= quiz.getPassingScorePercentage();
+        double requiredPassPct = quiz.getPassingScorePercentage() != null ? quiz.getPassingScorePercentage() : 100.0;
+        boolean passed = requiredPassPct >= 100.0
+                ? (correctAnswers == totalQuestions)
+                : (scorePercentage + 1e-6 >= requiredPassPct);
 
         BigDecimal rewardAmount = BigDecimal.ZERO;
         String message;
@@ -161,7 +167,7 @@ public class QuizService {
                 // Persist unique episode reward claim
                 episodeRewardClaimRepository.save(new EpisodeRewardClaim(student, episode, effectiveWatchMode, rewardAmount));
 
-                message = String.format("Congratulations! You passed with %.0f%% (%d/%d) and earned $%s!",
+                message = String.format("Congratulations! Perfect %.0f%% (%d/%d) — you earned $%s!",
                         scorePercentage, correctAnswers, totalQuestions, rewardAmount);
 
                 // Check one-time playlist completion bonus (guarded by UNIQUE(student_id, playlist_id))
@@ -186,8 +192,8 @@ public class QuizService {
                         scorePercentage, correctAnswers, totalQuestions);
             }
         } else {
-            message = String.format("Score: %.0f%% (%d/%d). Passing mark is %.0f%%. Review the lesson and try again after the cooldown!",
-                    scorePercentage, correctAnswers, totalQuestions, quiz.getPassingScorePercentage());
+            message = String.format("Score: %.0f%% (%d/%d). Passing mark is %.0f%% (all %d questions must be correct). Review the lesson and try again after the cooldown!",
+                    scorePercentage, correctAnswers, totalQuestions, requiredPassPct, totalQuestions);
         }
 
         QuizAttempt attempt = new QuizAttempt(

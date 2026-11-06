@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>تراثُنا • Turathtona | Student Portal</title>
-    <link rel="stylesheet" href="/style.css?v=4">
+    <link rel="stylesheet" href="/style.css?v=5">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
     <style>
         .student-user-pill {
@@ -218,7 +218,7 @@
         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
             <span class="beta-pill">🧪 BETA SANDBOX</span>
             <span id="beta-status-msg" style="font-size: 0.8rem; color: #e2e8f0;">
-                Test player modes, watch timer, sequential locks, quizzes &amp; rewards safely.
+                Test 10m watch timer, sequential locks, 20-question (100% pass) quizzes &amp; rewards safely.
             </span>
         </div>
         <div class="beta-actions">
@@ -247,7 +247,7 @@
                         <div id="progress-bar-fill" class="progress-bar-fill"></div>
                     </div>
                     <div class="bonus-milestone">
-                        <span>🏆 Pass each episode (80%+) in order to unlock the next &amp; earn the $100.00 Bonus!</span>
+                        <span>🏆 Score 100% (20/20) on each episode in order to unlock the next &amp; earn the $100.00 Bonus!</span>
                     </div>
                 </div>
             </div>
@@ -262,26 +262,9 @@
                 <div class="mode-card-top">
                     <div class="mode-info">
                         <h2 id="current-episode-title">Loading episode...</h2>
-                        <p id="mode-helper-text">Choose your viewing &amp; language mode. Switching reconfigures the player audio/captions and sets your reward rate:</p>
+                        <p id="mode-helper-text">Watch 10 minutes of the episode to unlock the 20-question quiz. Score 100% (20/20) to earn +$15.00 and unlock the next episode.</p>
                     </div>
-
-                    <div class="mode-toggle-group">
-                        <button type="button" id="btn-mode-arabic" class="mode-button active" onclick="selectMode('ARABIC_SUB')">
-                            <span class="mode-name">🎧 Arabic + English Subs</span>
-                            <span class="mode-reward">+$15.00 Reward</span>
-                        </button>
-                        <button type="button" id="btn-mode-english" class="mode-button" onclick="selectMode('ENGLISH_DUB')">
-                            <span class="mode-name">🔊 English Dub</span>
-                            <span class="mode-reward">+$10.00 Reward</span>
-                        </button>
-                    </div>
-                </div>
-
-                <div id="active-mode-banner" class="mode-status-banner">
-                    <span id="active-mode-banner-text">🎧 Active Mode: Original Arabic Audio + English Subtitles (+$15.00 Reward) — English captions auto-enabled on player.</span>
-                    <button type="button" class="btn-reset-mode" onclick="applyModeToLivePlayer(true)" style="border-color: rgba(255,255,255,0.25); color: #f8fafc;">
-                        ↻ Sync Player Audio/CC
-                    </button>
+                    <span class="quiz-pass-badge" style="white-space: nowrap; font-size: 0.85rem; padding: 0.45rem 0.9rem;">+$15.00 Episode Reward</span>
                 </div>
             </div>
 
@@ -289,31 +272,27 @@
                 <div id="yt-player-mount"></div>
             </div>
 
-            <!-- Live Video-Playback Watch Progress & Mode Lock Bar -->
+            <!-- Live Video-Playback Watch Progress Bar (10 Minutes Required) -->
             <div class="watch-progress-strip">
                 <div class="watch-progress-row">
                     <div>
-                        <strong id="watch-status-label" style="color: #a7f3d0;">⏱️ Watch Progress: 00:00 / --:-- (Play video to start timer)</strong>
-                        <span id="locked-mode-badge" style="margin-left: 0.65rem; font-size: 0.78rem; color: var(--text-muted);"></span>
+                        <strong id="watch-status-label" style="color: #a7f3d0;">⏱️ Watch Progress: 00:00 / 10:00 (Play video to start timer)</strong>
                     </div>
-                    <button type="button" id="btn-reset-mode" class="btn-reset-mode" style="display: none;" onclick="handleSwitchLockedMode()">
-                        Switch Mode &amp; Restart Timer
-                    </button>
                 </div>
                 <div class="progress-bar-bg">
                     <div id="watch-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
                 </div>
                 <div id="watch-live-subnote" style="font-size: 0.75rem; color: var(--text-subtle);">
-                    Timer counts real video playback only (85% of episode length required). Pausing or skipping forward does not add watch time.
+                    Watch 10 minutes (10:00) of real video playback to unlock the 20-question quiz. Pausing or skipping forward does not add watch time.
                 </div>
             </div>
 
-            <!-- External YouTube Extension Support Banner -->
+            <!-- External YouTube Support Banner -->
             <div class="extension-support-banner">
                 <div>
-                    <strong style="color: #93c5fd; font-size: 0.88rem;">Using browser translation or dubbing extensions on YouTube?</strong>
+                    <strong style="color: #93c5fd; font-size: 0.88rem;">Prefer watching directly on YouTube?</strong>
                     <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">
-                        Open directly on YouTube with your selected language parameters. Your chosen reward mode locks in and tracks while you watch!
+                        Open this episode directly on YouTube. Your 10-minute watch progress tracks automatically while you watch!
                     </p>
                 </div>
                 <div style="display: flex; gap: 0.65rem; align-items: center;">
@@ -329,7 +308,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                     <div>
                         <h3 style="font-size: 1.05rem; font-weight: 800;">📚 Episode Vocabulary &amp; Translation Guide</h3>
-                        <p style="font-size: 0.82rem; color: var(--text-muted);">Key Arabic terms and historical concepts from this specific episode:</p>
+                        <p style="font-size: 0.82rem; color: var(--text-muted);">Review these key Arabic terms carefully — they are tested alongside the lecture in the 20-question quiz!</p>
                     </div>
                     <span class="btn-ai-auto-badge">⚡ Episode Study Lexicon</span>
                 </div>
@@ -337,16 +316,17 @@
                 <div id="vocab-grid" class="vocab-grid"></div>
             </div>
 
-            <!-- Interactive Quiz Box (Unlocked only after verified watch time) -->
+            <!-- Interactive 20-Question Quiz Box (Unlocked only after 10m verified watch time) -->
             <section id="quiz-section" class="quiz-box" style="display: none;">
                 <div class="quiz-header">
                     <div>
                         <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                            <h3>Comprehension Quiz</h3>
-                            <span class="quiz-pass-badge">Pass Mark: 80% (4/5)</span>
+                            <h3 id="quiz-heading-title">Comprehension Quiz (20 Questions)</h3>
+                            <span id="quiz-pass-badge" class="quiz-pass-badge">Pass Mark: 100% (20/20)</span>
+                            <span id="quiz-answered-badge" class="btn-ai-auto-badge">Answered: 0 / 20</span>
                         </div>
                         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                            Pass with 80%+ to claim your episode reward and unlock the next episode! Failed attempts trigger a 10-minute review cooldown.
+                            Score 100% (all 20 questions correct) to claim your +$15.00 episode reward and unlock the next episode! Failed attempts trigger a 10-minute review cooldown.
                         </p>
                     </div>
                 </div>
@@ -381,6 +361,6 @@
         </div>
     </div>
 
-    <script src="/app.js?v=4"></script>
+    <script src="/app.js?v=5"></script>
 </body>
 </html>
