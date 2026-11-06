@@ -10,5 +10,7 @@ public record UpdateStudentAccountRequest(
         String fullName,
 
         @Size(max = 128, message = "Password must not exceed 128 characters")
-        String newPassword
+        String newPassword,
+
+        Boolean betaTester
 ) {}

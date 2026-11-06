@@ -326,7 +326,8 @@ public class AuthController {
                 user.getUsername(),
                 user.getFullName(),
                 user.getRole().name(),
-                defaultPasswordWarning
+                defaultPasswordWarning,
+                user.hasBetaAccess()
         ));
     }
 

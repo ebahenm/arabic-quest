@@ -47,12 +47,16 @@ public class QuizService {
     }
 
     @Transactional
-    public QuizViewResponse getStudentQuizView(Long episodeId) {
+    public QuizViewResponse getStudentQuizView(String username, Long episodeId, boolean betaUnlockRequested) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
         Episode episode = episodeRepository.findById(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found with id: " + episodeId));
         if (episode.isArchived()) {
             throw new IllegalArgumentException("Episode not found");
         }
+
+        watchProgressService.assertEpisodeUnlocked(user, episode, betaUnlockRequested);
 
         Quiz quiz = quizRepository.findByEpisodeId(episodeId).orElse(null);
         if (quiz == null || quiz.getQuestions().isEmpty()) {
@@ -75,6 +79,11 @@ public class QuizService {
 
     @Transactional
     public QuizResultResponse submitQuiz(String username, QuizSubmissionRequest request) {
+        return submitQuiz(username, request, false);
+    }
+
+    @Transactional
+    public QuizResultResponse submitQuiz(String username, QuizSubmissionRequest request, boolean betaUnlockRequested) {
         // Acquire PESSIMISTIC_WRITE row lock on User to serialize concurrent submissions
         User student = userRepository.findByUsernameForUpdate(username)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
@@ -85,6 +94,8 @@ public class QuizService {
         if (episode.isArchived()) {
             throw new IllegalArgumentException("Episode is archived and no longer accepting submissions");
         }
+
+        watchProgressService.assertEpisodeUnlocked(student, episode, betaUnlockRequested);
 
         Quiz quiz = quizRepository.findByEpisodeId(episode.getId())
                 .orElseThrow(() -> new IllegalArgumentException("No quiz configured for episode id: " + episode.getId()));

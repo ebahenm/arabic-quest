@@ -44,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "ADMIN_SECRET_PATH=custom-vault-hq",
         "GOOGLE_CLIENT_ID=test-client-123.apps.googleusercontent.com",
         "JWT_SECRET=unit-test-jwt-secret-key-with-more-than-32-bytes-entropy-999",
-        "QUIZ_MIN_WATCH_SECONDS=60",
+        "QUIZ_WATCH_CAP_SECONDS=60",
         "QUIZ_RETRY_COOLDOWN_SECONDS=300",
         "LOGIN_MAX_ATTEMPTS=5",
         "LOGIN_LOCKOUT_SECONDS=600"
@@ -624,6 +624,120 @@ class SecurityAndAuditIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"currentPassword\":\"MasterStrongPass!2026\",\"newUsername\":\"hqadmin\",\"newPassword\":\"\"}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void sequentialEpisodeLocking_realDurationWatchCalibration_andBetaSandboxControlsWork() throws Exception {
+        // 1. Create a standard student
+        String createdJson = mockMvc.perform(post("/api/admin/students")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"seqstudent\",\"password\":\"SeqStudent#88\",\"fullName\":\"Sequential Learner\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long studentId = objectMapper.readTree(createdJson).get("id").asLong();
+
+        String studentLogin = mockMvc.perform(post("/api/auth/login")
+                        .with(req -> { req.setRemoteAddr("10.0.12.1"); return req; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"seqstudent\",\"password\":\"SeqStudent#88\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String studentBearer = "Bearer " + objectMapper.readTree(studentLogin).get("token").asText();
+
+        // 2. Episode 1 is unlocked, Episode 2 is locked until Episode 1 is passed
+        String epListJson = mockMvc.perform(get("/api/student/episodes")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode epNodes = objectMapper.readTree(epListJson);
+        long ep1Id = epNodes.get(0).get("id").asLong();
+        long ep2Id = epNodes.get(1).get("id").asLong();
+        assertThat(epNodes.get(0).get("locked").asBoolean()).isFalse();
+        assertThat(epNodes.get(1).get("locked").asBoolean()).isTrue();
+        assertThat(epNodes.get(1).get("unlockAfterEpisodeNumber").asInt()).isEqualTo(1);
+
+        // Even if standard student passes ?betaUnlock=true, Episode 2 remains locked!
+        String spoofBetaList = mockMvc.perform(get("/api/student/episodes?betaUnlock=true")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(spoofBetaList).get(1).get("locked").asBoolean()).isTrue();
+
+        // Standard student cannot fetch or submit Episode 2 quiz before passing Episode 1 -> 403 Forbidden
+        mockMvc.perform(get("/api/student/quizzes/" + ep2Id)
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/student/quizzes/submit")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildWinningSubmission(ep2Id, "ARABIC_SUB"))))
+                .andExpect(status().isForbidden());
+
+        // 3. Standard student is blocked from Beta Sandbox endpoints -> 403 Forbidden
+        mockMvc.perform(post("/api/beta/episodes/" + ep1Id + "/unlock-watch")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/beta/reset-progress")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isForbidden());
+
+        // 4. Metadata duration calibration updates Episode durationSeconds from YouTube player
+        mockMvc.perform(post("/api/student/episodes/" + ep1Id + "/heartbeat")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"watchMode\":\"ARABIC_SUB\",\"external\":false,\"videoEnded\":false,\"watchedDeltaSeconds\":0,\"videoDurationSeconds\":1440,\"playing\":false}"))
+                .andExpect(status().isOk());
+        assertThat(episodeRepository.findById(ep1Id).orElseThrow().getDurationSeconds()).isEqualTo(1440);
+
+        // 5. Admin grants betaTester=true to seqstudent -> Beta Sandbox routes & unlock tools work!
+        mockMvc.perform(get("/beta")).andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/admin/students/" + studentId + "/update-account")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newUsername\":\"seqstudent\",\"fullName\":\"Sequential Learner\",\"newPassword\":\"\",\"betaTester\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.betaTester").value(true));
+
+        // Beta tester can instant-unlock Episode 1 watch progress, pass Episode 1, and see Episode 2 unlock sequentially!
+        mockMvc.perform(post("/api/beta/episodes/" + ep1Id + "/unlock-watch?watchMode=ARABIC_SUB")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.quizUnlocked").value(true));
+
+        mockMvc.perform(post("/api/student/quizzes/submit")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildWinningSubmission(ep1Id, "ARABIC_SUB"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passed").value(true));
+
+        // Episode 2 is now unlocked even without betaUnlock=true!
+        String afterEp1List = mockMvc.perform(get("/api/student/episodes")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(afterEp1List).get(1).get("locked").asBoolean()).isFalse();
+        assertThat(objectMapper.readTree(afterEp1List).get(2).get("locked").asBoolean()).isTrue();
+
+        // With ?betaUnlock=true, Beta Tester can unlock all episodes for sandbox testing
+        String betaUnlockedAll = mockMvc.perform(get("/api/student/episodes?betaUnlock=true")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(betaUnlockedAll).get(2).get("locked").asBoolean()).isFalse();
+
+        // Reset beta progress wipes test earnings back to $0.00
+        mockMvc.perform(post("/api/beta/reset-progress")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/student/earnings")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalEarned").value(0.0));
     }
 
     private Map<String, Object> buildWinningSubmission(Long episodeId, String watchMode) {

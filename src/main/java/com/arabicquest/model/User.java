@@ -34,6 +34,9 @@ public class User {
     @Column(name = "credentials_customized")
     private Boolean credentialsCustomized = false;
 
+    @Column(name = "beta_tester")
+    private Boolean betaTester = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -56,6 +59,9 @@ public class User {
         }
         if (this.credentialsCustomized == null) {
             this.credentialsCustomized = false;
+        }
+        if (this.betaTester == null) {
+            this.betaTester = false;
         }
     }
 
@@ -117,6 +123,18 @@ public class User {
 
     public void setCredentialsCustomized(Boolean credentialsCustomized) {
         this.credentialsCustomized = credentialsCustomized;
+    }
+
+    public boolean isBetaTester() {
+        return Boolean.TRUE.equals(betaTester);
+    }
+
+    public void setBetaTester(Boolean betaTester) {
+        this.betaTester = betaTester;
+    }
+
+    public boolean hasBetaAccess() {
+        return this.role == Role.ROLE_ADMIN || isBetaTester();
     }
 
     public LocalDateTime getCreatedAt() {

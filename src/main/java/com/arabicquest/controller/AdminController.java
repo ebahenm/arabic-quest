@@ -156,6 +156,11 @@ public class AdminController {
             revokeTokens = true;
         }
 
+        if (request.betaTester() != null && request.betaTester() != student.isBetaTester()) {
+            student.setBetaTester(request.betaTester());
+            changed = true;
+        }
+
         if (!changed) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "No changes detected"));

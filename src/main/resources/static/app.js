@@ -1,23 +1,42 @@
-// Turathtona (تراثُنا) Student Application Logic — Hardened & Anti-Cheat Verified
+// Turathtona (تراثُنا) Student & Beta Sandbox Application Logic — Hardened & Anti-Cheat Verified
 
-// Purge any legacy insecure localStorage entries
-localStorage.removeItem('aq_auth_token');
-localStorage.removeItem('aq_role');
-localStorage.removeItem('aq_username');
-localStorage.removeItem('aq_fullname');
+// Purge any legacy localStorage entries from older versions
+['aq_auth_token', 'aq_role', 'aq_username', 'aq_fullname'].forEach((k) => {
+    try { localStorage.removeItem(k); } catch (_) {}
+});
+
+const PLAYLIST_ID = 'PLVVfonyXVJI3BXB9Wd2C5yXMr63w3SGXB';
+const isBetaRoute = window.location.pathname === '/beta' || window.location.pathname.startsWith('/beta/');
+
+let currentUser = null;
+let hasBetaAccess = false;
+let betaUnlockAllEpisodes = false;
 
 let currentMode = 'ARABIC_SUB';
 let currentEpisode = null;
 let episodes = [];
 let currentQuiz = null;
+
+// YouTube IFrame API & Live Playback State
 let ytPlayer = null;
 let ytReady = false;
 let ytApiRequested = false;
+let pendingPlayerBuild = null;
 let currentLoadedVideoId = null;
-let heartbeatTimer = null;
+let currentLoadedPlayerMode = null;
+
+let serverVerifiedSeconds = 0;
+let requiredWatchSeconds = 600;
+let pendingWatchedDeltaSeconds = 0;
+let lastPlayerTime = 0;
+let isPlayerCurrentlyPlaying = false;
+let heartbeatInFlight = false;
+
+let playbackTickTimer = null;
 let externalPollTimer = null;
 let cooldownInterval = null;
 let cooldownRemainingSecs = 0;
+let lockToastTimer = null;
 
 function apiHeaders(includeJson = false) {
     const h = { 'X-Requested-With': 'XMLHttpRequest' };
@@ -27,7 +46,15 @@ function apiHeaders(includeJson = false) {
     return h;
 }
 
+function betaQuerySuffix(prefix = '?') {
+    if (isBetaRoute && hasBetaAccess && betaUnlockAllEpisodes) {
+        return `${prefix}betaUnlock=true`;
+    }
+    return '';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    startLocalPlaybackMonitor();
     initApp();
 });
 
@@ -38,17 +65,36 @@ async function initApp() {
             headers: apiHeaders()
         });
         if (!meRes.ok) {
-            window.location.href = '/login';
+            window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
             return;
         }
-        const me = await meRes.json();
+        currentUser = await meRes.json();
+        hasBetaAccess = Boolean(currentUser.betaTester || currentUser.role === 'ROLE_ADMIN');
+
+        if (isBetaRoute && !hasBetaAccess) {
+            window.location.replace('/');
+            return;
+        }
+
         const displayEl = document.getElementById('student-name-display');
         if (displayEl) {
-            displayEl.textContent = '🎓 ' + (me.fullName || me.username);
+            const prefix = isBetaRoute ? '🧪 ' : '🎓 ';
+            displayEl.textContent = prefix + (currentUser.fullName || currentUser.username);
         }
+
+        if (isBetaRoute && hasBetaAccess) {
+            document.title = '🧪 Beta Sandbox • Turathtona';
+            const betaBar = document.getElementById('beta-sandbox-bar');
+            if (betaBar) betaBar.style.display = 'flex';
+        } else if (!isBetaRoute && hasBetaAccess) {
+            const shortcut = document.getElementById('btn-enter-beta-shortcut');
+            if (shortcut) shortcut.style.display = 'inline-flex';
+        }
+
+        updateModeBannerUI();
         await Promise.all([fetchEarnings(), fetchEpisodes()]);
     } catch (e) {
-        window.location.href = '/login';
+        window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
     }
 }
 
@@ -82,7 +128,7 @@ async function fetchEarnings() {
             document.getElementById('progress-percent-label').textContent = `${percent}%`;
             document.getElementById('progress-bar-fill').style.width = `${percent}%`;
         } else if (res.status === 401) {
-            window.location.href = '/login';
+            window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
         }
     } catch (e) {
         console.warn('Earnings fetch failed:', e);
@@ -91,29 +137,49 @@ async function fetchEarnings() {
 
 async function fetchEpisodes() {
     try {
-        const res = await fetch('/api/student/episodes', {
+        const res = await fetch('/api/student/episodes' + betaQuerySuffix('?'), {
             credentials: 'same-origin',
             headers: apiHeaders()
         });
         if (res.ok) {
             episodes = await res.json();
             if (currentEpisode) {
-                const refreshed = episodes.find(e => e.id === currentEpisode.id);
-                if (refreshed) {
+                const refreshed = episodes.find((e) => e.id === currentEpisode.id);
+                if (refreshed && !refreshed.locked) {
                     currentEpisode = refreshed;
                     applyWatchStatus(refreshed.watchStatus, refreshed.passed);
+                } else if (refreshed && refreshed.locked) {
+                    const fallbackUnlocked = episodes.find((e) => !e.locked) || episodes[0];
+                    if (fallbackUnlocked) selectEpisode(fallbackUnlocked);
                 }
             }
             renderEpisodeList();
             if (episodes.length > 0 && !currentEpisode) {
-                selectEpisode(episodes[0]);
+                const firstActive = episodes.find((e) => !e.passed && !e.locked)
+                    || episodes.find((e) => !e.locked)
+                    || episodes[0];
+                selectEpisode(firstActive);
             }
         } else if (res.status === 401) {
-            window.location.href = '/login';
+            window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
         }
     } catch (e) {
         console.warn('Episodes fetch failed:', e);
     }
+}
+
+function showLockedEpisodeToast(ep) {
+    const toast = document.getElementById('episode-lock-toast');
+    if (!toast) return;
+    const prereq = ep.unlockAfterEpisodeNumber || (ep.episodeNumber - 1);
+    toast.textContent = `🔒 Episode ${ep.episodeNumber} is locked! Watch and pass Episode ${prereq} (80%+ score) first to unlock the next video in order.`;
+    toast.style.display = 'block';
+    toast.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    if (lockToastTimer) clearTimeout(lockToastTimer);
+    lockToastTimer = setTimeout(() => {
+        toast.style.display = 'none';
+    }, 6500);
 }
 
 function renderEpisodeList() {
@@ -121,13 +187,23 @@ function renderEpisodeList() {
     container.textContent = '';
 
     episodes.forEach((ep) => {
+        const isCurrent = Boolean(currentEpisode && currentEpisode.id === ep.id);
         const card = document.createElement('div');
-        card.className = 'episode-card' + (currentEpisode && currentEpisode.id === ep.id ? ' active' : '');
-        card.onclick = () => selectEpisode(ep);
+        card.className = 'episode-card'
+            + (isCurrent ? ' active' : '')
+            + (ep.locked ? ' locked' : '');
+
+        card.onclick = () => {
+            if (ep.locked) {
+                showLockedEpisodeToast(ep);
+                return;
+            }
+            selectEpisode(ep);
+        };
 
         const pill = document.createElement('div');
         pill.className = 'ep-num-pill';
-        pill.textContent = String(ep.episodeNumber);
+        pill.textContent = ep.locked ? '🔒' : String(ep.episodeNumber);
         card.appendChild(pill);
 
         const info = document.createElement('div');
@@ -140,7 +216,14 @@ function renderEpisodeList() {
 
         const tag = document.createElement('div');
         tag.className = 'ep-tag';
-        tag.textContent = ep.passed ? 'Status: Completed' : 'Up to +$15.00 Reward';
+        if (ep.passed) {
+            tag.textContent = 'Completed • Quiz Passed';
+        } else if (ep.locked) {
+            tag.textContent = `Pass Episode ${ep.unlockAfterEpisodeNumber || (ep.episodeNumber - 1)} first`;
+        } else {
+            const mins = Math.max(1, Math.round((ep.durationSeconds || 1200) / 60));
+            tag.textContent = `~${mins} min • Up to +$15.00 Reward`;
+        }
         info.appendChild(tag);
 
         card.appendChild(info);
@@ -150,6 +233,11 @@ function renderEpisodeList() {
             badge.className = 'ep-badge-passed';
             badge.textContent = '✓ PASSED';
             card.appendChild(badge);
+        } else if (ep.locked) {
+            const badge = document.createElement('div');
+            badge.className = 'ep-badge-locked';
+            badge.textContent = `🔒 Ep. ${ep.unlockAfterEpisodeNumber || (ep.episodeNumber - 1)}`;
+            card.appendChild(badge);
         }
 
         container.appendChild(card);
@@ -157,27 +245,52 @@ function renderEpisodeList() {
 }
 
 function selectEpisode(ep) {
-    stopWatchTimers();
-    currentEpisode = ep;
-    document.getElementById('current-episode-title').textContent = ep.title;
-    renderEpisodeList();
-
-    const cleanVid = extractYouTubeId(ep.youtubeVideoId);
-    const ytExternalLink = document.getElementById('btn-yt-external-link');
-    if (ytExternalLink) {
-        ytExternalLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(cleanVid)}&list=PLVVfonyXVJI3BXB9Wd2C5yXMr63w3SGXB`;
+    if (ep.locked) {
+        showLockedEpisodeToast(ep);
+        return;
     }
 
-    loadVideoIntoPlayer(cleanVid);
+    const toast = document.getElementById('episode-lock-toast');
+    if (toast) toast.style.display = 'none';
+
+    stopExternalWatchTimer();
+    pendingWatchedDeltaSeconds = 0;
+    isPlayerCurrentlyPlaying = false;
+    lastPlayerTime = 0;
+
+    currentEpisode = ep;
+    document.getElementById('current-episode-title').textContent = ep.title;
 
     if (ep.watchStatus) {
+        if (ep.watchStatus.modeLocked && ep.watchStatus.lockedWatchMode) {
+            currentMode = ep.watchStatus.lockedWatchMode;
+        }
         applyWatchStatus(ep.watchStatus, ep.passed);
     } else {
+        serverVerifiedSeconds = 0;
+        requiredWatchSeconds = Math.round((ep.durationSeconds || 1200) * 0.85);
         document.getElementById('quiz-section').style.display = 'none';
     }
 
+    renderEpisodeList();
+    updateModeBannerUI();
+    updateExternalYoutubeLink();
+
+    const cleanVid = extractYouTubeId(ep.youtubeVideoId);
+    mountYouTubePlayer(cleanVid, 0, false);
+
     fetchVocabGuide(ep.id);
     fetchQuiz(ep.id);
+}
+
+function updateExternalYoutubeLink() {
+    if (!currentEpisode) return;
+    const cleanVid = extractYouTubeId(currentEpisode.youtubeVideoId);
+    const ytExternalLink = document.getElementById('btn-yt-external-link');
+    if (!ytExternalLink) return;
+
+    const hl = currentMode === 'ARABIC_SUB' ? 'ar' : 'en';
+    ytExternalLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(cleanVid)}&list=${PLAYLIST_ID}&hl=${hl}&cc_lang_pref=en&cc_load_policy=1`;
 }
 
 function formatClock(totalSeconds) {
@@ -193,36 +306,14 @@ function applyWatchStatus(status, episodePassed) {
     if (status.modeLocked && status.lockedWatchMode) {
         currentMode = status.lockedWatchMode;
     }
+
+    serverVerifiedSeconds = status.verifiedWatchSeconds || 0;
+    requiredWatchSeconds = status.requiredWatchSeconds || 600;
+
     updateModeButtonsUI(status.modeLocked, episodePassed);
-
-    const verified = status.verifiedWatchSeconds || 0;
-    const required = status.requiredWatchSeconds || 600;
-    const pct = required > 0 ? Math.min(100, Math.round((verified / required) * 100)) : 100;
-
-    const statusLabel = document.getElementById('watch-status-label');
-    const lockedBadge = document.getElementById('locked-mode-badge');
-    const resetBtn = document.getElementById('btn-reset-mode');
-    const fill = document.getElementById('watch-progress-fill');
-
-    fill.style.width = (episodePassed ? 100 : pct) + '%';
-
-    if (episodePassed) {
-        statusLabel.textContent = '✓ Episode Passed — Comprehension Quiz Unlocked';
-        lockedBadge.textContent = '';
-        resetBtn.style.display = 'none';
-    } else if (status.quizUnlocked) {
-        statusLabel.textContent = `✓ Watch Requirement Met (${formatClock(verified)} / ${formatClock(required)}) — Quiz Unlocked!`;
-        lockedBadge.textContent = status.modeLocked
-            ? `🔒 Mode: ${currentMode === 'ARABIC_SUB' ? 'Arabic + Subs (+$15)' : 'English Dub (+$10)'}`
-            : '';
-        resetBtn.style.display = status.modeLocked ? 'inline-block' : 'none';
-    } else {
-        statusLabel.textContent = `⏱️ Watch Progress: ${formatClock(verified)} / ${formatClock(required)} verified`;
-        lockedBadge.textContent = status.modeLocked
-            ? `🔒 Mode Locked: ${currentMode === 'ARABIC_SUB' ? 'Arabic + Subs (+$15)' : 'English Dub (+$10)'}`
-            : 'Select viewing mode before playing';
-        resetBtn.style.display = status.modeLocked ? 'inline-block' : 'none';
-    }
+    updateModeBannerUI();
+    updateExternalYoutubeLink();
+    renderLiveWatchBar(status, episodePassed);
 
     const quizSection = document.getElementById('quiz-section');
     if (episodePassed || status.quizUnlocked) {
@@ -234,21 +325,543 @@ function applyWatchStatus(status, episodePassed) {
     startCooldownTicker(status.retryCooldownRemainingSeconds || 0);
 }
 
+function renderLiveWatchBar(statusOverride = null, episodePassedOverride = null) {
+    if (!currentEpisode) return;
+    const status = statusOverride || currentEpisode.watchStatus || {};
+    const episodePassed = episodePassedOverride !== null ? episodePassedOverride : Boolean(currentEpisode.passed);
+
+    const required = Math.max(1, requiredWatchSeconds || status.requiredWatchSeconds || 600);
+    const liveWatched = Math.min(required, serverVerifiedSeconds + pendingWatchedDeltaSeconds);
+    const pct = episodePassed ? 100 : Math.min(100, Math.round((liveWatched / required) * 100));
+
+    const statusLabel = document.getElementById('watch-status-label');
+    const lockedBadge = document.getElementById('locked-mode-badge');
+    const resetBtn = document.getElementById('btn-reset-mode');
+    const fill = document.getElementById('watch-progress-fill');
+
+    fill.style.width = pct + '%';
+
+    if (episodePassed) {
+        statusLabel.textContent = '✓ Episode Passed — Comprehension Quiz Completed';
+        lockedBadge.textContent = '';
+        resetBtn.style.display = 'none';
+    } else if (status.quizUnlocked || liveWatched >= required) {
+        statusLabel.textContent = `✓ Watch Target Reached (${formatClock(liveWatched)} / ${formatClock(required)}) — Quiz Unlocked Below!`;
+        lockedBadge.textContent = status.modeLocked
+            ? `🔒 Locked Reward Mode: ${currentMode === 'ARABIC_SUB' ? 'Arabic + English Subs (+$15)' : 'English Dub (+$10)'}`
+            : '';
+        resetBtn.style.display = status.modeLocked ? 'inline-block' : 'none';
+    } else {
+        const statePrefix = isPlayerCurrentlyPlaying ? '▶️ Watching Live:' : '⏸️ Watch Progress (Paused):';
+        statusLabel.textContent = `${statePrefix} ${formatClock(liveWatched)} / ${formatClock(required)} (${pct}%)`;
+        lockedBadge.textContent = status.modeLocked
+            ? `🔒 Mode: ${currentMode === 'ARABIC_SUB' ? 'Arabic + Subs (+$15)' : 'English Dub (+$10)'}`
+            : `Selected: ${currentMode === 'ARABIC_SUB' ? 'Arabic + Subs (+$15)' : 'English Dub (+$10)'}`;
+        resetBtn.style.display = status.modeLocked ? 'inline-block' : 'none';
+    }
+}
+
 function updateModeButtonsUI(isLocked, episodePassed) {
     const arBtn = document.getElementById('btn-mode-arabic');
     const enBtn = document.getElementById('btn-mode-english');
+    if (!arBtn || !enBtn) return;
+
     arBtn.classList.toggle('active', currentMode === 'ARABIC_SUB');
     enBtn.classList.toggle('active', currentMode === 'ENGLISH_DUB');
 
     const disableSwitch = Boolean(isLocked && !episodePassed);
     if (disableSwitch) {
-        arBtn.style.opacity = currentMode === 'ARABIC_SUB' ? '1' : '0.5';
-        enBtn.style.opacity = currentMode === 'ENGLISH_DUB' ? '1' : '0.5';
+        arBtn.style.opacity = currentMode === 'ARABIC_SUB' ? '1' : '0.55';
+        enBtn.style.opacity = currentMode === 'ENGLISH_DUB' ? '1' : '0.55';
     } else {
         arBtn.style.opacity = '1';
         enBtn.style.opacity = '1';
     }
 }
+
+function updateModeBannerUI() {
+    const banner = document.getElementById('active-mode-banner');
+    const text = document.getElementById('active-mode-banner-text');
+    if (!banner || !text) return;
+
+    if (currentMode === 'ARABIC_SUB') {
+        banner.className = 'mode-status-banner';
+        text.textContent = '🎧 Active Mode: Original Arabic Audio + English Subtitles (+$15.00 Reward) — Player configured for Arabic audio & English CC (if needed, click ⚙️ Settings → Subtitles → Auto-translate → English).';
+    } else {
+        banner.className = 'mode-status-banner english-mode';
+        text.textContent = '🔊 Active Mode: English Dub / Translated Mode (+$10.00 Reward) — Player configured for English audio/locale (click ⚙️ Settings → Audio track → English when available on YouTube, or use English CC).';
+    }
+}
+
+function selectMode(mode) {
+    if (!currentEpisode) {
+        currentMode = mode;
+        updateModeButtonsUI(false, false);
+        updateModeBannerUI();
+        return;
+    }
+
+    const ws = currentEpisode.watchStatus;
+    if (ws && ws.modeLocked && !currentEpisode.passed && ws.lockedWatchMode !== mode) {
+        handleSwitchLockedMode(mode);
+        return;
+    }
+
+    const changed = currentMode !== mode;
+    currentMode = mode;
+    updateModeButtonsUI(ws ? ws.modeLocked : false, currentEpisode.passed);
+    updateModeBannerUI();
+    updateExternalYoutubeLink();
+    renderLiveWatchBar();
+
+    // Actively reconfigure the live YouTube player for the chosen language/caption mode!
+    applyModeToLivePlayer(changed);
+}
+
+function applyModeToLivePlayer(forceReload = false) {
+    if (!currentEpisode) return;
+    const cleanVid = extractYouTubeId(currentEpisode.youtubeVideoId);
+    const resumeAt = getSafeCurrentTime();
+    const shouldAutoPlay = isPlayerCurrentlyPlaying;
+
+    if (forceReload || currentLoadedPlayerMode !== currentMode) {
+        mountYouTubePlayer(cleanVid, Math.floor(resumeAt), shouldAutoPlay);
+    } else {
+        applyCaptionsPreference();
+    }
+}
+
+async function handleSwitchLockedMode(targetMode) {
+    if (!currentEpisode) return;
+    const nextMode = targetMode || (currentMode === 'ARABIC_SUB' ? 'ENGLISH_DUB' : 'ARABIC_SUB');
+    const label = nextMode === 'ARABIC_SUB' ? 'Arabic + English Subs (+$15.00)' : 'English Dub (+$10.00)';
+    if (!confirm(`Switch viewing mode to "${label}"? Your watch timer for this episode will reset to 00:00 and the player will reload in ${label} mode.`)) {
+        return;
+    }
+
+    stopExternalWatchTimer();
+    pendingWatchedDeltaSeconds = 0;
+    serverVerifiedSeconds = 0;
+    isPlayerCurrentlyPlaying = false;
+
+    try {
+        const res = await fetch(`/api/student/episodes/${currentEpisode.id}/reset-session?watchMode=${encodeURIComponent(nextMode)}`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: apiHeaders()
+        });
+        if (res.ok) {
+            const status = await res.json();
+            currentMode = nextMode;
+            currentEpisode.watchStatus = status;
+            applyWatchStatus(status, currentEpisode.passed);
+            const cleanVid = extractYouTubeId(currentEpisode.youtubeVideoId);
+            mountYouTubePlayer(cleanVid, 0, false);
+        }
+    } catch (e) {
+        console.warn('Reset session failed:', e);
+    }
+}
+
+// ============================================================================
+// YOUTUBE IFRAME API & REAL PLAYBACK WATCH TRACKER
+// ============================================================================
+
+function extractYouTubeId(raw) {
+    if (!raw) return 'EXrpLeyeSeU';
+    const s = String(raw).trim();
+    if (s.includes('youtu.be/')) return s.split('youtu.be/')[1].split(/[?&/#]/)[0];
+    if (s.includes('v=')) return s.split('v=')[1].split(/[?&#]/)[0];
+    if (s.includes('/embed/')) return s.split('/embed/')[1].split(/[?&/#]/)[0];
+    if (s.includes('/shorts/')) return s.split('/shorts/')[1].split(/[?&/#]/)[0];
+    return s;
+}
+
+function getSafeCurrentTime() {
+    try {
+        if (ytReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+            return Math.max(0, Number(ytPlayer.getCurrentTime() || 0));
+        }
+    } catch (_) {}
+    return 0;
+}
+
+function getSafeDurationSeconds() {
+    try {
+        if (ytReady && ytPlayer && typeof ytPlayer.getDuration === 'function') {
+            const d = Math.round(Number(ytPlayer.getDuration() || 0));
+            return d >= 60 ? d : null;
+        }
+    } catch (_) {}
+    return null;
+}
+
+function mountYouTubePlayer(videoId, startSeconds = 0, autoplay = false) {
+    const cleanId = extractYouTubeId(videoId);
+    pendingPlayerBuild = { videoId: cleanId, startSeconds, autoplay, mode: currentMode };
+
+    if (!(window.YT && window.YT.Player)) {
+        ensureYouTubeIframeScriptLoaded();
+        return;
+    }
+
+    buildPlayerFromPending();
+}
+
+function ensureYouTubeIframeScriptLoaded() {
+    window.onYouTubeIframeAPIReady = () => {
+        buildPlayerFromPending();
+    };
+    if (window.YT && window.YT.Player) {
+        buildPlayerFromPending();
+        return;
+    }
+    if (!ytApiRequested) {
+        ytApiRequested = true;
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        tag.async = true;
+        document.head.appendChild(tag);
+    }
+}
+
+function buildPlayerFromPending() {
+    if (!pendingPlayerBuild || !(window.YT && window.YT.Player)) return;
+    const { videoId, startSeconds, autoplay, mode } = pendingPlayerBuild;
+    pendingPlayerBuild = null;
+
+    const wrapper = document.getElementById('player-wrapper');
+    if (!wrapper) return;
+
+    if (ytPlayer && typeof ytPlayer.destroy === 'function') {
+        try { ytPlayer.destroy(); } catch (_) {}
+    }
+    ytPlayer = null;
+    ytReady = false;
+
+    wrapper.textContent = '';
+    const mountDiv = document.createElement('div');
+    mountDiv.id = 'yt-player-mount';
+    wrapper.appendChild(mountDiv);
+
+    currentLoadedVideoId = videoId;
+    currentLoadedPlayerMode = mode;
+
+    const playerVars = {
+        enablejsapi: 1,
+        playsinline: 1,
+        rel: 0,
+        cc_load_policy: 1,
+        cc_lang_pref: 'en',
+        hl: mode === 'ARABIC_SUB' ? 'ar' : 'en',
+        origin: window.location.origin
+    };
+    if (startSeconds > 0) {
+        playerVars.start = Math.floor(startSeconds);
+    }
+    if (autoplay) {
+        playerVars.autoplay = 1;
+    }
+
+    try {
+        ytPlayer = new YT.Player('yt-player-mount', {
+            width: '100%',
+            height: '100%',
+            videoId: videoId,
+            playerVars: playerVars,
+            events: {
+                onReady: onPlayerReady,
+                onStateChange: onPlayerStateChange
+            }
+        });
+    } catch (err) {
+        console.warn('YT.Player creation error:', err);
+    }
+}
+
+function onPlayerReady() {
+    ytReady = true;
+    lastPlayerTime = getSafeCurrentTime();
+    applyCaptionsPreference();
+
+    // Immediately calibrate exact YouTube video duration so required watch time = 85% of true video length!
+    const dur = getSafeDurationSeconds();
+    if (dur && currentEpisode) {
+        flushWatchHeartbeat({
+            playing: false,
+            videoEnded: false,
+            external: false,
+            videoDurationSeconds: dur,
+            metadataOnly: true
+        });
+    }
+}
+
+function applyCaptionsPreference() {
+    if (!ytReady || !ytPlayer) return;
+    try {
+        if (typeof ytPlayer.loadModule === 'function') {
+            ytPlayer.loadModule('captions');
+        }
+        if (typeof ytPlayer.setOption === 'function') {
+            ytPlayer.setOption('captions', 'track', { languageCode: 'en' });
+        }
+    } catch (_) {}
+}
+
+function onPlayerStateChange(event) {
+    if (!window.YT || !window.YT.PlayerState) return;
+
+    if (event.data === YT.PlayerState.PLAYING) {
+        isPlayerCurrentlyPlaying = true;
+        lastPlayerTime = getSafeCurrentTime();
+        applyCaptionsPreference();
+        renderLiveWatchBar();
+
+        // Initialize server heartbeat timestamp immediately when playback starts
+        flushWatchHeartbeat({
+            playing: true,
+            videoEnded: false,
+            external: false,
+            videoDurationSeconds: getSafeDurationSeconds()
+        });
+    } else if (event.data === YT.PlayerState.PAUSED) {
+        isPlayerCurrentlyPlaying = false;
+        renderLiveWatchBar();
+        if (pendingWatchedDeltaSeconds > 0) {
+            flushWatchHeartbeat({
+                playing: false,
+                videoEnded: false,
+                external: false,
+                videoDurationSeconds: getSafeDurationSeconds()
+            });
+        }
+    } else if (event.data === YT.PlayerState.ENDED) {
+        isPlayerCurrentlyPlaying = false;
+        renderLiveWatchBar();
+        flushWatchHeartbeat({
+            playing: false,
+            videoEnded: true,
+            external: false,
+            videoDurationSeconds: getSafeDurationSeconds()
+        });
+    }
+}
+
+function startLocalPlaybackMonitor() {
+    if (playbackTickTimer) clearInterval(playbackTickTimer);
+
+    playbackTickTimer = setInterval(() => {
+        if (!currentEpisode || !ytReady || !ytPlayer || typeof ytPlayer.getPlayerState !== 'function') {
+            return;
+        }
+        if (!window.YT || !window.YT.PlayerState) return;
+
+        let state;
+        let curTime;
+        try {
+            state = ytPlayer.getPlayerState();
+            curTime = Number(ytPlayer.getCurrentTime() || 0);
+        } catch (_) {
+            return;
+        }
+
+        if (state === YT.PlayerState.PLAYING) {
+            isPlayerCurrentlyPlaying = true;
+            const delta = curTime - lastPlayerTime;
+            lastPlayerTime = curTime;
+
+            // Only credit real sequential video playback (0.15s..2.75s per 1s tick).
+            // Dragging/scrubbing the seekbar forward produces delta > 2.75s and is ignored!
+            if (delta > 0.15 && delta <= 2.75) {
+                pendingWatchedDeltaSeconds += 1;
+                renderLiveWatchBar();
+
+                const targetRemaining = Math.max(0, requiredWatchSeconds - serverVerifiedSeconds);
+                if (!heartbeatInFlight && (pendingWatchedDeltaSeconds >= 5 || (targetRemaining > 0 && pendingWatchedDeltaSeconds >= targetRemaining))) {
+                    flushWatchHeartbeat({
+                        playing: true,
+                        videoEnded: false,
+                        external: false,
+                        videoDurationSeconds: getSafeDurationSeconds()
+                    });
+                }
+            }
+        } else {
+            if (isPlayerCurrentlyPlaying) {
+                isPlayerCurrentlyPlaying = false;
+                renderLiveWatchBar();
+            }
+            lastPlayerTime = curTime;
+        }
+    }, 1000);
+}
+
+async function flushWatchHeartbeat(opts = {}) {
+    if (!currentEpisode) return;
+
+    const isMetadataOnly = Boolean(opts.metadataOnly);
+    const isExternal = Boolean(opts.external);
+    const deltaToSend = (isMetadataOnly || isExternal) ? 0 : pendingWatchedDeltaSeconds;
+
+    if (!isMetadataOnly && !isExternal) {
+        pendingWatchedDeltaSeconds = Math.max(0, pendingWatchedDeltaSeconds - deltaToSend);
+    }
+
+    heartbeatInFlight = true;
+    try {
+        const bodyPayload = {
+            watchMode: currentMode,
+            external: isExternal,
+            videoEnded: Boolean(opts.videoEnded),
+            watchedDeltaSeconds: isExternal ? null : deltaToSend,
+            currentPositionSeconds: Math.floor(getSafeCurrentTime()),
+            videoDurationSeconds: opts.videoDurationSeconds || getSafeDurationSeconds(),
+            playing: isMetadataOnly ? false : Boolean(opts.playing)
+        };
+
+        const res = await fetch(`/api/student/episodes/${currentEpisode.id}/heartbeat` + betaQuerySuffix('?'), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: apiHeaders(true),
+            body: JSON.stringify(bodyPayload)
+        });
+
+        if (res.ok) {
+            const wasUnlocked = Boolean(currentEpisode.watchStatus && currentEpisode.watchStatus.quizUnlocked);
+            const status = await res.json();
+            currentEpisode.watchStatus = status;
+            applyWatchStatus(status, currentEpisode.passed);
+
+            if (!wasUnlocked && status.quizUnlocked && !currentEpisode.passed) {
+                stopExternalWatchTimer();
+                if (typeof confetti === 'function') {
+                    confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } });
+                }
+            }
+        } else if (!isMetadataOnly && !isExternal && deltaToSend > 0) {
+            pendingWatchedDeltaSeconds += deltaToSend;
+        }
+    } catch (e) {
+        if (!isMetadataOnly && !isExternal && deltaToSend > 0) {
+            pendingWatchedDeltaSeconds += deltaToSend;
+        }
+        console.warn('Heartbeat sync warning:', e);
+    } finally {
+        heartbeatInFlight = false;
+    }
+}
+
+function handleStartExternalWatch() {
+    if (!currentEpisode) return;
+    flushWatchHeartbeat({ external: true, playing: true, videoEnded: false });
+    stopExternalWatchTimer();
+    externalPollTimer = setInterval(() => {
+        flushWatchHeartbeat({ external: true, playing: true, videoEnded: false });
+    }, 15000);
+}
+
+function stopExternalWatchTimer() {
+    if (externalPollTimer) {
+        clearInterval(externalPollTimer);
+        externalPollTimer = null;
+    }
+}
+
+// ============================================================================
+// BETA SANDBOX CONTROLS (/beta — Strictly Gated to Admin & Beta Testers)
+// ============================================================================
+
+function setBetaStatusMessage(msg) {
+    const el = document.getElementById('beta-status-msg');
+    if (el) el.textContent = msg;
+}
+
+async function betaInstantUnlockQuiz() {
+    if (!currentEpisode || !hasBetaAccess) return;
+    try {
+        const res = await fetch(`/api/beta/episodes/${currentEpisode.id}/unlock-watch?watchMode=${encodeURIComponent(currentMode)}`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: apiHeaders()
+        });
+        if (res.ok) {
+            const status = await res.json();
+            pendingWatchedDeltaSeconds = 0;
+            currentEpisode.watchStatus = status;
+            applyWatchStatus(status, currentEpisode.passed);
+            setBetaStatusMessage(`✓ Quiz unlocked instantly for Ep. ${currentEpisode.episodeNumber} in ${currentMode} mode.`);
+            document.getElementById('quiz-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert(err.error || 'Beta unlock failed');
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+async function betaToggleUnlockAllEpisodes() {
+    if (!hasBetaAccess) return;
+    betaUnlockAllEpisodes = !betaUnlockAllEpisodes;
+    const btn = document.getElementById('btn-beta-unlock-all');
+    if (btn) {
+        btn.textContent = betaUnlockAllEpisodes ? '🔓 Unlock All Episodes: ON' : '🔓 Unlock All Episodes: OFF';
+        btn.classList.toggle('active-toggle', betaUnlockAllEpisodes);
+    }
+    setBetaStatusMessage(betaUnlockAllEpisodes
+        ? '🔓 All 15 episodes unlocked for free navigation in Beta Sandbox.'
+        : '🔒 Strict sequential progression active (Episode N requires Episode N-1 passed).');
+    await fetchEpisodes();
+}
+
+async function betaClearCooldown() {
+    if (!currentEpisode || !hasBetaAccess) return;
+    try {
+        const res = await fetch(`/api/beta/episodes/${currentEpisode.id}/clear-cooldown`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: apiHeaders()
+        });
+        if (res.ok) {
+            startCooldownTicker(0);
+            setBetaStatusMessage(`✓ Retry cooldown cleared for Episode ${currentEpisode.episodeNumber}.`);
+            await fetchEpisodes();
+        }
+    } catch (e) {
+        console.warn('Clear cooldown failed:', e);
+    }
+}
+
+async function betaResetMyProgress() {
+    if (!hasBetaAccess) return;
+    if (!confirm('Reset ALL of your own Beta/Test watch timers, passed episodes, and test balance back to $0.00? (Other student accounts are untouched.)')) {
+        return;
+    }
+    try {
+        const res = await fetch('/api/beta/reset-progress', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: apiHeaders()
+        });
+        if (res.ok) {
+            pendingWatchedDeltaSeconds = 0;
+            serverVerifiedSeconds = 0;
+            currentEpisode = null;
+            await Promise.all([fetchEarnings(), fetchEpisodes()]);
+            setBetaStatusMessage('✓ Your beta test progress & $0.00 balance have been reset!');
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert(err.error || 'Reset failed');
+        }
+    } catch (e) {
+        alert('Reset failed: ' + e.message);
+    }
+}
+
+// ============================================================================
+// COOLDOWN, VOCABULARY, & QUIZ SUBMISSION
+// ============================================================================
 
 function startCooldownTicker(seconds) {
     if (cooldownInterval) {
@@ -265,7 +878,7 @@ function startCooldownTicker(seconds) {
             if (cooldownRemainingSecs <= 0) {
                 clearInterval(cooldownInterval);
                 cooldownInterval = null;
-                fetchQuiz(currentEpisode.id);
+                if (currentEpisode) fetchQuiz(currentEpisode.id);
             }
         }, 1000);
     }
@@ -288,106 +901,6 @@ function renderCooldownBanner() {
     }
 }
 
-function selectMode(mode) {
-    if (!currentEpisode) {
-        currentMode = mode;
-        updateModeButtonsUI(false, false);
-        return;
-    }
-
-    const ws = currentEpisode.watchStatus;
-    if (ws && ws.modeLocked && !currentEpisode.passed && ws.lockedWatchMode !== mode) {
-        handleSwitchLockedMode(mode);
-        return;
-    }
-
-    currentMode = mode;
-    updateModeButtonsUI(ws ? ws.modeLocked : false, currentEpisode.passed);
-}
-
-async function handleSwitchLockedMode(targetMode) {
-    if (!currentEpisode) return;
-    const nextMode = targetMode || (currentMode === 'ARABIC_SUB' ? 'ENGLISH_DUB' : 'ARABIC_SUB');
-    const label = nextMode === 'ARABIC_SUB' ? 'Arabic + English Subs (+$15)' : 'English Dub (+$10)';
-    if (!confirm(`Switch viewing mode to "${label}"? This will reset your watch timer for this episode to 00:00.`)) {
-        return;
-    }
-
-    stopWatchTimers();
-    try {
-        const res = await fetch(`/api/student/episodes/${currentEpisode.id}/reset-session?watchMode=${encodeURIComponent(nextMode)}`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: apiHeaders()
-        });
-        if (res.ok) {
-            const status = await res.json();
-            currentMode = nextMode;
-            currentEpisode.watchStatus = status;
-            applyWatchStatus(status, currentEpisode.passed);
-        }
-    } catch (e) {
-        console.warn('Reset session failed:', e);
-    }
-}
-
-async function sendWatchHeartbeat(external = false, videoEnded = false) {
-    if (!currentEpisode) return;
-    try {
-        const res = await fetch(`/api/student/episodes/${currentEpisode.id}/heartbeat`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: apiHeaders(true),
-            body: JSON.stringify({
-                watchMode: currentMode,
-                external: external,
-                videoEnded: videoEnded
-            })
-        });
-        if (res.ok) {
-            const wasUnlocked = currentEpisode.watchStatus && currentEpisode.watchStatus.quizUnlocked;
-            const status = await res.json();
-            currentEpisode.watchStatus = status;
-            applyWatchStatus(status, currentEpisode.passed);
-
-            if (!wasUnlocked && status.quizUnlocked && !currentEpisode.passed) {
-                if (externalPollTimer) {
-                    clearInterval(externalPollTimer);
-                    externalPollTimer = null;
-                }
-                if (typeof confetti === 'function') {
-                    confetti({ particleCount: 50, spread: 55, origin: { y: 0.7 } });
-                }
-            }
-        }
-    } catch (e) {
-        console.warn('Heartbeat failed:', e);
-    }
-}
-
-function handleStartExternalWatch() {
-    if (!currentEpisode) return;
-    sendWatchHeartbeat(true, false);
-    if (externalPollTimer) {
-        clearInterval(externalPollTimer);
-    }
-    externalPollTimer = setInterval(() => {
-        sendWatchHeartbeat(true, false);
-    }, 15000);
-}
-
-function stopWatchTimers() {
-    if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
-    }
-    if (externalPollTimer) {
-        clearInterval(externalPollTimer);
-        externalPollTimer = null;
-    }
-}
-
-// XSS-Safe Vocabulary Rendering
 async function fetchVocabGuide(episodeId) {
     const container = document.getElementById('vocab-grid');
     if (!container) return;
@@ -435,7 +948,7 @@ async function fetchVocabGuide(episodeId) {
 
 async function fetchQuiz(episodeId) {
     try {
-        const res = await fetch(`/api/student/quizzes/${episodeId}`, {
+        const res = await fetch(`/api/student/quizzes/${episodeId}` + betaQuerySuffix('?'), {
             credentials: 'same-origin',
             headers: apiHeaders()
         });
@@ -498,110 +1011,6 @@ function renderQuizQuestions() {
     });
 }
 
-function extractYouTubeId(raw) {
-    if (!raw) return 'EXrpLeyeSeU';
-    const s = String(raw).trim();
-    if (s.includes('youtu.be/')) return s.split('youtu.be/')[1].split(/[?&/#]/)[0];
-    if (s.includes('v=')) return s.split('v=')[1].split(/[?&#]/)[0];
-    if (s.includes('/embed/')) return s.split('/embed/')[1].split(/[?&/#]/)[0];
-    if (s.includes('/shorts/')) return s.split('/shorts/')[1].split(/[?&/#]/)[0];
-    return s;
-}
-
-function buildEmbedUrl(videoId) {
-    const cleanId = encodeURIComponent(extractYouTubeId(videoId));
-    const origin = encodeURIComponent(window.location.origin);
-    return `https://www.youtube.com/embed/${cleanId}?enablejsapi=1&playsinline=1&rel=0&cc_load_policy=1&hl=en&origin=${origin}`;
-}
-
-function loadVideoIntoPlayer(videoId) {
-    const cleanId = extractYouTubeId(videoId);
-    const iframe = document.getElementById('yt-player');
-    if (!iframe) return;
-
-    if (currentLoadedVideoId === cleanId && iframe.src && iframe.src.includes(`/embed/${cleanId}`)) {
-        return;
-    }
-    currentLoadedVideoId = cleanId;
-
-    if (ytReady && ytPlayer && typeof ytPlayer.cueVideoById === 'function') {
-        try {
-            ytPlayer.cueVideoById(cleanId);
-            return;
-        } catch (err) {
-            console.warn('cueVideoById fallback to iframe src:', err);
-        }
-    }
-
-    ytReady = false;
-    ytPlayer = null;
-    iframe.onload = () => {
-        attachYtPlayerToIframe();
-    };
-    iframe.src = buildEmbedUrl(cleanId);
-    ensureYouTubeIframeScriptLoaded();
-}
-
-function ensureYouTubeIframeScriptLoaded() {
-    window.onYouTubeIframeAPIReady = () => {
-        attachYtPlayerToIframe();
-    };
-    if (window.YT && window.YT.Player) {
-        attachYtPlayerToIframe();
-        return;
-    }
-    if (!ytApiRequested) {
-        ytApiRequested = true;
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        tag.async = true;
-        document.head.appendChild(tag);
-    }
-}
-
-function attachYtPlayerToIframe() {
-    if (ytPlayer) return;
-    if (!(window.YT && window.YT.Player)) return;
-
-    const iframe = document.getElementById('yt-player');
-    if (!iframe || !iframe.src || iframe.src === 'about:blank' || !iframe.src.includes('youtube.com/embed/')) {
-        return;
-    }
-
-    try {
-        ytPlayer = new YT.Player('yt-player', {
-            events: {
-                'onReady': () => {
-                    ytReady = true;
-                },
-                'onStateChange': onPlayerStateChange
-            }
-        });
-    } catch (e) {
-        console.warn('YT.Player attach warning:', e);
-    }
-}
-
-function onPlayerStateChange(event) {
-    if (!window.YT || !window.YT.PlayerState) return;
-    if (event.data === YT.PlayerState.PLAYING) {
-        sendWatchHeartbeat(false, false);
-        if (!heartbeatTimer) {
-            heartbeatTimer = setInterval(() => {
-                sendWatchHeartbeat(false, false);
-            }, 10000);
-        }
-    } else {
-        if (heartbeatTimer) {
-            clearInterval(heartbeatTimer);
-            heartbeatTimer = null;
-        }
-        if (event.data === YT.PlayerState.ENDED) {
-            sendWatchHeartbeat(false, true);
-        }
-    }
-}
-
 async function handleQuizSubmit(event) {
     event.preventDefault();
     if (!currentQuiz || !currentEpisode) return;
@@ -624,7 +1033,7 @@ async function handleQuizSubmit(event) {
     };
 
     try {
-        const res = await fetch('/api/student/quizzes/submit', {
+        const res = await fetch('/api/student/quizzes/submit' + betaQuerySuffix('?'), {
             method: 'POST',
             credentials: 'same-origin',
             headers: apiHeaders(true),
@@ -633,8 +1042,8 @@ async function handleQuizSubmit(event) {
 
         if (res.ok) {
             const result = await res.json();
-            showResultModal(result);
             await Promise.all([fetchEarnings(), fetchEpisodes(), fetchQuiz(currentEpisode.id)]);
+            showResultModal(result);
         } else {
             const err = await res.json().catch(() => ({}));
             if (res.status === 429 && err.retryAfterSeconds) {
@@ -657,12 +1066,18 @@ function showResultModal(result) {
     const title = document.getElementById('modal-title');
     const score = document.getElementById('modal-score');
     const message = document.getElementById('modal-message');
+    const nextBtn = document.getElementById('btn-modal-next-ep');
 
     if (result.passed) {
         dialog.className = 'modal-dialog';
         title.textContent = '🎉 Congratulations!';
         score.textContent = result.scorePercentage.toFixed(0) + '%';
         message.textContent = result.message;
+
+        const nextEp = findNextSequentialEpisode();
+        if (nextBtn) {
+            nextBtn.style.display = nextEp ? 'inline-flex' : 'none';
+        }
 
         if (typeof confetti === 'function') {
             confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
@@ -672,9 +1087,28 @@ function showResultModal(result) {
         title.textContent = '❌ Review & Retry Later';
         score.textContent = result.scorePercentage.toFixed(0) + '%';
         message.textContent = result.message;
+        if (nextBtn) nextBtn.style.display = 'none';
     }
 
     modal.style.display = 'flex';
+}
+
+function findNextSequentialEpisode() {
+    if (!currentEpisode || !episodes.length) return null;
+    const idx = episodes.findIndex((e) => e.id === currentEpisode.id);
+    if (idx >= 0 && idx + 1 < episodes.length && !episodes[idx + 1].locked) {
+        return episodes[idx + 1];
+    }
+    return null;
+}
+
+function advanceToNextUnlockedEpisode() {
+    closeModal();
+    const nextEp = findNextSequentialEpisode();
+    if (nextEp) {
+        selectEpisode(nextEp);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 }
 
 function closeModal() {

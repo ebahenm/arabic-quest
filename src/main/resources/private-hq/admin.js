@@ -1,4 +1,4 @@
-// Turathtona Secret Admin Command Center (Hardened Cookie/JWT + Zero-innerHTML XSS-Safe DOM)
+// Turathtona Secret Admin Command Center — Organized 5-Tab Interface (Hardened Cookie/JWT + XSS-Safe DOM)
 
 const HQ_LOGIN_PATH = '{{HQ_LOGIN_PATH}}';
 
@@ -6,6 +6,7 @@ let currentAdmin = null;
 let allStudents = [];
 let selectedStudent = null;
 let episodes = [];
+let cachedAttempts = [];
 let lastOwedAmount = 0;
 
 // Purge any legacy plaintext credentials from older client versions
@@ -36,9 +37,19 @@ function hideFeedback(elId) {
 }
 
 function clearElement(el) {
+    if (!el) return;
     while (el.firstChild) {
         el.removeChild(el.firstChild);
     }
+}
+
+function switchAdminTab(tabKey) {
+    document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-tab') === tabKey);
+    });
+    document.querySelectorAll('.admin-tab-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === `tab-panel-${tabKey}`);
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -49,33 +60,28 @@ document.addEventListener('DOMContentLoaded', () => {
 function wireEvents() {
     document.getElementById('btn-logout').addEventListener('click', handleLogout);
 
-    const scrollToAdminLoginSettings = (focusFieldId) => {
-        document.getElementById('password-security-card').scrollIntoView({ behavior: 'smooth' });
-        const el = document.getElementById(focusFieldId);
-        if (el) el.focus();
-    };
-
-    document.getElementById('btn-header-admin-settings').addEventListener('click', () => {
-        scrollToAdminLoginSettings('admin-new-username');
+    // Tab navigation buttons
+    document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            switchAdminTab(btn.getAttribute('data-tab'));
+        });
     });
 
     document.getElementById('btn-jump-password').addEventListener('click', () => {
-        scrollToAdminLoginSettings('admin-current-pw');
+        switchAdminTab('settings');
+        const el = document.getElementById('admin-current-pw');
+        if (el) el.focus();
     });
 
-    document.getElementById('admin-student-select').addEventListener('change', handleStudentSelectChange);
-
-    document.getElementById('btn-toggle-reset-pw').addEventListener('click', () => {
-        const box = document.getElementById('reset-student-pw-box');
-        const opening = box.style.display === 'none';
-        box.style.display = opening ? 'block' : 'none';
-        if (opening && selectedStudent) {
-            document.getElementById('edit-student-username').value = selectedStudent.username || '';
-            document.getElementById('edit-student-fullname').value = selectedStudent.fullName || '';
-            document.getElementById('reset-student-newpw').value = '';
+    document.getElementById('btn-jump-edit-student').addEventListener('click', () => {
+        switchAdminTab('students');
+        if (selectedStudent) {
+            populateEditStudentForm(selectedStudent);
+            document.getElementById('reset-student-pw-box').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
     });
 
+    document.getElementById('admin-student-select').addEventListener('change', handleStudentSelectChange);
     document.getElementById('form-reset-student-pw').addEventListener('submit', handleResetStudentPassword);
 
     document.querySelectorAll('.preset-btn[data-preset]').forEach((btn) => {
@@ -93,6 +99,7 @@ function wireEvents() {
     document.getElementById('btn-run-ai').addEventListener('click', handleGenerateAiQuiz);
     document.getElementById('form-add-episode').addEventListener('submit', handleAddEpisodeSubmit);
     document.getElementById('btn-refresh-audit').addEventListener('click', loadAdminDashboard);
+    document.getElementById('audit-student-filter').addEventListener('change', renderAttemptsTable);
     document.getElementById('form-change-admin-pw').addEventListener('submit', handleChangeAdminPassword);
 }
 
@@ -147,6 +154,12 @@ async function loadStudents(preferStudentId = null) {
     const users = await res.json();
     allStudents = users.filter((u) => u.role === 'ROLE_STUDENT');
 
+    const countBadge = document.getElementById('tab-badge-students');
+    if (countBadge) countBadge.textContent = String(allStudents.length);
+
+    renderStudentsDirectoryTable();
+    populateAuditFilterDropdown();
+
     const select = document.getElementById('admin-student-select');
     clearElement(select);
 
@@ -158,7 +171,7 @@ async function loadStudents(preferStudentId = null) {
         select.appendChild(emptyOpt);
 
         document.getElementById('current-student-title').textContent = 'No Student Accounts Yet';
-        document.getElementById('payout-title-label').textContent = 'Issue Payout to Student';
+        document.getElementById('payout-title-label').textContent = '💸 Issue Payout to Student';
         document.getElementById('admin-metric-earned').textContent = '$0.00';
         document.getElementById('admin-metric-paid').textContent = '$0.00';
         document.getElementById('admin-metric-owed').textContent = '$0.00';
@@ -179,6 +192,137 @@ async function loadStudents(preferStudentId = null) {
     updateSelectedStudentHeader();
 }
 
+function renderStudentsDirectoryTable() {
+    const tbody = document.getElementById('admin-students-tbody');
+    clearElement(tbody);
+
+    if (!allStudents || allStudents.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        td.style.textAlign = 'center';
+        td.style.color = 'var(--text-muted)';
+        td.style.padding = '1.5rem';
+        td.textContent = 'No student accounts registered yet. Create your first student above!';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+    }
+
+    allStudents.forEach((s) => {
+        const tr = document.createElement('tr');
+
+        const tdName = document.createElement('td');
+        const strong = document.createElement('strong');
+        strong.textContent = s.fullName;
+        tdName.appendChild(strong);
+
+        const tdUser = document.createElement('td');
+        const code = document.createElement('code');
+        code.textContent = s.username;
+        tdUser.appendChild(code);
+
+        const tdAccess = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.style.fontSize = '0.76rem';
+        badge.style.fontWeight = '700';
+        badge.style.padding = '0.2rem 0.55rem';
+        badge.style.borderRadius = '999px';
+        if (s.betaTester) {
+            badge.style.background = 'rgba(139, 92, 246, 0.22)';
+            badge.style.color = '#ddd6fe';
+            badge.textContent = '🧪 Student + Beta Access';
+        } else {
+            badge.style.background = 'rgba(16, 185, 129, 0.16)';
+            badge.style.color = '#6ee7b7';
+            badge.textContent = '🎓 Standard Student';
+        }
+        tdAccess.appendChild(badge);
+
+        const tdCreated = document.createElement('td');
+        tdCreated.style.color = 'var(--text-muted)';
+        tdCreated.style.fontSize = '0.82rem';
+        tdCreated.textContent = s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—';
+
+        const tdActions = document.createElement('td');
+        tdActions.style.display = 'flex';
+        tdActions.style.gap = '0.5rem';
+
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'btn-ghost';
+        editBtn.style.padding = '0.32rem 0.65rem';
+        editBtn.style.fontSize = '0.78rem';
+        editBtn.textContent = '✏️ Edit';
+        editBtn.addEventListener('click', () => {
+            selectedStudent = s;
+            const sel = document.getElementById('admin-student-select');
+            if (sel) sel.value = String(s.id);
+            updateSelectedStudentHeader();
+            populateEditStudentForm(s);
+            document.getElementById('reset-student-pw-box').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+
+        const ledgerBtn = document.createElement('button');
+        ledgerBtn.type = 'button';
+        ledgerBtn.className = 'btn-ghost';
+        ledgerBtn.style.padding = '0.32rem 0.65rem';
+        ledgerBtn.style.fontSize = '0.78rem';
+        ledgerBtn.textContent = '💸 Ledger';
+        ledgerBtn.addEventListener('click', () => {
+            selectedStudent = s;
+            const sel = document.getElementById('admin-student-select');
+            if (sel) sel.value = String(s.id);
+            updateSelectedStudentHeader();
+            loadAdminDashboard();
+            switchAdminTab('overview');
+        });
+
+        tdActions.appendChild(editBtn);
+        tdActions.appendChild(ledgerBtn);
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdUser);
+        tr.appendChild(tdAccess);
+        tr.appendChild(tdCreated);
+        tr.appendChild(tdActions);
+        tbody.appendChild(tr);
+    });
+}
+
+function populateAuditFilterDropdown() {
+    const filter = document.getElementById('audit-student-filter');
+    if (!filter) return;
+    const prev = filter.value || 'ALL';
+    clearElement(filter);
+
+    const allOpt = document.createElement('option');
+    allOpt.value = 'ALL';
+    allOpt.textContent = 'All Students';
+    filter.appendChild(allOpt);
+
+    allStudents.forEach((s) => {
+        const opt = document.createElement('option');
+        opt.value = s.username;
+        opt.textContent = `${s.fullName} (${s.username})`;
+        filter.appendChild(opt);
+    });
+
+    if ([...filter.options].some((o) => o.value === prev)) {
+        filter.value = prev;
+    }
+}
+
+function populateEditStudentForm(student) {
+    if (!student) return;
+    document.getElementById('editing-student-indicator').textContent = `${student.fullName} (${student.username})`;
+    document.getElementById('edit-student-username').value = student.username || '';
+    document.getElementById('edit-student-fullname').value = student.fullName || '';
+    document.getElementById('reset-student-newpw').value = '';
+    const betaCheckbox = document.getElementById('edit-student-beta');
+    if (betaCheckbox) betaCheckbox.checked = Boolean(student.betaTester);
+}
+
 function handleStudentSelectChange() {
     const selId = parseInt(document.getElementById('admin-student-select').value, 10);
     selectedStudent = allStudents.find((s) => s.id === selId) || null;
@@ -189,11 +333,8 @@ function handleStudentSelectChange() {
 function updateSelectedStudentHeader() {
     if (!selectedStudent) return;
     document.getElementById('current-student-title').textContent = `${selectedStudent.fullName} (${selectedStudent.username})`;
-    document.getElementById('payout-title-label').textContent = `Issue Payout to ${selectedStudent.fullName}`;
-    const uInput = document.getElementById('edit-student-username');
-    const nInput = document.getElementById('edit-student-fullname');
-    if (uInput) uInput.value = selectedStudent.username || '';
-    if (nInput) nInput.value = selectedStudent.fullName || '';
+    document.getElementById('payout-title-label').textContent = `💸 Issue Payout to ${selectedStudent.fullName}`;
+    populateEditStudentForm(selectedStudent);
 }
 
 async function loadAdminDashboard() {
@@ -281,79 +422,88 @@ async function loadAttemptsAuditLog() {
     try {
         const res = await apiFetch('/api/admin/attempts');
         if (!res.ok) return;
-        const attempts = await res.json();
-        const tbody = document.getElementById('admin-attempts-tbody');
-        clearElement(tbody);
-
-        if (!attempts || attempts.length === 0) {
-            const tr = document.createElement('tr');
-            const td = document.createElement('td');
-            td.colSpan = 7;
-            td.style.textAlign = 'center';
-            td.style.color = 'var(--text-muted)';
-            td.style.padding = '2rem';
-            td.textContent = 'No quiz attempts logged yet.';
-            tr.appendChild(td);
-            tbody.appendChild(tr);
-            return;
-        }
-
-        attempts.forEach((a) => {
-            const tr = document.createElement('tr');
-
-            const tdStudent = document.createElement('td');
-            const strongStudent = document.createElement('strong');
-            strongStudent.textContent = a.studentFullName || a.studentUsername;
-            tdStudent.appendChild(strongStudent);
-
-            const tdEp = document.createElement('td');
-            tdEp.style.fontFamily = "'Cairo', sans-serif";
-            tdEp.textContent = `Ep. ${a.episodeNumber}: ${a.episodeTitle}`;
-
-            const tdMode = document.createElement('td');
-            const modeSpan = document.createElement('span');
-            modeSpan.style.fontSize = '0.8rem';
-            modeSpan.style.background = 'rgba(255,255,255,0.06)';
-            modeSpan.style.padding = '0.2rem 0.5rem';
-            modeSpan.style.borderRadius = '4px';
-            modeSpan.textContent = a.watchMode;
-            tdMode.appendChild(modeSpan);
-
-            const tdScore = document.createElement('td');
-            const strongScore = document.createElement('strong');
-            strongScore.textContent = `${Number(a.scorePercentage || 0).toFixed(0)}%`;
-            tdScore.appendChild(strongScore);
-
-            const tdStatus = document.createElement('td');
-            const statusSpan = document.createElement('span');
-            statusSpan.style.color = a.passed ? '#10b981' : '#ef4444';
-            statusSpan.style.fontWeight = '800';
-            statusSpan.style.fontSize = '0.82rem';
-            statusSpan.textContent = a.passed ? '✓ PASSED' : '✗ FAILED';
-            tdStatus.appendChild(statusSpan);
-
-            const tdReward = document.createElement('td');
-            tdReward.style.color = '#f59e0b';
-            tdReward.style.fontWeight = '800';
-            tdReward.textContent = '+$' + Number(a.rewardAmount || 0).toFixed(2);
-
-            const tdTime = document.createElement('td');
-            tdTime.style.color = 'var(--text-muted)';
-            tdTime.style.fontSize = '0.82rem';
-            tdTime.textContent = a.attemptedAt ? new Date(a.attemptedAt).toLocaleString() : '';
-
-            tr.appendChild(tdStudent);
-            tr.appendChild(tdEp);
-            tr.appendChild(tdMode);
-            tr.appendChild(tdScore);
-            tr.appendChild(tdStatus);
-            tr.appendChild(tdReward);
-            tr.appendChild(tdTime);
-            tbody.appendChild(tr);
-        });
+        cachedAttempts = await res.json() || [];
+        renderAttemptsTable();
     } catch (e) {
         console.warn('Attempts audit load error:', e);
     }
+}
+
+function renderAttemptsTable() {
+    const tbody = document.getElementById('admin-attempts-tbody');
+    clearElement(tbody);
+
+    const filterVal = (document.getElementById('audit-student-filter') || {}).value || 'ALL';
+    const filtered = filterVal === 'ALL'
+        ? cachedAttempts
+        : cachedAttempts.filter((a) => a.studentUsername === filterVal);
+
+    if (!filtered || filtered.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 7;
+        td.style.textAlign = 'center';
+        td.style.color = 'var(--text-muted)';
+        td.style.padding = '2rem';
+        td.textContent = 'No quiz attempts logged for this selection yet.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+    }
+
+    filtered.forEach((a) => {
+        const tr = document.createElement('tr');
+
+        const tdStudent = document.createElement('td');
+        const strongStudent = document.createElement('strong');
+        strongStudent.textContent = a.studentFullName || a.studentUsername;
+        tdStudent.appendChild(strongStudent);
+
+        const tdEp = document.createElement('td');
+        tdEp.style.fontFamily = "'Cairo', sans-serif";
+        tdEp.textContent = `Ep. ${a.episodeNumber}: ${a.episodeTitle}`;
+
+        const tdMode = document.createElement('td');
+        const modeSpan = document.createElement('span');
+        modeSpan.style.fontSize = '0.8rem';
+        modeSpan.style.background = 'rgba(255,255,255,0.06)';
+        modeSpan.style.padding = '0.2rem 0.5rem';
+        modeSpan.style.borderRadius = '4px';
+        modeSpan.textContent = a.watchMode;
+        tdMode.appendChild(modeSpan);
+
+        const tdScore = document.createElement('td');
+        const strongScore = document.createElement('strong');
+        strongScore.textContent = `${Number(a.scorePercentage || 0).toFixed(0)}%`;
+        tdScore.appendChild(strongScore);
+
+        const tdStatus = document.createElement('td');
+        const statusSpan = document.createElement('span');
+        statusSpan.style.color = a.passed ? '#10b981' : '#ef4444';
+        statusSpan.style.fontWeight = '800';
+        statusSpan.style.fontSize = '0.82rem';
+        statusSpan.textContent = a.passed ? '✓ PASSED' : '✗ FAILED';
+        tdStatus.appendChild(statusSpan);
+
+        const tdReward = document.createElement('td');
+        tdReward.style.color = '#f59e0b';
+        tdReward.style.fontWeight = '800';
+        tdReward.textContent = '+$' + Number(a.rewardAmount || 0).toFixed(2);
+
+        const tdTime = document.createElement('td');
+        tdTime.style.color = 'var(--text-muted)';
+        tdTime.style.fontSize = '0.82rem';
+        tdTime.textContent = a.attemptedAt ? new Date(a.attemptedAt).toLocaleString() : '';
+
+        tr.appendChild(tdStudent);
+        tr.appendChild(tdEp);
+        tr.appendChild(tdMode);
+        tr.appendChild(tdScore);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdReward);
+        tr.appendChild(tdTime);
+        tbody.appendChild(tr);
+    });
 }
 
 async function loadEpisodes() {
@@ -361,6 +511,9 @@ async function loadEpisodes() {
         const res = await apiFetch('/api/admin/episodes');
         if (!res.ok) return;
         episodes = await res.json();
+
+        const epCountBadge = document.getElementById('tab-badge-episodes');
+        if (epCountBadge) epCountBadge.textContent = String(episodes.length);
 
         // Populate AI dropdown
         const select = document.getElementById('ai-episode-select');
@@ -387,10 +540,20 @@ async function loadEpisodes() {
             tdTitle.style.fontFamily = "'Cairo', sans-serif";
             tdTitle.textContent = ep.title;
 
+            const tdLen = document.createElement('td');
+            tdLen.style.color = 'var(--text-muted)';
+            tdLen.style.fontSize = '0.82rem';
+            const mins = Math.round((ep.durationSeconds || 1200) / 60);
+            tdLen.textContent = `~${mins} min`;
+
             const tdVid = document.createElement('td');
-            const codeEl = document.createElement('code');
-            codeEl.textContent = ep.youtubeVideoId;
-            tdVid.appendChild(codeEl);
+            const ytLink = document.createElement('a');
+            ytLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(ep.youtubeVideoId)}`;
+            ytLink.target = '_blank';
+            ytLink.rel = 'noopener noreferrer';
+            ytLink.style.color = '#93c5fd';
+            ytLink.textContent = ep.youtubeVideoId + ' ↗';
+            tdVid.appendChild(ytLink);
 
             const tdAction = document.createElement('td');
             const delBtn = document.createElement('button');
@@ -402,6 +565,7 @@ async function loadEpisodes() {
 
             tr.appendChild(tdNum);
             tr.appendChild(tdTitle);
+            tr.appendChild(tdLen);
             tr.appendChild(tdVid);
             tr.appendChild(tdAction);
             tbody.appendChild(tr);
@@ -503,6 +667,7 @@ async function handleResetStudentPassword(e) {
     const newUsername = document.getElementById('edit-student-username').value.trim();
     const fullName = document.getElementById('edit-student-fullname').value.trim();
     const newPassword = document.getElementById('reset-student-newpw').value;
+    const betaTester = Boolean(document.getElementById('edit-student-beta').checked);
 
     if (newPassword && newPassword.length < 8) {
         showFeedback('reset-student-pw-msg', 'New password must be at least 8 characters.', true);
@@ -513,12 +678,12 @@ async function handleResetStudentPassword(e) {
         const res = await apiFetch(`/api/admin/students/${selectedStudent.id}/update-account`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newUsername, fullName, newPassword })
+            body: JSON.stringify({ newUsername, fullName, newPassword, betaTester })
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
             document.getElementById('reset-student-newpw').value = '';
-            showFeedback('reset-student-pw-msg', `✓ Updated student account: ${data.fullName} (${data.username}).`);
+            showFeedback('reset-student-pw-msg', `✓ Saved changes for ${data.fullName} (${data.username}).`);
             await loadStudents(data.id);
             await loadAdminDashboard();
         } else {

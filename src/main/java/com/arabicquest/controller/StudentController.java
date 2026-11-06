@@ -57,13 +57,19 @@ public class StudentController {
     @Transactional(readOnly = true)
     @GetMapping("/episodes")
     public ResponseEntity<List<EpisodeStudentResponse>> getEpisodes(
-            @AuthenticationPrincipal UserDetails userDetails) {
+            @AuthenticationPrincipal UserDetails userDetails,
+            @RequestParam(defaultValue = "false") boolean betaUnlock) {
         User student = userRepository.findByUsername(userDetails.getUsername())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         List<Episode> episodes = episodeRepository.findAllActiveOrderByEpisodeNumberAsc();
+        java.util.Set<Long> passedIds = quizAttemptRepository.findPassedEpisodeIdsByStudentId(student.getId());
+        boolean allowBetaBypass = betaUnlock && student.hasBetaAccess();
+
         List<EpisodeStudentResponse> result = episodes.stream().map(ep -> {
-            boolean passed = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), ep.getId());
+            boolean passed = passedIds.contains(ep.getId());
+            WatchProgressService.EpisodeLockState lockState =
+                    watchProgressService.evaluateSequentialLock(ep, episodes, passedIds, allowBetaBypass);
             WatchStatusResponse watchStatus = watchProgressService.getWatchStatus(student, ep, passed);
             return new EpisodeStudentResponse(
                     ep.getId(),
@@ -73,6 +79,8 @@ public class StudentController {
                     ep.getYoutubeVideoId(),
                     ep.getDurationSeconds(),
                     passed,
+                    lockState.locked(),
+                    lockState.unlockAfterEpisodeNumber(),
                     watchStatus
             );
         }).toList();
@@ -81,16 +89,21 @@ public class StudentController {
     }
 
     @GetMapping("/quizzes/{episodeId}")
-    public ResponseEntity<QuizViewResponse> getQuizForEpisode(@PathVariable Long episodeId) {
-        return ResponseEntity.ok(quizService.getStudentQuizView(episodeId));
+    public ResponseEntity<QuizViewResponse> getQuizForEpisode(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long episodeId,
+            @RequestParam(defaultValue = "false") boolean betaUnlock) {
+        return ResponseEntity.ok(quizService.getStudentQuizView(userDetails.getUsername(), episodeId, betaUnlock));
     }
 
     @PostMapping("/episodes/{episodeId}/heartbeat")
     public ResponseEntity<WatchStatusResponse> recordWatchHeartbeat(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long episodeId,
+            @RequestParam(defaultValue = "false") boolean betaUnlock,
             @RequestBody(required = false) WatchHeartbeatRequest request) {
-        WatchStatusResponse status = watchProgressService.recordHeartbeat(userDetails.getUsername(), episodeId, request);
+        WatchStatusResponse status = watchProgressService.recordHeartbeat(
+                userDetails.getUsername(), episodeId, request, betaUnlock);
         return ResponseEntity.ok(status);
     }
 
@@ -113,8 +126,9 @@ public class StudentController {
     @PostMapping("/quizzes/submit")
     public ResponseEntity<QuizResultResponse> submitQuiz(
             @AuthenticationPrincipal UserDetails userDetails,
+            @RequestParam(defaultValue = "false") boolean betaUnlock,
             @Valid @RequestBody QuizSubmissionRequest request) {
-        QuizResultResponse response = quizService.submitQuiz(userDetails.getUsername(), request);
+        QuizResultResponse response = quizService.submitQuiz(userDetails.getUsername(), request, betaUnlock);
         return ResponseEntity.ok(response);
     }
 

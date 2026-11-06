@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>تراثُنا • Turathtona | Student Portal</title>
-    <link rel="stylesheet" href="/style.css?v=3">
+    <link rel="stylesheet" href="/style.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
     <style>
         .student-user-pill {
@@ -67,7 +67,7 @@
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            padding: 0.9rem 1.25rem;
+            padding: 0.95rem 1.25rem;
             display: flex;
             flex-direction: column;
             gap: 0.55rem;
@@ -158,6 +158,32 @@
             align-items: center;
             gap: 0.35rem;
         }
+        .mode-card-stacked {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem 1.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        .mode-card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1.5rem;
+        }
+        @media (max-width: 768px) {
+            .mode-card-stacked {
+                padding: 1rem;
+            }
+            .mode-card-top {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 0.85rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -172,6 +198,8 @@
         </div>
 
         <div class="header-actions">
+            <a id="btn-enter-beta-shortcut" href="/beta" class="beta-btn" style="display: none;">🧪 Beta Sandbox</a>
+
             <div id="student-earnings-pill" class="earnings-strip">
                 <div class="earnings-metric">Earned: <strong id="val-earned">$0.00</strong></div>
                 <div class="earnings-metric">Paid: <strong id="val-paid">$0.00</strong></div>
@@ -185,6 +213,23 @@
         </div>
     </header>
 
+    <!-- Beta Test Sandbox Bar (Visible ONLY at /beta for Admin or Authorized Beta Testers) -->
+    <div id="beta-sandbox-bar" class="beta-sandbox-bar">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+            <span class="beta-pill">🧪 BETA SANDBOX</span>
+            <span id="beta-status-msg" style="font-size: 0.8rem; color: #e2e8f0;">
+                Test player modes, watch timer, sequential locks, quizzes &amp; rewards safely.
+            </span>
+        </div>
+        <div class="beta-actions">
+            <button type="button" class="beta-btn" onclick="betaInstantUnlockQuiz()">⏩ Instant Unlock Quiz</button>
+            <button type="button" id="btn-beta-unlock-all" class="beta-btn" onclick="betaToggleUnlockAllEpisodes()">🔓 Unlock All Episodes: OFF</button>
+            <button type="button" class="beta-btn" onclick="betaClearCooldown()">⏱️ Clear Cooldown</button>
+            <button type="button" class="beta-btn danger" onclick="betaResetMyProgress()">🔄 Reset Test Balance ($0.00)</button>
+            <a href="/" class="beta-btn">← Normal Student View</a>
+        </div>
+    </div>
+
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -195,14 +240,14 @@
 
                 <div class="course-progress-card">
                     <div class="progress-header">
-                        <span>Course Completion</span>
+                        <span>Sequential Progression</span>
                         <strong id="progress-percent-label">0%</strong>
                     </div>
                     <div class="progress-bar-bg">
                         <div id="progress-bar-fill" class="progress-bar-fill"></div>
                     </div>
                     <div class="bonus-milestone">
-                        <span>🏆 Complete all episodes for the one-time $100.00 Bonus!</span>
+                        <span>🏆 Pass each episode (80%+) in order to unlock the next &amp; earn the $100.00 Bonus!</span>
                     </div>
                 </div>
             </div>
@@ -211,58 +256,64 @@
         </aside>
 
         <main class="content-area">
-            <div class="mode-card">
-                <div class="mode-info">
-                    <h2 id="current-episode-title">Loading episode...</h2>
-                    <p id="mode-helper-text">Choose your viewing mode before starting playback. Passing the quiz (80%+) locks in your reward:</p>
+            <div id="episode-lock-toast" class="episode-lock-toast"></div>
+
+            <div class="mode-card-stacked">
+                <div class="mode-card-top">
+                    <div class="mode-info">
+                        <h2 id="current-episode-title">Loading episode...</h2>
+                        <p id="mode-helper-text">Choose your viewing &amp; language mode. Switching reconfigures the player audio/captions and sets your reward rate:</p>
+                    </div>
+
+                    <div class="mode-toggle-group">
+                        <button type="button" id="btn-mode-arabic" class="mode-button active" onclick="selectMode('ARABIC_SUB')">
+                            <span class="mode-name">🎧 Arabic + English Subs</span>
+                            <span class="mode-reward">+$15.00 Reward</span>
+                        </button>
+                        <button type="button" id="btn-mode-english" class="mode-button" onclick="selectMode('ENGLISH_DUB')">
+                            <span class="mode-name">🔊 English Dub</span>
+                            <span class="mode-reward">+$10.00 Reward</span>
+                        </button>
+                    </div>
                 </div>
 
-                <div class="mode-toggle-group">
-                    <button id="btn-mode-arabic" class="mode-button active" onclick="selectMode('ARABIC_SUB')">
-                        <span class="mode-name">🎧 Arabic + English Subs</span>
-                        <span class="mode-reward">+$15.00 Reward</span>
-                    </button>
-                    <button id="btn-mode-english" class="mode-button" onclick="selectMode('ENGLISH_DUB')">
-                        <span class="mode-name">🔊 English Dub</span>
-                        <span class="mode-reward">+$10.00 Reward</span>
+                <div id="active-mode-banner" class="mode-status-banner">
+                    <span id="active-mode-banner-text">🎧 Active Mode: Original Arabic Audio + English Subtitles (+$15.00 Reward) — English captions auto-enabled on player.</span>
+                    <button type="button" class="btn-reset-mode" onclick="applyModeToLivePlayer(true)" style="border-color: rgba(255,255,255,0.25); color: #f8fafc;">
+                        ↻ Sync Player Audio/CC
                     </button>
                 </div>
             </div>
 
-            <div class="player-wrapper">
-                <iframe
-                    id="yt-player"
-                    title="Turathtona Episode Video Player"
-                    src="about:blank"
-                    style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    referrerpolicy="strict-origin-when-cross-origin"
-                    allowfullscreen>
-                </iframe>
+            <div id="player-wrapper" class="player-wrapper">
+                <div id="yt-player-mount"></div>
             </div>
 
-            <!-- Verified Watch Progress & Mode Lock Bar -->
+            <!-- Live Video-Playback Watch Progress & Mode Lock Bar -->
             <div class="watch-progress-strip">
                 <div class="watch-progress-row">
                     <div>
-                        <strong id="watch-status-label" style="color: #a7f3d0;">⏱️ Watch Progress: 00:00 / 10:00</strong>
+                        <strong id="watch-status-label" style="color: #a7f3d0;">⏱️ Watch Progress: 00:00 / --:-- (Play video to start timer)</strong>
                         <span id="locked-mode-badge" style="margin-left: 0.65rem; font-size: 0.78rem; color: var(--text-muted);"></span>
                     </div>
-                    <button id="btn-reset-mode" class="btn-reset-mode" style="display: none;" onclick="handleSwitchLockedMode()">
+                    <button type="button" id="btn-reset-mode" class="btn-reset-mode" style="display: none;" onclick="handleSwitchLockedMode()">
                         Switch Mode &amp; Restart Timer
                     </button>
                 </div>
                 <div class="progress-bar-bg">
                     <div id="watch-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
                 </div>
+                <div id="watch-live-subnote" style="font-size: 0.75rem; color: var(--text-subtle);">
+                    Timer counts real video playback only (85% of episode length required). Pausing or skipping forward does not add watch time.
+                </div>
             </div>
 
             <!-- External YouTube Extension Support Banner -->
             <div class="extension-support-banner">
                 <div>
-                    <strong style="color: #93c5fd; font-size: 0.88rem;">Using browser translation extensions (e.g. YouTube Subtitle/Comment Translator)?</strong>
+                    <strong style="color: #93c5fd; font-size: 0.88rem;">Using browser translation or dubbing extensions on YouTube?</strong>
                     <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">
-                        Click below to watch directly on YouTube with your extensions. Your selected mode locks in and your watch timer tracks automatically while you watch!
+                        Open directly on YouTube with your selected language parameters. Your chosen reward mode locks in and tracks while you watch!
                     </p>
                 </div>
                 <div style="display: flex; gap: 0.65rem; align-items: center;">
@@ -290,12 +341,12 @@
             <section id="quiz-section" class="quiz-box" style="display: none;">
                 <div class="quiz-header">
                     <div>
-                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                             <h3>Comprehension Quiz</h3>
                             <span class="quiz-pass-badge">Pass Mark: 80% (4/5)</span>
                         </div>
                         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                            Answer carefully based on the episode. Failed attempts trigger a 10-minute review cooldown.
+                            Pass with 80%+ to claim your episode reward and unlock the next episode! Failed attempts trigger a 10-minute review cooldown.
                         </p>
                     </div>
                 </div>
@@ -319,12 +370,17 @@
             <h2 id="modal-title" style="font-size: 1.6rem; font-weight: 800;">🎉 Excellent Work!</h2>
             <div id="modal-score" class="modal-score-circle">100%</div>
             <p id="modal-message" style="color: var(--text-muted); font-size: 1rem; line-height: 1.6; margin-bottom: 1.5rem;"></p>
-            <button class="btn-primary" style="width: 100%; justify-content: center;" onclick="closeModal()">
-                Continue
-            </button>
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button type="button" class="btn-primary" style="flex: 1; justify-content: center;" onclick="closeModal()">
+                    Continue
+                </button>
+                <button type="button" id="btn-modal-next-ep" class="btn-primary" style="flex: 1; justify-content: center; display: none;" onclick="advanceToNextUnlockedEpisode()">
+                    Next Episode ➔
+                </button>
+            </div>
         </div>
     </div>
 
-    <script src="/app.js?v=3"></script>
+    <script src="/app.js?v=4"></script>
 </body>
 </html>

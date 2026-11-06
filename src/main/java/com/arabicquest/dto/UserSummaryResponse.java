@@ -8,6 +8,7 @@ public record UserSummaryResponse(
         String username,
         String fullName,
         String role,
+        boolean betaTester,
         LocalDateTime createdAt
 ) {
     public static UserSummaryResponse from(User user) {
@@ -16,6 +17,7 @@ public record UserSummaryResponse(
                 user.getUsername(),
                 user.getFullName(),
                 user.getRole().name(),
+                user.hasBetaAccess(),
                 user.getCreatedAt()
         );
     }

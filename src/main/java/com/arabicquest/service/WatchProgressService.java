@@ -17,18 +17,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class WatchProgressService {
 
     private static final int MAX_HEARTBEAT_CREDIT_SECONDS = 25;
+    private static final double REQUIRED_WATCH_RATIO = 0.85;
 
     private final WatchSessionRepository watchSessionRepository;
     private final QuizAttemptRepository quizAttemptRepository;
     private final UserRepository userRepository;
     private final EpisodeRepository episodeRepository;
-    private final int configuredMinWatchSeconds;
+    private final int watchCapSeconds;
     private final long retryCooldownSeconds;
 
     public WatchProgressService(
@@ -36,22 +39,63 @@ public class WatchProgressService {
             QuizAttemptRepository quizAttemptRepository,
             UserRepository userRepository,
             EpisodeRepository episodeRepository,
-            @Value("${QUIZ_MIN_WATCH_SECONDS:600}") int configuredMinWatchSeconds,
+            @Value("${QUIZ_WATCH_CAP_SECONDS:0}") int watchCapSeconds,
             @Value("${QUIZ_RETRY_COOLDOWN_SECONDS:600}") long retryCooldownSeconds) {
         this.watchSessionRepository = watchSessionRepository;
         this.quizAttemptRepository = quizAttemptRepository;
         this.userRepository = userRepository;
         this.episodeRepository = episodeRepository;
-        this.configuredMinWatchSeconds = configuredMinWatchSeconds;
+        this.watchCapSeconds = watchCapSeconds;
         this.retryCooldownSeconds = retryCooldownSeconds;
     }
 
     public int computeRequiredWatchSeconds(Episode episode) {
-        if (configuredMinWatchSeconds <= 0) {
-            return 0;
+        int duration = Math.max(60, episode.getDurationSeconds());
+        int required = Math.max(30, (int) Math.round(duration * REQUIRED_WATCH_RATIO));
+        if (watchCapSeconds > 0) {
+            return Math.min(watchCapSeconds, required);
         }
-        int sixtyPercent = (int) Math.round(episode.getDurationSeconds() * 0.60);
-        return Math.min(configuredMinWatchSeconds, Math.max(15, sixtyPercent));
+        return required;
+    }
+
+    public record EpisodeLockState(boolean locked, Integer unlockAfterEpisodeNumber) {}
+
+    public EpisodeLockState evaluateSequentialLock(
+            Episode target,
+            List<Episode> orderedActiveEpisodes,
+            Set<Long> passedEpisodeIds,
+            boolean bypassForBeta) {
+        if (bypassForBeta || passedEpisodeIds.contains(target.getId())) {
+            return new EpisodeLockState(false, null);
+        }
+        for (int i = 0; i < orderedActiveEpisodes.size(); i++) {
+            if (orderedActiveEpisodes.get(i).getId().equals(target.getId())) {
+                if (i == 0) {
+                    return new EpisodeLockState(false, null);
+                }
+                Episode prev = orderedActiveEpisodes.get(i - 1);
+                boolean prevPassed = passedEpisodeIds.contains(prev.getId());
+                return prevPassed
+                        ? new EpisodeLockState(false, null)
+                        : new EpisodeLockState(true, prev.getEpisodeNumber());
+            }
+        }
+        return new EpisodeLockState(false, null);
+    }
+
+    @Transactional(readOnly = true)
+    public void assertEpisodeUnlocked(User user, Episode episode, boolean betaUnlockRequested) {
+        boolean allowBetaBypass = betaUnlockRequested && user.hasBetaAccess();
+        if (allowBetaBypass) {
+            return;
+        }
+        List<Episode> active = episodeRepository.findAllActiveOrderByEpisodeNumberAsc();
+        Set<Long> passedIds = quizAttemptRepository.findPassedEpisodeIdsByStudentId(user.getId());
+        EpisodeLockState lockState = evaluateSequentialLock(episode, active, passedIds, false);
+        if (lockState.locked()) {
+            throw new SecurityException("Episode " + episode.getEpisodeNumber()
+                    + " is locked. Pass Episode " + lockState.unlockAfterEpisodeNumber() + " first.");
+        }
     }
 
     public long getRetryCooldownRemainingSeconds(Long studentId, Long episodeId) {
@@ -86,14 +130,14 @@ public class WatchProgressService {
         }
 
         WatchSession session = opt.get();
-        int effectiveVerified = calculateEffectiveWatchSeconds(session, required);
-        boolean unlocked = alreadyPassed || effectiveVerified >= required;
+        int verified = Math.min(required, session.getVerifiedWatchSeconds());
+        boolean unlocked = alreadyPassed || verified >= required;
 
         return new WatchStatusResponse(
                 episode.getId(),
                 session.getLockedWatchMode(),
                 session.isModeLocked(),
-                effectiveVerified,
+                alreadyPassed ? required : verified,
                 required,
                 unlocked,
                 cooldown
@@ -101,11 +145,25 @@ public class WatchProgressService {
     }
 
     @Transactional
-    public WatchStatusResponse recordHeartbeat(String username, Long episodeId, WatchHeartbeatRequest req) {
+    public WatchStatusResponse recordHeartbeat(
+            String username,
+            Long episodeId,
+            WatchHeartbeatRequest req,
+            boolean betaUnlockRequested) {
         User student = userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         Episode episode = episodeRepository.findById(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+
+        // Calibrate true YouTube duration when reported by the YouTube IFrame API
+        if (req != null && req.videoDurationSeconds() != null) {
+            int reportedDuration = req.videoDurationSeconds();
+            if (reportedDuration >= 60 && reportedDuration <= 14400
+                    && Math.abs(episode.getDurationSeconds() - reportedDuration) > 3) {
+                episode.setDurationSeconds(reportedDuration);
+                episode = episodeRepository.save(episode);
+            }
+        }
 
         boolean alreadyPassed = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episode.getId());
         int required = computeRequiredWatchSeconds(episode);
@@ -113,9 +171,20 @@ public class WatchProgressService {
         WatchMode requestedMode = (req != null && req.watchMode() != null) ? req.watchMode() : WatchMode.ARABIC_SUB;
         boolean isExternal = req != null && req.external();
         boolean videoEnded = req != null && req.videoEnded();
+        int reportedDelta = (req != null && req.watchedDeltaSeconds() != null) ? Math.max(0, req.watchedDeltaSeconds()) : 0;
+        boolean isPlaying = req != null && Boolean.TRUE.equals(req.playing());
+        boolean hasPlaybackActivity = isPlaying || reportedDelta > 0 || isExternal || videoEnded;
 
-        WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(student.getId(), episode.getId())
-                .orElseGet(() -> new WatchSession(student, episode, requestedMode));
+        // Metadata-only duration sync before pressing Play: return updated required seconds without locking mode
+        if (!hasPlaybackActivity) {
+            return getWatchStatus(student, episode, alreadyPassed);
+        }
+
+        assertEpisodeUnlocked(student, episode, betaUnlockRequested);
+
+        final Episode targetEpisode = episode;
+        WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(student.getId(), targetEpisode.getId())
+                .orElseGet(() -> new WatchSession(student, targetEpisode, requestedMode));
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -127,38 +196,51 @@ public class WatchProgressService {
         if (isExternal) {
             if (session.getExternalWatchStartedAt() == null) {
                 session.setExternalWatchStartedAt(now);
+            }
+            if (session.getLastHeartbeatAt() != null) {
+                int elapsedSeconds = (int) Math.round(Duration.between(session.getLastHeartbeatAt(), now).toMillis() / 1000.0);
+                int credit = Math.min(20, Math.max(0, elapsedSeconds));
+                if (credit > 0) {
+                    session.setVerifiedWatchSeconds(Math.min(required, session.getVerifiedWatchSeconds() + credit));
+                    session.setLastHeartbeatAt(now);
+                }
             } else {
-                long extElapsed = Math.max(0L, Duration.between(session.getExternalWatchStartedAt(), now).getSeconds());
-                int updated = Math.max(session.getVerifiedWatchSeconds(), (int) Math.min(required, extElapsed));
-                session.setVerifiedWatchSeconds(updated);
+                session.setLastHeartbeatAt(now);
             }
         } else {
-            if (session.getLastHeartbeatAt() != null) {
-                long delta = Duration.between(session.getLastHeartbeatAt(), now).getSeconds();
-                if (delta > 0) {
-                    int credit = (int) Math.min(MAX_HEARTBEAT_CREDIT_SECONDS, delta);
-                    session.setVerifiedWatchSeconds(session.getVerifiedWatchSeconds() + credit);
+            if (session.getLastHeartbeatAt() == null) {
+                session.setLastHeartbeatAt(now);
+            } else {
+                int elapsedSeconds = (int) Math.round(Duration.between(session.getLastHeartbeatAt(), now).toMillis() / 1000.0);
+                int wallCap = Math.min(MAX_HEARTBEAT_CREDIT_SECONDS, Math.max(0, elapsedSeconds));
+                int credit = (req != null && req.watchedDeltaSeconds() != null)
+                        ? Math.min(reportedDelta, wallCap)
+                        : Math.min(15, wallCap);
+
+                if (credit > 0) {
+                    session.setVerifiedWatchSeconds(Math.min(required, session.getVerifiedWatchSeconds() + credit));
+                }
+                if (reportedDelta == 0 || elapsedSeconds >= 1) {
+                    session.setLastHeartbeatAt(now);
                 }
             }
-            session.setLastHeartbeatAt(now);
         }
 
         if (videoEnded) {
             session.setVideoEnded(true);
         }
 
-        int effectiveVerified = calculateEffectiveWatchSeconds(session, required);
-        session.setVerifiedWatchSeconds(effectiveVerified);
         watchSessionRepository.save(session);
 
+        int verified = Math.min(required, session.getVerifiedWatchSeconds());
         long cooldown = alreadyPassed ? 0L : getRetryCooldownRemainingSeconds(student.getId(), episode.getId());
-        boolean unlocked = alreadyPassed || effectiveVerified >= required;
+        boolean unlocked = alreadyPassed || verified >= required;
 
         return new WatchStatusResponse(
                 episode.getId(),
                 session.getLockedWatchMode(),
                 session.isModeLocked(),
-                effectiveVerified,
+                alreadyPassed ? required : verified,
                 required,
                 unlocked,
                 cooldown
@@ -200,6 +282,39 @@ public class WatchProgressService {
         );
     }
 
+    @Transactional
+    public WatchStatusResponse betaInstantUnlockWatch(User user, Long episodeId, WatchMode mode) {
+        if (!user.hasBetaAccess()) {
+            throw new SecurityException("Beta test controls are restricted to administrators and authorized beta testers.");
+        }
+        Episode episode = episodeRepository.findById(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+
+        int required = computeRequiredWatchSeconds(episode);
+        WatchMode targetMode = mode != null ? mode : WatchMode.ARABIC_SUB;
+
+        WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(user.getId(), episode.getId())
+                .orElseGet(() -> new WatchSession(user, episode, targetMode));
+
+        session.setLockedWatchMode(targetMode);
+        session.setModeLocked(true);
+        session.setVerifiedWatchSeconds(required);
+        session.setVideoEnded(true);
+        session.setLastHeartbeatAt(null);
+        watchSessionRepository.save(session);
+
+        long cooldown = getRetryCooldownRemainingSeconds(user.getId(), episode.getId());
+        return new WatchStatusResponse(
+                episode.getId(),
+                session.getLockedWatchMode(),
+                true,
+                required,
+                required,
+                true,
+                cooldown
+        );
+    }
+
     public boolean isQuizUnlockedForSubmission(Long studentId, Episode episode) {
         int required = computeRequiredWatchSeconds(episode);
         if (required <= 0) {
@@ -209,7 +324,7 @@ public class WatchProgressService {
         if (opt.isEmpty()) {
             return false;
         }
-        return calculateEffectiveWatchSeconds(opt.get(), required) >= required;
+        return opt.get().getVerifiedWatchSeconds() >= required;
     }
 
     public WatchMode resolveEffectiveWatchMode(Long studentId, Long episodeId, WatchMode fallbackMode) {
@@ -217,14 +332,5 @@ public class WatchProgressService {
                 .filter(WatchSession::isModeLocked)
                 .map(WatchSession::getLockedWatchMode)
                 .orElse(fallbackMode != null ? fallbackMode : WatchMode.ARABIC_SUB);
-    }
-
-    private int calculateEffectiveWatchSeconds(WatchSession session, int required) {
-        int verified = session.getVerifiedWatchSeconds();
-        if (session.getExternalWatchStartedAt() != null) {
-            long extElapsed = Math.max(0L, Duration.between(session.getExternalWatchStartedAt(), LocalDateTime.now()).getSeconds());
-            verified = Math.max(verified, (int) Math.min(required, extElapsed));
-        }
-        return verified;
     }
 }

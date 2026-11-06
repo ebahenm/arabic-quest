@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Turathtona (تراثُنا) | Student Login</title>
-    <link rel="stylesheet" href="/style.css?v=3">
+    <link rel="stylesheet" href="/style.css?v=4">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         .auth-container {
@@ -191,6 +191,15 @@
         localStorage.removeItem('aq_username');
         localStorage.removeItem('aq_fullname');
 
+        function getPostLoginDestination() {
+            const params = new URLSearchParams(window.location.search);
+            const next = params.get('next');
+            if (next && next.startsWith('/') && !next.startsWith('//')) {
+                return next;
+            }
+            return '/';
+        }
+
         function showError(msg) {
             const b = document.getElementById('error-box');
             b.textContent = msg;
@@ -198,6 +207,14 @@
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
+            const nextDest = getPostLoginDestination();
+            if (nextDest.startsWith('/beta')) {
+                const sub = document.querySelector('.auth-subtitle');
+                if (sub) {
+                    sub.textContent = 'Sign in with your Admin or Beta Tester account to enter the Turathtona Beta Sandbox (/beta).';
+                }
+            }
+
             // Check if already logged in via HttpOnly session cookie
             try {
                 const meRes = await fetch('/api/auth/me', {
@@ -205,7 +222,7 @@
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 });
                 if (meRes.ok) {
-                    window.location.href = '/';
+                    window.location.href = nextDest;
                     return;
                 }
             } catch (_) {}
@@ -265,7 +282,7 @@
                 });
 
                 if (res.ok) {
-                    window.location.href = '/';
+                    window.location.href = getPostLoginDestination();
                 } else {
                     const err = await res.json().catch(() => ({}));
                     showError(err.error || 'Invalid username or password');
@@ -297,7 +314,7 @@
                 });
 
                 if (res.ok) {
-                    window.location.href = '/';
+                    window.location.href = getPostLoginDestination();
                 } else {
                     const err = await res.json().catch(() => ({}));
                     showError(err.error || 'Google sign-in failed.');

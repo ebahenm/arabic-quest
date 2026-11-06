@@ -8,5 +8,7 @@ public record EpisodeStudentResponse(
         String youtubeVideoId,
         int durationSeconds,
         boolean passed,
+        boolean locked,
+        Integer unlockAfterEpisodeNumber,
         WatchStatusResponse watchStatus
 ) {}

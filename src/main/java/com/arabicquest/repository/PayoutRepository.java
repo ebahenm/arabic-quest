@@ -20,4 +20,6 @@ public interface PayoutRepository extends JpaRepository<Payout, Long> {
 
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payout p WHERE p.student.id = :studentId AND p.isPaid = true")
     BigDecimal calculateTotalPaidToStudent(@Param("studentId") Long studentId);
+
+    void deleteByStudentId(Long studentId);
 }

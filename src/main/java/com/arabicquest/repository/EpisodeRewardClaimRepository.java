@@ -8,4 +8,5 @@ import org.springframework.stereotype.Repository;
 public interface EpisodeRewardClaimRepository extends JpaRepository<EpisodeRewardClaim, Long> {
     boolean existsByStudentIdAndEpisodeId(Long studentId, Long episodeId);
     boolean existsByEpisodeId(Long episodeId);
+    void deleteByStudentId(Long studentId);
 }
