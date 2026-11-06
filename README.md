@@ -9,14 +9,6 @@
 
 **Turathtona** is an educational, incentive-driven platform designed to motivate learners to master Arabic listening comprehension through authentic historical narratives.
 
-### 💰 Verified Incentive & Anti-Cheat System
-* **Arabic Audio with English Subtitles (`ARABIC_SUB`)**: **+\$15.00** per passed episode (Score >= 80%).
-* **English Auto-Dub (`ENGLISH_DUB`)**: **+\$10.00** per passed episode (Score >= 80%).
-* **Course Completion Bonus**: **+\$100.00** awarded once upon passing all active episodes in the playlist.
-* **Server-Side Watch Verification**: Watch progress is tracked on the server via wall-clock-verified playback heartbeats (`WatchSession`). Quizzes cannot be submitted until the required watch threshold is verified.
-* **Mode Lock & Retry Cooldown**: Selecting a watch mode locks that episode's reward tier once playback starts. Failed quiz attempts trigger a server-enforced retry cooldown with reshuffled question options.
-* **Idempotent Ledger**: Pessimistic row locking and unique database reward-claim constraints (`episode_reward_claims`, `playlist_bonus_claims`) guarantee every episode reward and playlist bonus can only be earned once.
-
 ---
 
 ## 🏛️ Portal Architecture
