@@ -42,6 +42,7 @@ public class AdminController {
     private final StudentQuestionExposureRepository exposureRepository;
     private final QuestionReportRepository questionReportRepository;
     private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
+    private final StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository;
     private final WatchSessionRepository watchSessionRepository;
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
     private final WatchProgressService watchProgressService;
@@ -68,6 +69,7 @@ public class AdminController {
             StudentQuestionExposureRepository exposureRepository,
             QuestionReportRepository questionReportRepository,
             StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
+            StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository,
             WatchSessionRepository watchSessionRepository,
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
             WatchProgressService watchProgressService,
@@ -91,6 +93,7 @@ public class AdminController {
         this.exposureRepository = exposureRepository;
         this.questionReportRepository = questionReportRepository;
         this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
+        this.studentFavoriteEpisodeRepository = studentFavoriteEpisodeRepository;
         this.watchSessionRepository = watchSessionRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
         this.watchProgressService = watchProgressService;
@@ -625,6 +628,7 @@ public class AdminController {
             exposureRepository.deleteByEpisodeId(episodeId);
             quizAttemptSessionRepository.deleteByEpisodeId(episodeId);
             studentEpisodeOverrideRepository.deleteByEpisodeId(episodeId);
+            studentFavoriteEpisodeRepository.deleteByEpisodeId(episodeId);
             openQuestionRepository.deleteByEpisodeId(episodeId);
             episodeRepository.delete(episode);
         }

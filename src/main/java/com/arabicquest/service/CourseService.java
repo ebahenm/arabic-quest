@@ -22,6 +22,7 @@ public class CourseService {
     private final QuestionRepository questionRepository;
     private final OpenQuestionRepository openQuestionRepository;
     private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
+    private final StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository;
     private final UserRepository userRepository;
     private final WatchProgressService watchProgressService;
     private final YouTubePlaylistService youTubePlaylistService;
@@ -36,6 +37,7 @@ public class CourseService {
             QuestionRepository questionRepository,
             OpenQuestionRepository openQuestionRepository,
             StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
+            StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository,
             UserRepository userRepository,
             WatchProgressService watchProgressService,
             YouTubePlaylistService youTubePlaylistService) {
@@ -48,6 +50,7 @@ public class CourseService {
         this.questionRepository = questionRepository;
         this.openQuestionRepository = openQuestionRepository;
         this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
+        this.studentFavoriteEpisodeRepository = studentFavoriteEpisodeRepository;
         this.userRepository = userRepository;
         this.watchProgressService = watchProgressService;
         this.youTubePlaylistService = youTubePlaylistService;
@@ -160,6 +163,7 @@ public class CourseService {
 
         Set<Long> passedIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(student.getId());
         Set<Long> mcqPassedIds = quizAttemptRepository.findPassedEpisodeIdsByStudentId(student.getId());
+        Set<Long> favoriteIds = studentFavoriteEpisodeRepository.findFavoriteEpisodeIdsByStudentId(student.getId());
 
         Set<Long> pendingReviewEpisodeIds = new HashSet<>();
         for (OpenAnswerSubmission sub : openAnswerSubmissionRepository.findByStudentIdWithEpisodeAndPlaylist(student.getId())) {
@@ -211,11 +215,47 @@ public class CourseService {
                     progressState.name(),
                     progressState.getLabel(),
                     quizBankReady,
+                    favoriteIds.contains(ep.getId()),
                     rateAr,
                     rateEn,
                     watchStatus
             );
         }).toList();
+    }
+
+    @Transactional
+    public Map<String, Object> favoriteEpisode(String username, Long episodeId, boolean betaUnlockRequested) {
+        User student = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+
+        boolean allowBetaBypass = betaUnlockRequested && student.hasBetaAccess();
+        Playlist course = episode.getPlaylist();
+        if (episode.isArchived()
+                || !episode.isEnabled()
+                || course == null
+                || course.isArchived()
+                || (!course.isPublished() && !allowBetaBypass)) {
+            throw new SecurityException("Course is not available.");
+        }
+
+        if (!studentFavoriteEpisodeRepository.existsByStudentIdAndEpisodeId(student.getId(), episodeId)) {
+            studentFavoriteEpisodeRepository.save(new StudentFavoriteEpisode(student, episode));
+        }
+
+        return Map.of("episodeId", episodeId, "favorited", true);
+    }
+
+    @Transactional
+    public Map<String, Object> unfavoriteEpisode(String username, Long episodeId) {
+        User student = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        if (!episodeRepository.existsById(episodeId)) {
+            throw new IllegalArgumentException("Episode not found");
+        }
+        studentFavoriteEpisodeRepository.deleteByStudentIdAndEpisodeId(student.getId(), episodeId);
+        return Map.of("episodeId", episodeId, "favorited", false);
     }
 
     // =========================================================================

@@ -16,6 +16,7 @@ let betaUnlockAllEpisodes = false;
 let coursesCatalog = [];
 let currentCourse = null;
 let currentView = 'CATALOG'; // 'CATALOG' | 'SYLLABUS' | 'EPISODE'
+let syllabusFavoritesOnly = false;
 let currentEpisode = null;
 let episodes = [];
 let currentQuiz = null;
@@ -381,8 +382,13 @@ async function openCourseSyllabus(courseId) {
             return;
         }
         const detail = await res.json();
+        const switchingCourse = !currentCourse || currentCourse.id !== detail.course.id;
         currentCourse = detail.course;
         episodes = detail.episodes || [];
+        if (switchingCourse) {
+            syllabusFavoritesOnly = false;
+        }
+        syncSyllabusFavFilterButton();
         applyCourseSidebarSummary(currentCourse);
         renderCourseSyllabus();
         renderEpisodeList();
@@ -464,25 +470,36 @@ function renderCourseSyllabus() {
         ratesSummary.textContent = `🎧 Arabic + Subs: +$${Number(currentCourse.rateArabicSub).toFixed(2)} • 🔊 English Dub: +$${Number(currentCourse.rateEnglishDub).toFixed(2)}`;
     }
 
+    syncSyllabusFavFilterButton();
+
+    const favCount = episodes.filter((e) => Boolean(e.favorited)).length;
     const epCountLbl = document.getElementById('syllabus-episode-count-label');
     if (epCountLbl) {
-        epCountLbl.textContent = `${episodes.length} episode${episodes.length === 1 ? '' : 's'} in course`;
+        epCountLbl.textContent = syllabusFavoritesOnly
+            ? `${favCount} favourite${favCount === 1 ? '' : 's'} of ${episodes.length} episode${episodes.length === 1 ? '' : 's'}`
+            : `${episodes.length} episode${episodes.length === 1 ? '' : 's'} in course`;
     }
 
     const listEl = document.getElementById('syllabus-episode-list');
     if (!listEl) return;
     listEl.textContent = '';
 
-    if (episodes.length === 0) {
+    const visibleEpisodes = syllabusFavoritesOnly
+        ? episodes.filter((e) => Boolean(e.favorited))
+        : episodes;
+
+    if (visibleEpisodes.length === 0) {
         const emptyP = document.createElement('p');
         emptyP.style.color = 'var(--text-muted)';
         emptyP.style.padding = '1.25rem';
-        emptyP.textContent = 'No active episodes in this course yet.';
+        emptyP.textContent = syllabusFavoritesOnly
+            ? 'No favourited episodes in this course yet. Tap ♡ on any episode to save it here.'
+            : 'No active episodes in this course yet.';
         listEl.appendChild(emptyP);
         return;
     }
 
-    episodes.forEach((ep) => {
+    visibleEpisodes.forEach((ep) => {
         const row = document.createElement('div');
         row.className = 'syllabus-ep-row' + (ep.locked ? ' locked' : '');
         row.addEventListener('click', () => {
@@ -543,11 +560,73 @@ function renderCourseSyllabus() {
         rightWrap.appendChild(chipAr);
         rightWrap.appendChild(chipEn);
         rightWrap.appendChild(stateBadge);
+        rightWrap.appendChild(createFavoriteHeartButton(ep));
 
         row.appendChild(leftWrap);
         row.appendChild(rightWrap);
         listEl.appendChild(row);
     });
+}
+
+function toggleSyllabusFavoritesFilter() {
+    syllabusFavoritesOnly = !syllabusFavoritesOnly;
+    syncSyllabusFavFilterButton();
+    renderCourseSyllabus();
+}
+
+function syncSyllabusFavFilterButton() {
+    const btn = document.getElementById('btn-syllabus-fav-filter');
+    if (!btn) return;
+    const favCount = episodes.filter((e) => Boolean(e.favorited)).length;
+    btn.classList.toggle('active', syllabusFavoritesOnly);
+    btn.setAttribute('aria-pressed', syllabusFavoritesOnly ? 'true' : 'false');
+    btn.textContent = syllabusFavoritesOnly
+        ? `♥ Favourites (${favCount})`
+        : (favCount > 0 ? `♡ Favourites (${favCount})` : '♡ Favourites');
+}
+
+function createFavoriteHeartButton(ep) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    const isFav = Boolean(ep.favorited);
+    btn.className = 'fav-heart-btn' + (isFav ? ' active' : '');
+    btn.textContent = isFav ? '♥' : '♡';
+    btn.title = isFav ? 'Remove from favourites' : 'Add to favourites';
+    btn.setAttribute('aria-label', isFav ? 'Remove episode from favourites' : 'Add episode to favourites');
+    btn.setAttribute('aria-pressed', isFav ? 'true' : 'false');
+    btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        toggleEpisodeFavorite(ep);
+    });
+    return btn;
+}
+
+async function toggleEpisodeFavorite(ep) {
+    if (!ep || !ep.id) return;
+    const nextFav = !ep.favorited;
+    try {
+        const res = await fetch(
+            `/api/student/episodes/${ep.id}/favorite` + (nextFav ? betaQuerySuffix('?') : ''),
+            {
+                method: nextFav ? 'POST' : 'DELETE',
+                credentials: 'same-origin',
+                headers: apiHeaders()
+            }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const confirmedFav = Boolean(data.favorited);
+        episodes.forEach((item) => {
+            if (item.id === ep.id) item.favorited = confirmedFav;
+        });
+        if (currentEpisode && currentEpisode.id === ep.id) {
+            currentEpisode.favorited = confirmedFav;
+        }
+        renderCourseSyllabus();
+        renderEpisodeList();
+    } catch (e) {
+        console.warn('Favourite toggle error:', e);
+    }
 }
 
 function showSyllabusLockedToast(ep) {
@@ -761,6 +840,7 @@ function renderEpisodeList() {
         applyEpisodeStateBadgeStyle(badge, stateCode);
         badge.textContent = stateLabel;
         card.appendChild(badge);
+        card.appendChild(createFavoriteHeartButton(ep));
 
         container.appendChild(card);
     });

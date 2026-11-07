@@ -16,6 +16,7 @@ public record EpisodeStudentResponse(
         String state,
         String stateLabel,
         boolean quizReady,
+        boolean favorited,
         BigDecimal rateArabicSub,
         BigDecimal rateEnglishDub,
         WatchStatusResponse watchStatus

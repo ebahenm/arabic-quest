@@ -32,6 +32,7 @@ public class BetaTestController {
     private final OpenAnswerSubmissionRepository openAnswerSubmissionRepository;
     private final StudentOpenQuestionAssignmentRepository assignmentRepository;
     private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
+    private final StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository;
 
     public BetaTestController(
             UserRepository userRepository,
@@ -47,7 +48,8 @@ public class BetaTestController {
             QuestionReportRepository questionReportRepository,
             OpenAnswerSubmissionRepository openAnswerSubmissionRepository,
             StudentOpenQuestionAssignmentRepository assignmentRepository,
-            StudentEpisodeOverrideRepository studentEpisodeOverrideRepository) {
+            StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
+            StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository) {
         this.userRepository = userRepository;
         this.episodeRepository = episodeRepository;
         this.watchProgressService = watchProgressService;
@@ -62,6 +64,7 @@ public class BetaTestController {
         this.openAnswerSubmissionRepository = openAnswerSubmissionRepository;
         this.assignmentRepository = assignmentRepository;
         this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
+        this.studentFavoriteEpisodeRepository = studentFavoriteEpisodeRepository;
     }
 
     @Transactional
@@ -100,6 +103,7 @@ public class BetaTestController {
         openAnswerSubmissionRepository.deleteByStudentId(uid);
         assignmentRepository.deleteByStudentId(uid);
         studentEpisodeOverrideRepository.deleteByStudentId(uid);
+        studentFavoriteEpisodeRepository.deleteByStudentId(uid);
         watchSessionRepository.deleteByStudentId(uid);
         episodeRewardClaimRepository.deleteByStudentId(uid);
         playlistBonusClaimRepository.deleteByStudentId(uid);

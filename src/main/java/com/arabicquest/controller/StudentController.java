@@ -73,6 +73,21 @@ public class StudentController {
         return ResponseEntity.ok(courseService.getStudentEpisodes(userDetails.getUsername(), courseId, betaUnlock));
     }
 
+    @PostMapping("/episodes/{episodeId}/favorite")
+    public ResponseEntity<Map<String, Object>> favoriteEpisode(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long episodeId,
+            @RequestParam(defaultValue = "false") boolean betaUnlock) {
+        return ResponseEntity.ok(courseService.favoriteEpisode(userDetails.getUsername(), episodeId, betaUnlock));
+    }
+
+    @DeleteMapping("/episodes/{episodeId}/favorite")
+    public ResponseEntity<Map<String, Object>> unfavoriteEpisode(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long episodeId) {
+        return ResponseEntity.ok(courseService.unfavoriteEpisode(userDetails.getUsername(), episodeId));
+    }
+
     @GetMapping("/quizzes/{episodeId}")
     public ResponseEntity<QuizViewResponse> getQuizForEpisode(
             @AuthenticationPrincipal UserDetails userDetails,
