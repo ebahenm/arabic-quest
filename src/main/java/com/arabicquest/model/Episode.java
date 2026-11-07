@@ -42,6 +42,12 @@ public class Episode {
     @Column(name = "archived")
     private Boolean archived = false;
 
+    @Column(name = "enabled")
+    private Boolean enabled = true;
+
+    @Column(name = "sort_order")
+    private Integer sortOrder;
+
     @OneToOne(mappedBy = "episode", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private Quiz quiz;
@@ -63,6 +69,8 @@ public class Episode {
         this.youtubeVideoId = youtubeVideoId;
         this.durationSeconds = durationSeconds != null ? durationSeconds : 1800;
         this.archived = false;
+        this.enabled = true;
+        this.sortOrder = episodeNumber;
     }
 
     @PrePersist
@@ -73,6 +81,12 @@ public class Episode {
         }
         if (this.archived == null) {
             this.archived = false;
+        }
+        if (this.enabled == null) {
+            this.enabled = true;
+        }
+        if (this.sortOrder == null) {
+            this.sortOrder = this.episodeNumber;
         }
     }
 
@@ -146,6 +160,22 @@ public class Episode {
 
     public void setArchived(Boolean archived) {
         this.archived = archived;
+    }
+
+    public boolean isEnabled() {
+        return enabled == null || Boolean.TRUE.equals(enabled);
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public Integer getSortOrder() {
+        return sortOrder != null ? sortOrder : episodeNumber;
+    }
+
+    public void setSortOrder(Integer sortOrder) {
+        this.sortOrder = sortOrder;
     }
 
     public Quiz getQuiz() {

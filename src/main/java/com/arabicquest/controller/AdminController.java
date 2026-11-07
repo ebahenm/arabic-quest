@@ -44,6 +44,7 @@ public class AdminController {
     private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
     private final WatchSessionRepository watchSessionRepository;
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
+    private final WatchProgressService watchProgressService;
     private final AiQuizService aiQuizService;
     private final QuestionBankService questionBankService;
     private final OpenAnswerReviewService openAnswerReviewService;
@@ -68,6 +69,7 @@ public class AdminController {
             StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
             WatchSessionRepository watchSessionRepository,
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
+            WatchProgressService watchProgressService,
             AiQuizService aiQuizService,
             QuestionBankService questionBankService,
             OpenAnswerReviewService openAnswerReviewService,
@@ -89,6 +91,7 @@ public class AdminController {
         this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
         this.watchSessionRepository = watchSessionRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
+        this.watchProgressService = watchProgressService;
         this.aiQuizService = aiQuizService;
         this.questionBankService = questionBankService;
         this.openAnswerReviewService = openAnswerReviewService;
@@ -208,6 +211,50 @@ public class AdminController {
     @GetMapping("/students/{username}/earnings")
     public ResponseEntity<EarningsSummaryResponse> getStudentEarnings(@PathVariable String username) {
         return ResponseEntity.ok(payoutService.getStudentEarnings(username));
+    }
+
+    @GetMapping("/students/{studentId}/episode-overrides")
+    public ResponseEntity<List<WatchProgressService.StudentEpisodeOverrideView>> getStudentEpisodeOverrides(
+            @PathVariable Long studentId) {
+        return ResponseEntity.ok(watchProgressService.listStudentEpisodeOverrides(studentId));
+    }
+
+    @PostMapping("/students/{studentId}/episodes/{episodeId}/unlock")
+    public ResponseEntity<Map<String, Object>> unlockEpisodeForStudent(
+            @PathVariable Long studentId,
+            @PathVariable Long episodeId) {
+        StudentEpisodeOverride.OverrideState state = watchProgressService.setStudentEpisodeOverride(
+                studentId, episodeId, StudentEpisodeOverride.OverrideState.UNLOCKED);
+        return ResponseEntity.ok(Map.of(
+                "studentId", studentId,
+                "episodeId", episodeId,
+                "overrideState", state.name()
+        ));
+    }
+
+    @PostMapping("/students/{studentId}/episodes/{episodeId}/lock")
+    public ResponseEntity<Map<String, Object>> lockEpisodeForStudent(
+            @PathVariable Long studentId,
+            @PathVariable Long episodeId) {
+        StudentEpisodeOverride.OverrideState state = watchProgressService.setStudentEpisodeOverride(
+                studentId, episodeId, StudentEpisodeOverride.OverrideState.LOCKED);
+        return ResponseEntity.ok(Map.of(
+                "studentId", studentId,
+                "episodeId", episodeId,
+                "overrideState", state.name()
+        ));
+    }
+
+    @DeleteMapping("/students/{studentId}/episodes/{episodeId}/override")
+    public ResponseEntity<Map<String, Object>> clearEpisodeOverrideForStudent(
+            @PathVariable Long studentId,
+            @PathVariable Long episodeId) {
+        watchProgressService.setStudentEpisodeOverride(studentId, episodeId, null);
+        return ResponseEntity.ok(Map.of(
+                "studentId", studentId,
+                "episodeId", episodeId,
+                "overrideState", "AUTO"
+        ));
     }
 
     @Transactional(readOnly = true)

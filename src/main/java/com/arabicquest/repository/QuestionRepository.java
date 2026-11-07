@@ -25,6 +25,9 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 
     long countByQuizEpisodeIdAndActiveTrue(Long episodeId);
 
+    @Query("SELECT q.quiz.episode.id, COUNT(q) FROM Question q WHERE q.status = :status AND q.active = true GROUP BY q.quiz.episode.id")
+    List<Object[]> countActiveByStatusGroupedByEpisode(@Param("status") QuestionStatus status);
+
     @Modifying
     @Query("UPDATE Question q SET q.active = true WHERE q.active IS NULL")
     int backfillNullActiveToTrue();

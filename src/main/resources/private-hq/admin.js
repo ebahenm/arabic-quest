@@ -143,6 +143,13 @@ function wireEvents() {
     if (openqForm) openqForm.addEventListener('submit', handleSaveOpenQuestion);
     const cancelOpenqBtn = document.getElementById('btn-cancel-openq-edit');
     if (cancelOpenqBtn) cancelOpenqBtn.addEventListener('click', resetOpenQuestionForm);
+
+    const refreshOverridesBtn = document.getElementById('btn-refresh-student-overrides');
+    if (refreshOverridesBtn) {
+        refreshOverridesBtn.addEventListener('click', () => {
+            if (selectedStudent) loadStudentEpisodeOverrides(selectedStudent.id);
+        });
+    }
 }
 
 async function initAdmin() {
@@ -360,11 +367,14 @@ function populateAuditFilterDropdown() {
 function populateEditStudentForm(student) {
     if (!student) return;
     document.getElementById('editing-student-indicator').textContent = `${student.fullName} (${student.username})`;
+    const ovInd = document.getElementById('override-student-indicator');
+    if (ovInd) ovInd.textContent = `${student.fullName} (${student.username})`;
     document.getElementById('edit-student-username').value = student.username || '';
     document.getElementById('edit-student-fullname').value = student.fullName || '';
     document.getElementById('reset-student-newpw').value = '';
     const betaCheckbox = document.getElementById('edit-student-beta');
     if (betaCheckbox) betaCheckbox.checked = Boolean(student.betaTester);
+    loadStudentEpisodeOverrides(student.id);
 }
 
 function handleStudentSelectChange() {
@@ -1606,5 +1616,140 @@ async function handleImportQuestionBank() {
         showFeedback('qbank-backup-msg', 'Import error: ' + err.message, true);
     } finally {
         btn.disabled = false;
+    }
+}
+
+async function loadStudentEpisodeOverrides(studentId) {
+    const tbody = document.getElementById('student-overrides-tbody');
+    if (!tbody || !studentId) return;
+    clearElement(tbody);
+
+    try {
+        const res = await apiFetch(`/api/admin/students/${studentId}/episode-overrides`);
+        if (!res.ok) return;
+        const rows = await res.json();
+
+        if (!rows || rows.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.style.textAlign = 'center';
+            td.style.color = 'var(--text-muted)';
+            td.style.padding = '1.25rem';
+            td.textContent = 'No episodes available yet.';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+
+        rows.forEach((row) => {
+            const tr = document.createElement('tr');
+
+            const tdCourse = document.createElement('td');
+            tdCourse.style.fontSize = '0.82rem';
+            tdCourse.style.color = 'var(--text-muted)';
+            tdCourse.textContent = row.courseTitle || `Course #${row.courseId}`;
+
+            const tdEp = document.createElement('td');
+            const strongEp = document.createElement('strong');
+            strongEp.textContent = `Ep. ${row.episodeNumber}: ${row.episodeTitle}`;
+            tdEp.appendChild(strongEp);
+
+            const tdEff = document.createElement('td');
+            const effBadge = document.createElement('span');
+            effBadge.style.fontSize = '0.75rem';
+            effBadge.style.fontWeight = '700';
+            effBadge.style.padding = '0.2rem 0.55rem';
+            effBadge.style.borderRadius = '999px';
+            if (row.effectiveLocked) {
+                effBadge.style.background = 'rgba(245, 158, 11, 0.16)';
+                effBadge.style.color = '#fcd34d';
+                effBadge.textContent = '🔒 Locked';
+            } else if (row.passed) {
+                effBadge.style.background = 'rgba(16, 185, 129, 0.18)';
+                effBadge.style.color = '#6ee7b7';
+                effBadge.textContent = '✓ Passed';
+            } else {
+                effBadge.style.background = 'rgba(59, 130, 246, 0.16)';
+                effBadge.style.color = '#93c5fd';
+                effBadge.textContent = '🔓 Unlocked';
+            }
+            tdEff.appendChild(effBadge);
+
+            const tdOv = document.createElement('td');
+            const ovCode = document.createElement('code');
+            ovCode.textContent = row.overrideState || 'AUTO';
+            tdOv.appendChild(ovCode);
+
+            const tdAct = document.createElement('td');
+            tdAct.style.display = 'flex';
+            tdAct.style.gap = '0.45rem';
+            tdAct.style.flexWrap = 'wrap';
+
+            const btnUnlock = document.createElement('button');
+            btnUnlock.type = 'button';
+            btnUnlock.className = 'btn-ghost';
+            btnUnlock.style.padding = '0.28rem 0.6rem';
+            btnUnlock.style.fontSize = '0.76rem';
+            btnUnlock.textContent = '🔓 Unlock';
+            btnUnlock.addEventListener('click', () => setStudentEpisodeOverrideAction(studentId, row.episodeId, 'unlock'));
+
+            const btnLock = document.createElement('button');
+            btnLock.type = 'button';
+            btnLock.className = 'btn-ghost';
+            btnLock.style.padding = '0.28rem 0.6rem';
+            btnLock.style.fontSize = '0.76rem';
+            btnLock.textContent = '🔒 Lock';
+            btnLock.addEventListener('click', () => setStudentEpisodeOverrideAction(studentId, row.episodeId, 'lock'));
+
+            const btnAuto = document.createElement('button');
+            btnAuto.type = 'button';
+            btnAuto.className = 'btn-ghost';
+            btnAuto.style.padding = '0.28rem 0.6rem';
+            btnAuto.style.fontSize = '0.76rem';
+            btnAuto.textContent = '↺ Auto';
+            btnAuto.addEventListener('click', () => setStudentEpisodeOverrideAction(studentId, row.episodeId, 'auto'));
+
+            tdAct.appendChild(btnUnlock);
+            tdAct.appendChild(btnLock);
+            tdAct.appendChild(btnAuto);
+
+            tr.appendChild(tdCourse);
+            tr.appendChild(tdEp);
+            tr.appendChild(tdEff);
+            tr.appendChild(tdOv);
+            tr.appendChild(tdAct);
+            tbody.appendChild(tr);
+        });
+    } catch (err) {
+        console.warn('Episode overrides load error:', err);
+    }
+}
+
+async function setStudentEpisodeOverrideAction(studentId, episodeId, action) {
+    hideFeedback('student-overrides-msg');
+    try {
+        let url;
+        let method;
+        if (action === 'unlock') {
+            url = `/api/admin/students/${studentId}/episodes/${episodeId}/unlock`;
+            method = 'POST';
+        } else if (action === 'lock') {
+            url = `/api/admin/students/${studentId}/episodes/${episodeId}/lock`;
+            method = 'POST';
+        } else {
+            url = `/api/admin/students/${studentId}/episodes/${episodeId}/override`;
+            method = 'DELETE';
+        }
+        const res = await apiFetch(url, { method });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showFeedback('student-overrides-msg', `✓ Updated episode override to ${data.overrideState || action.toUpperCase()}.`);
+            await loadStudentEpisodeOverrides(studentId);
+        } else {
+            showFeedback('student-overrides-msg', data.error || 'Could not update episode override.', true);
+        }
+    } catch (err) {
+        showFeedback('student-overrides-msg', 'Override error: ' + err.message, true);
     }
 }

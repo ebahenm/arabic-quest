@@ -24,7 +24,8 @@ public interface EpisodeRewardClaimRepository extends JpaRepository<EpisodeRewar
     @Query("SELECT COUNT(DISTINCT erc.episode.id) FROM EpisodeRewardClaim erc " +
            "WHERE erc.student.id = :studentId " +
            "AND erc.episode.playlist.id = :playlistId " +
-           "AND (erc.episode.archived IS NULL OR erc.episode.archived = false)")
+           "AND (erc.episode.archived IS NULL OR erc.episode.archived = false) " +
+           "AND (erc.episode.enabled IS NULL OR erc.episode.enabled = true)")
     long countClaimedActiveEpisodesByStudentAndPlaylist(
             @Param("studentId") Long studentId,
             @Param("playlistId") Long playlistId);

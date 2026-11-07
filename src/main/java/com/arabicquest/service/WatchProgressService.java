@@ -3,7 +3,9 @@ package com.arabicquest.service;
 import com.arabicquest.dto.WatchHeartbeatRequest;
 import com.arabicquest.dto.WatchStatusResponse;
 import com.arabicquest.model.Episode;
+import com.arabicquest.model.EpisodeProgressState;
 import com.arabicquest.model.QuizAttempt;
+import com.arabicquest.model.Role;
 import com.arabicquest.model.StudentEpisodeOverride;
 import com.arabicquest.model.User;
 import com.arabicquest.model.WatchMode;
@@ -22,7 +24,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -116,8 +122,37 @@ public class WatchProgressService {
         return new EpisodeLockState(false, null);
     }
 
+    public EpisodeProgressState computeEpisodeProgressState(
+            EpisodeLockState lockState,
+            boolean passed,
+            boolean pendingReview,
+            boolean mcqPassed,
+            WatchStatusResponse watchStatus,
+            boolean quizBankReady) {
+        if (lockState.locked()) {
+            return EpisodeProgressState.LOCKED;
+        }
+        if (passed) {
+            return EpisodeProgressState.PASSED;
+        }
+        if (pendingReview) {
+            return EpisodeProgressState.PENDING_REVIEW;
+        }
+        boolean watchMet = (watchStatus != null && watchStatus.quizUnlocked()) || mcqPassed;
+        if (watchMet) {
+            return quizBankReady ? EpisodeProgressState.QUIZ_READY : EpisodeProgressState.QUIZ_NOT_READY;
+        }
+        if (watchStatus != null && (watchStatus.verifiedWatchSeconds() > 0 || watchStatus.modeLocked())) {
+            return EpisodeProgressState.WATCHING;
+        }
+        return EpisodeProgressState.AVAILABLE;
+    }
+
     @Transactional(readOnly = true)
     public void assertEpisodeUnlocked(User user, Episode episode, boolean betaUnlockRequested) {
+        if (episode.isArchived() || !episode.isEnabled()) {
+            throw new SecurityException("Episode is currently unavailable.");
+        }
         boolean allowBetaBypass = betaUnlockRequested && user.hasBetaAccess();
         if (allowBetaBypass) {
             return;
@@ -127,16 +162,90 @@ public class WatchProgressService {
                 .map(StudentEpisodeOverride::getOverrideState)
                 .orElse(null);
 
-        List<Episode> active = episodeRepository.findAllActiveOrderByEpisodeNumberAsc();
+        Long playlistId = episode.getPlaylist().getId();
+        List<Episode> courseActiveEpisodes = episodeRepository.findActiveByPlaylistIdOrderByEpisodeNumberAsc(playlistId);
         Set<Long> passedIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(user.getId());
-        EpisodeLockState lockState = evaluateSequentialLock(episode, active, passedIds, adminOverride, false);
+        EpisodeLockState lockState = evaluateSequentialLock(episode, courseActiveEpisodes, passedIds, adminOverride, false);
         if (lockState.locked()) {
             if (lockState.unlockAfterEpisodeNumber() != null) {
                 throw new SecurityException("Episode " + episode.getEpisodeNumber()
-                        + " is locked. Complete Episode " + lockState.unlockAfterEpisodeNumber() + " first.");
+                        + " is locked. Complete Episode " + lockState.unlockAfterEpisodeNumber() + " in this course first.");
             }
             throw new SecurityException("Episode " + episode.getEpisodeNumber() + " has been locked by the administrator.");
         }
+    }
+
+    public record StudentEpisodeOverrideView(
+            Long episodeId,
+            Long courseId,
+            String courseTitle,
+            int episodeNumber,
+            String episodeTitle,
+            boolean passed,
+            boolean effectiveLocked,
+            String overrideState
+    ) {}
+
+    @Transactional(readOnly = true)
+    public List<StudentEpisodeOverrideView> listStudentEpisodeOverrides(Long studentId) {
+        User student = userRepository.findById(studentId)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found"));
+        if (student.getRole() != Role.ROLE_STUDENT) {
+            throw new IllegalArgumentException("Overrides apply to student accounts only");
+        }
+
+        List<Episode> activeEpisodes = episodeRepository.findAllActiveOrderByEpisodeNumberAsc();
+        Map<Long, List<Episode>> byCourse = new LinkedHashMap<>();
+        for (Episode ep : activeEpisodes) {
+            byCourse.computeIfAbsent(ep.getPlaylist().getId(), k -> new ArrayList<>()).add(ep);
+        }
+
+        Set<Long> passedIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(studentId);
+        Map<Long, StudentEpisodeOverride.OverrideState> overridesByEp = new HashMap<>();
+        for (StudentEpisodeOverride ov : studentEpisodeOverrideRepository.findByStudentIdWithEpisode(studentId)) {
+            if (ov.getOverrideState() != null) {
+                overridesByEp.put(ov.getEpisode().getId(), ov.getOverrideState());
+            }
+        }
+
+        List<StudentEpisodeOverrideView> result = new ArrayList<>(activeEpisodes.size());
+        for (Episode ep : activeEpisodes) {
+            List<Episode> courseEps = byCourse.getOrDefault(ep.getPlaylist().getId(), List.of(ep));
+            StudentEpisodeOverride.OverrideState ov = overridesByEp.get(ep.getId());
+            EpisodeLockState lockState = evaluateSequentialLock(ep, courseEps, passedIds, ov, false);
+            result.add(new StudentEpisodeOverrideView(
+                    ep.getId(),
+                    ep.getPlaylist().getId(),
+                    ep.getPlaylist().getTitle(),
+                    ep.getEpisodeNumber(),
+                    ep.getTitle(),
+                    passedIds.contains(ep.getId()),
+                    lockState.locked(),
+                    ov != null ? ov.name() : "AUTO"
+            ));
+        }
+        return result;
+    }
+
+    @Transactional
+    public StudentEpisodeOverride.OverrideState setStudentEpisodeOverride(
+            Long studentId,
+            Long episodeId,
+            StudentEpisodeOverride.OverrideState state) {
+        User student = userRepository.findById(studentId)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found"));
+        if (student.getRole() != Role.ROLE_STUDENT) {
+            throw new IllegalArgumentException("Overrides apply to student accounts only");
+        }
+        Episode episode = episodeRepository.findById(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+
+        StudentEpisodeOverride override = studentEpisodeOverrideRepository
+                .findByStudentIdAndEpisodeId(studentId, episodeId)
+                .orElseGet(() -> new StudentEpisodeOverride(student, episode));
+        override.setOverrideState(state);
+        studentEpisodeOverrideRepository.save(override);
+        return override.getOverrideState();
     }
 
     public long getRetryCooldownRemainingSeconds(Long studentId, Long episodeId) {
@@ -210,7 +319,7 @@ public class WatchProgressService {
             boolean betaUnlockRequested) {
         User student = userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
-        Episode episode = episodeRepository.findById(episodeId)
+        Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
 
         // Never allow client-supplied videoDurationSeconds to mutate Episode.durationSeconds.
@@ -293,10 +402,14 @@ public class WatchProgressService {
     public WatchStatusResponse resetSessionAndSwitchMode(String username, Long episodeId, WatchMode newMode) {
         User student = userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
-        Episode episode = episodeRepository.findById(episodeId)
+        Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
 
         boolean alreadyPassed = episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episode.getId());
+        boolean mcqPassed = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episode.getId());
+        if (alreadyPassed || mcqPassed) {
+            throw new IllegalArgumentException("Watch mode cannot be changed after passing the episode quiz.");
+        }
         int required = computeRequiredWatchSeconds(episode);
         WatchMode targetMode = newMode != null ? newMode : WatchMode.ARABIC_SUB;
 

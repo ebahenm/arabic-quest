@@ -466,6 +466,34 @@
                     </form>
                     <div id="reset-student-pw-msg" class="feedback-msg"></div>
                 </div>
+
+                <!-- Per-Student Episode Unlock / Lock Overrides Card -->
+                <div class="admin-card-section" style="border-color: rgba(59, 130, 246, 0.4);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: #93c5fd;">🔓 Per-Student Episode Access Overrides</h3>
+                            <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.15rem;">
+                                Managing access for: <strong id="override-student-indicator" style="color: #bfdbfe;">Select a student above</strong>. Unlock any episode out of sequence or lock it again for this student.
+                            </p>
+                        </div>
+                        <button type="button" id="btn-refresh-student-overrides" class="btn-ghost">↻ Refresh Access</button>
+                    </div>
+                    <div id="student-overrides-msg" class="feedback-msg"></div>
+                    <div class="table-container" style="margin-top: 0.5rem;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Course</th>
+                                    <th>Episode</th>
+                                    <th>Effective Status</th>
+                                    <th>Admin Override</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="student-overrides-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- ========================================================== -->

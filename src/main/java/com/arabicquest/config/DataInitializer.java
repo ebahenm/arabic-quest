@@ -4,6 +4,7 @@ import com.arabicquest.model.QuestionStatus;
 import com.arabicquest.model.QuestionType;
 import com.arabicquest.model.Role;
 import com.arabicquest.model.User;
+import com.arabicquest.repository.EpisodeRepository;
 import com.arabicquest.repository.QuestionRepository;
 import com.arabicquest.repository.UserRepository;
 import org.slf4j.Logger;
@@ -33,6 +34,7 @@ public class DataInitializer {
     public CommandLineRunner initData(
             UserRepository userRepository,
             QuestionRepository questionRepository,
+            EpisodeRepository episodeRepository,
             PasswordEncoder passwordEncoder,
             PlatformTransactionManager transactionManager,
             @Value("${ADMIN_USERNAME:admin}") String adminUsername,
@@ -46,6 +48,8 @@ public class DataInitializer {
                     tx.executeWithoutResult(status -> {
                         syncAdminAccount(userRepository, passwordEncoder, adminUsername, adminPassword, forceAdminEnvSync);
                         backfillExistingDatabaseQuestions(questionRepository);
+                        episodeRepository.backfillNullEnabledToTrue();
+                        episodeRepository.backfillNullSortOrder();
                     });
                     return;
                 } catch (Exception ex) {

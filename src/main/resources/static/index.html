@@ -262,10 +262,35 @@
             <div class="mode-card-stacked">
                 <div class="mode-card-top">
                     <div class="mode-info">
-                        <h2 id="current-episode-title">Loading episode...</h2>
-                        <p id="mode-helper-text">Watch 30 minutes (or the full video if shorter) in the player below to unlock the comprehension quiz.</p>
+                        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                            <h2 id="current-episode-title" style="margin-bottom: 0;">Loading episode...</h2>
+                            <span id="current-episode-state-badge" class="ep-badge-passed" style="display: none;">Available</span>
+                        </div>
+                        <p id="mode-helper-text">Choose your language mode before pressing play. Mode locks once playback begins.</p>
                     </div>
-                    <span class="quiz-pass-badge" style="white-space: nowrap; font-size: 0.85rem; padding: 0.45rem 0.9rem;">+$15.00 Episode Reward</span>
+
+                    <div class="mode-toggle-group" role="group" aria-label="Audio &amp; Subtitle Reward Mode">
+                        <button type="button" id="btn-mode-arabic" class="mode-button active" onclick="handleSelectWatchMode('ARABIC_SUB')">
+                            <span class="mode-name">🎧 Arabic + English Subs</span>
+                            <span id="label-rate-arabic" class="mode-reward">+$15.00 Reward</span>
+                        </button>
+                        <button type="button" id="btn-mode-english" class="mode-button" onclick="handleSelectWatchMode('ENGLISH_DUB')">
+                            <span class="mode-name">🔊 English Dub</span>
+                            <span id="label-rate-english" class="mode-reward">+$10.00 Reward</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="mode-instructions-banner" class="mode-status-banner" style="margin-top: 0.25rem;">
+                    <div id="mode-instructions-text">
+                        🎧 <strong>Arabic + English Subtitles:</strong> In the YouTube player below, click <strong>⚙️ Settings → Audio track → Arabic (Original)</strong> and click <strong>[CC]</strong> to turn on <strong>English subtitles</strong>.
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.55rem;">
+                        <span id="mode-lock-indicator" style="font-size: 0.76rem; font-weight: 700; color: #fcd34d; display: none;">🔒 Mode Locked</span>
+                        <button type="button" id="btn-reset-watch-mode" class="btn-reset-mode" style="display: none;" onclick="handleResetWatchSessionAndSwitchMode()">
+                            ↺ Reset Timer &amp; Switch Mode
+                        </button>
+                    </div>
                 </div>
             </div>
 
