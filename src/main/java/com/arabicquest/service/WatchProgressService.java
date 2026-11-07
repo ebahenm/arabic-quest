@@ -11,6 +11,8 @@ import com.arabicquest.repository.EpisodeRepository;
 import com.arabicquest.repository.QuizAttemptRepository;
 import com.arabicquest.repository.UserRepository;
 import com.arabicquest.repository.WatchSessionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,14 +26,15 @@ import java.util.Set;
 @Service
 public class WatchProgressService {
 
+    private static final Logger log = LoggerFactory.getLogger(WatchProgressService.class);
     private static final int MAX_HEARTBEAT_CREDIT_SECONDS = 25;
-    private static final int DEFAULT_REQUIRED_WATCH_SECONDS = 600; // 10 minutes of verified video playback
+    public static final int DEFAULT_REQUIRED_CAP_SECONDS = 1800; // 30 minutes cap
 
     private final WatchSessionRepository watchSessionRepository;
     private final QuizAttemptRepository quizAttemptRepository;
     private final UserRepository userRepository;
     private final EpisodeRepository episodeRepository;
-    private final int watchCapSeconds;
+    private final int requiredCapSeconds;
     private final long retryCooldownSeconds;
 
     public WatchProgressService(
@@ -39,23 +42,22 @@ public class WatchProgressService {
             QuizAttemptRepository quizAttemptRepository,
             UserRepository userRepository,
             EpisodeRepository episodeRepository,
-            @Value("${QUIZ_WATCH_CAP_SECONDS:0}") int watchCapSeconds,
-            @Value("${QUIZ_RETRY_COOLDOWN_SECONDS:600}") long retryCooldownSeconds) {
+            @Value("${app.watch.required-cap-seconds:1800}") int requiredCapSeconds,
+            @Value("${app.quiz.retry-cooldown-seconds:${QUIZ_RETRY_COOLDOWN_SECONDS:600}}") long retryCooldownSeconds) {
         this.watchSessionRepository = watchSessionRepository;
         this.quizAttemptRepository = quizAttemptRepository;
         this.userRepository = userRepository;
         this.episodeRepository = episodeRepository;
-        this.watchCapSeconds = watchCapSeconds;
+        this.requiredCapSeconds = requiredCapSeconds;
         this.retryCooldownSeconds = retryCooldownSeconds;
     }
 
     public int computeRequiredWatchSeconds(Episode episode) {
-        int duration = Math.max(60, episode.getDurationSeconds());
-        int required = Math.min(DEFAULT_REQUIRED_WATCH_SECONDS, duration);
-        if (watchCapSeconds > 0) {
-            return Math.min(watchCapSeconds, required);
+        if (requiredCapSeconds <= 0) {
+            return 0;
         }
-        return required;
+        int durationSeconds = Math.max(1, episode.getDurationSeconds());
+        return Math.min(requiredCapSeconds, durationSeconds);
     }
 
     public record EpisodeLockState(boolean locked, Integer unlockAfterEpisodeNumber) {}
@@ -155,36 +157,35 @@ public class WatchProgressService {
         Episode episode = episodeRepository.findById(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
 
-        // Calibrate true YouTube duration when reported by the YouTube IFrame API
-        if (req != null && req.videoDurationSeconds() != null) {
-            int reportedDuration = req.videoDurationSeconds();
-            if (reportedDuration >= 60 && reportedDuration <= 14400
-                    && Math.abs(episode.getDurationSeconds() - reportedDuration) > 3) {
-                episode.setDurationSeconds(reportedDuration);
-                episode = episodeRepository.save(episode);
-            }
+        // Never allow client-supplied videoDurationSeconds to mutate Episode.durationSeconds.
+        if (req != null && req.videoDurationSeconds() != null
+                && Math.abs(episode.getDurationSeconds() - req.videoDurationSeconds()) > 5) {
+            log.debug("Ignoring client-reported videoDurationSeconds={} for episodeId={} (authoritative={})",
+                    req.videoDurationSeconds(), episodeId, episode.getDurationSeconds());
         }
 
         boolean alreadyPassed = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episode.getId());
         int required = computeRequiredWatchSeconds(episode);
 
+        // Ignore client-asserted external=true completely; only real player playback counts.
+        if (req != null && req.external()) {
+            return getWatchStatus(student, episode, alreadyPassed);
+        }
+
         WatchMode requestedMode = (req != null && req.watchMode() != null) ? req.watchMode() : WatchMode.ARABIC_SUB;
-        boolean isExternal = req != null && req.external();
         boolean videoEnded = req != null && req.videoEnded();
         int reportedDelta = (req != null && req.watchedDeltaSeconds() != null) ? Math.max(0, req.watchedDeltaSeconds()) : 0;
         boolean isPlaying = req != null && Boolean.TRUE.equals(req.playing());
-        boolean hasPlaybackActivity = isPlaying || reportedDelta > 0 || isExternal || videoEnded;
+        boolean hasPlaybackActivity = isPlaying || reportedDelta > 0 || videoEnded;
 
-        // Metadata-only duration sync before pressing Play: return updated required seconds without locking mode
         if (!hasPlaybackActivity) {
             return getWatchStatus(student, episode, alreadyPassed);
         }
 
         assertEpisodeUnlocked(student, episode, betaUnlockRequested);
 
-        final Episode targetEpisode = episode;
-        WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(student.getId(), targetEpisode.getId())
-                .orElseGet(() -> new WatchSession(student, targetEpisode, requestedMode));
+        WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(student.getId(), episode.getId())
+                .orElseGet(() -> new WatchSession(student, episode, requestedMode));
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -193,36 +194,21 @@ public class WatchProgressService {
             session.setModeLocked(true);
         }
 
-        if (isExternal) {
-            if (session.getExternalWatchStartedAt() == null) {
-                session.setExternalWatchStartedAt(now);
-            }
-            if (session.getLastHeartbeatAt() != null) {
-                int elapsedSeconds = (int) Math.round(Duration.between(session.getLastHeartbeatAt(), now).toMillis() / 1000.0);
-                int credit = Math.min(20, Math.max(0, elapsedSeconds));
-                if (credit > 0) {
-                    session.setVerifiedWatchSeconds(Math.min(required, session.getVerifiedWatchSeconds() + credit));
-                    session.setLastHeartbeatAt(now);
-                }
-            } else {
-                session.setLastHeartbeatAt(now);
-            }
+        if (session.getLastHeartbeatAt() == null) {
+            session.setLastHeartbeatAt(now);
         } else {
-            if (session.getLastHeartbeatAt() == null) {
-                session.setLastHeartbeatAt(now);
-            } else {
-                int elapsedSeconds = (int) Math.round(Duration.between(session.getLastHeartbeatAt(), now).toMillis() / 1000.0);
-                int wallCap = Math.min(MAX_HEARTBEAT_CREDIT_SECONDS, Math.max(0, elapsedSeconds));
-                int credit = (req != null && req.watchedDeltaSeconds() != null)
-                        ? Math.min(reportedDelta, wallCap)
-                        : Math.min(15, wallCap);
+            long elapsedMillis = Math.max(0L, Duration.between(session.getLastHeartbeatAt(), now).toMillis());
+            int elapsedWholeSeconds = (int) Math.min(Integer.MAX_VALUE, elapsedMillis / 1000L);
+            int wallCap = Math.min(MAX_HEARTBEAT_CREDIT_SECONDS, elapsedWholeSeconds);
+            int credit = (req != null && req.watchedDeltaSeconds() != null)
+                    ? Math.min(reportedDelta, wallCap)
+                    : 0;
 
-                if (credit > 0) {
-                    session.setVerifiedWatchSeconds(Math.min(required, session.getVerifiedWatchSeconds() + credit));
-                }
-                if (reportedDelta == 0 || elapsedSeconds >= 1) {
-                    session.setLastHeartbeatAt(now);
-                }
+            if (credit > 0) {
+                session.setVerifiedWatchSeconds(Math.min(required, session.getVerifiedWatchSeconds() + credit));
+            }
+            if (reportedDelta == 0 || elapsedWholeSeconds >= 1) {
+                session.setLastHeartbeatAt(now);
             }
         }
 
@@ -264,7 +250,6 @@ public class WatchProgressService {
         session.setLockedWatchMode(targetMode);
         session.setModeLocked(false);
         session.setVerifiedWatchSeconds(0);
-        session.setExternalWatchStartedAt(null);
         session.setLastHeartbeatAt(null);
         session.setVideoEnded(false);
         watchSessionRepository.save(session);

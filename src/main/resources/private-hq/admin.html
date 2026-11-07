@@ -437,6 +437,27 @@
             <!-- TAB 3: COURSE EPISODES & AI QUIZ GENERATOR                 -->
             <!-- ========================================================== -->
             <section id="tab-panel-course" class="admin-tab-panel">
+                <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.45);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: var(--gold);">📦 Question Bank Backup (Export &amp; Import JSON)</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Back up or restore courses, episodes, and approved/draft question banks outside the repository (`*.private.json`).
+                            </p>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                        <button type="button" id="btn-export-qbank" class="btn-primary" style="padding: 0.65rem 1.25rem;">
+                            ⬇️ Export Question Bank (JSON)
+                        </button>
+                        <input type="file" id="input-import-qbank-file" accept=".json,application/json" class="text-input" style="max-width: 320px; padding: 0.5rem;">
+                        <button type="button" id="btn-import-qbank" class="btn-ghost" style="padding: 0.65rem 1.25rem;">
+                            ⬆️ Import Question Bank (JSON)
+                        </button>
+                    </div>
+                    <div id="qbank-backup-msg" class="feedback-msg"></div>
+                </div>
+
                 <div class="admin-card-section">
                     <div class="card-header-bar">
                         <div>

@@ -3,6 +3,14 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### Secrets & Local Overrides ###
+.env
+*.env
+application-local*.properties
+application-local*.yml
+seed-private/
+*.private.json
+
 ### IDEs ###
 .idea/
 *.iws

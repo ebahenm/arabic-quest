@@ -7,7 +7,7 @@
 
 const PLAYLIST_ID = 'PLVVfonyXVJI3BXB9Wd2C5yXMr63w3SGXB';
 const STANDARD_WATCH_MODE = 'ARABIC_SUB';
-const DEFAULT_REQUIRED_WATCH_SECONDS = 600; // 10 minutes
+const DEFAULT_REQUIRED_WATCH_SECONDS = 1800; // 30 minutes cap
 const isBetaRoute = window.location.pathname === '/beta' || window.location.pathname.startsWith('/beta/');
 
 let currentUser = null;
@@ -26,14 +26,13 @@ let pendingPlayerBuild = null;
 let currentLoadedVideoId = null;
 
 let serverVerifiedSeconds = 0;
-let requiredWatchSeconds = 600;
+let requiredWatchSeconds = 1800;
 let pendingWatchedDeltaSeconds = 0;
 let lastPlayerTime = 0;
 let isPlayerCurrentlyPlaying = false;
 let heartbeatInFlight = false;
 
 let playbackTickTimer = null;
-let externalPollTimer = null;
 let cooldownInterval = null;
 let cooldownRemainingSecs = 0;
 let lockToastTimer = null;
@@ -171,7 +170,7 @@ function showLockedEpisodeToast(ep) {
     const toast = document.getElementById('episode-lock-toast');
     if (!toast) return;
     const prereq = ep.unlockAfterEpisodeNumber || (ep.episodeNumber - 1);
-    toast.textContent = `🔒 Episode ${ep.episodeNumber} is locked! Watch 10 minutes and score 100% (20/20) on Episode ${prereq} first to unlock the next video in order.`;
+    toast.textContent = `🔒 Episode ${ep.episodeNumber} is locked! Pass Episode ${prereq} first to unlock the next video in order.`;
     toast.style.display = 'block';
     toast.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
@@ -252,7 +251,6 @@ function selectEpisode(ep) {
     const toast = document.getElementById('episode-lock-toast');
     if (toast) toast.style.display = 'none';
 
-    stopExternalWatchTimer();
     pendingWatchedDeltaSeconds = 0;
     isPlayerCurrentlyPlaying = false;
     lastPlayerTime = 0;
@@ -454,18 +452,6 @@ function onPlayerReady() {
     ytReady = true;
     lastPlayerTime = getSafeCurrentTime();
     applyCaptionsPreference();
-
-    // Immediately calibrate exact YouTube video duration so required watch time = 85% of true video length!
-    const dur = getSafeDurationSeconds();
-    if (dur && currentEpisode) {
-        flushWatchHeartbeat({
-            playing: false,
-            videoEnded: false,
-            external: false,
-            videoDurationSeconds: dur,
-            metadataOnly: true
-        });
-    }
 }
 
 function applyCaptionsPreference() {
@@ -571,24 +557,18 @@ function startLocalPlaybackMonitor() {
 async function flushWatchHeartbeat(opts = {}) {
     if (!currentEpisode) return;
 
-    const isMetadataOnly = Boolean(opts.metadataOnly);
-    const isExternal = Boolean(opts.external);
-    const deltaToSend = (isMetadataOnly || isExternal) ? 0 : pendingWatchedDeltaSeconds;
-
-    if (!isMetadataOnly && !isExternal) {
-        pendingWatchedDeltaSeconds = Math.max(0, pendingWatchedDeltaSeconds - deltaToSend);
-    }
+    const deltaToSend = pendingWatchedDeltaSeconds;
+    pendingWatchedDeltaSeconds = Math.max(0, pendingWatchedDeltaSeconds - deltaToSend);
 
     heartbeatInFlight = true;
     try {
         const bodyPayload = {
             watchMode: STANDARD_WATCH_MODE,
-            external: isExternal,
+            external: false,
             videoEnded: Boolean(opts.videoEnded),
-            watchedDeltaSeconds: isExternal ? null : deltaToSend,
+            watchedDeltaSeconds: deltaToSend,
             currentPositionSeconds: Math.floor(getSafeCurrentTime()),
-            videoDurationSeconds: opts.videoDurationSeconds || getSafeDurationSeconds(),
-            playing: isMetadataOnly ? false : Boolean(opts.playing)
+            playing: Boolean(opts.playing)
         };
 
         const res = await fetch(`/api/student/episodes/${currentEpisode.id}/heartbeat` + betaQuerySuffix('?'), {
@@ -605,37 +585,20 @@ async function flushWatchHeartbeat(opts = {}) {
             applyWatchStatus(status, currentEpisode.passed);
 
             if (!wasUnlocked && status.quizUnlocked && !currentEpisode.passed) {
-                stopExternalWatchTimer();
                 if (typeof confetti === 'function') {
                     confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } });
                 }
             }
-        } else if (!isMetadataOnly && !isExternal && deltaToSend > 0) {
+        } else if (deltaToSend > 0) {
             pendingWatchedDeltaSeconds += deltaToSend;
         }
     } catch (e) {
-        if (!isMetadataOnly && !isExternal && deltaToSend > 0) {
+        if (deltaToSend > 0) {
             pendingWatchedDeltaSeconds += deltaToSend;
         }
         console.warn('Heartbeat sync warning:', e);
     } finally {
         heartbeatInFlight = false;
-    }
-}
-
-function handleStartExternalWatch() {
-    if (!currentEpisode) return;
-    flushWatchHeartbeat({ external: true, playing: true, videoEnded: false });
-    stopExternalWatchTimer();
-    externalPollTimer = setInterval(() => {
-        flushWatchHeartbeat({ external: true, playing: true, videoEnded: false });
-    }, 15000);
-}
-
-function stopExternalWatchTimer() {
-    if (externalPollTimer) {
-        clearInterval(externalPollTimer);
-        externalPollTimer = null;
     }
 }
 
@@ -849,15 +812,23 @@ function updateQuizAnsweredCounter() {
 
 function renderQuizQuestions() {
     const container = document.getElementById('questions-container');
+    const submitBtn = document.getElementById('btn-submit-quiz');
     container.textContent = '';
 
-    if (!currentQuiz || !currentQuiz.questions || currentQuiz.questions.length === 0) {
+    if (!currentQuiz || currentQuiz.ready === false || !currentQuiz.questions || currentQuiz.questions.length === 0) {
         const p = document.createElement('p');
         p.style.color = 'var(--text-muted)';
         p.style.padding = '1rem';
-        p.textContent = 'No quiz configured for this episode yet.';
+        p.textContent = (currentQuiz && currentQuiz.message) ? currentQuiz.message : 'Quiz not ready yet';
         container.appendChild(p);
+        if (submitBtn) {
+            submitBtn.style.display = 'none';
+        }
         return;
+    }
+
+    if (submitBtn) {
+        submitBtn.style.display = 'inline-flex';
     }
 
     const totalQ = currentQuiz.questions.length;

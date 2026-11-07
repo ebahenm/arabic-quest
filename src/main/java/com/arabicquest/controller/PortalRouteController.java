@@ -1,5 +1,7 @@
 package com.arabicquest.controller;
 
+import com.arabicquest.config.BrandConstants;
+import com.arabicquest.config.ProdStartupValidator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.CacheControl;
@@ -20,26 +22,35 @@ public class PortalRouteController {
 
     private final String googleClientId;
     private final String adminSecretSlug;
+    private final String brandNameLatin;
 
     public PortalRouteController(
             @Value("${GOOGLE_CLIENT_ID:}") String googleClientId,
-            @Value("${ADMIN_SECRET_PATH:turath-hq}") String adminSecretPath) {
+            @Value("${ADMIN_SECRET_PATH}") String adminSecretPath,
+            @Value("${app.brand.name:" + BrandConstants.BRAND_NAME_LATIN + "}") String brandNameLatin) {
         this.googleClientId = googleClientId != null ? googleClientId.trim() : "";
-        String slug = adminSecretPath != null ? adminSecretPath.trim() : "turath-hq";
-        while (slug.startsWith("/")) slug = slug.substring(1);
-        while (slug.endsWith("/")) slug = slug.substring(0, slug.length() - 1);
-        this.adminSecretSlug = slug.isEmpty() ? "turath-hq" : slug;
+        String slug = ProdStartupValidator.normalizeSlug(adminSecretPath);
+        if (slug == null) {
+            throw new IllegalStateException("ADMIN_SECRET_PATH must be configured and non-blank");
+        }
+        this.adminSecretSlug = slug;
+        this.brandNameLatin = (brandNameLatin == null || brandNameLatin.isBlank())
+                ? BrandConstants.BRAND_NAME_LATIN
+                : brandNameLatin.trim();
     }
 
     @GetMapping("/api/public/config")
     public ResponseEntity<Map<String, Object>> getPublicConfig() {
         return ResponseEntity.ok(Map.of(
+                "brandNameLatin", brandNameLatin,
+                "brandNameArabic", BrandConstants.BRAND_NAME_ARABIC,
+                "tagline", BrandConstants.TAGLINE,
                 "googleClientId", googleClientId,
                 "googleSignInEnabled", !googleClientId.isEmpty()
         ));
     }
 
-    @GetMapping({"/${ADMIN_SECRET_PATH:turath-hq}", "/${ADMIN_SECRET_PATH:turath-hq}/"})
+    @GetMapping({"/${ADMIN_SECRET_PATH}", "/${ADMIN_SECRET_PATH}/"})
     public ResponseEntity<String> serveSecretAdminDashboard() throws IOException {
         String html = readResource("private-hq/admin.html")
                 .replace("{{HQ_SCRIPT_PATH}}", "/" + adminSecretSlug + ".js")
@@ -50,7 +61,7 @@ public class PortalRouteController {
                 .body(html);
     }
 
-    @GetMapping({"/${ADMIN_SECRET_PATH:turath-hq}-login", "/${ADMIN_SECRET_PATH:turath-hq}-login/"})
+    @GetMapping({"/${ADMIN_SECRET_PATH}-login", "/${ADMIN_SECRET_PATH}-login/"})
     public ResponseEntity<String> serveSecretAdminLogin() throws IOException {
         String html = readResource("private-hq/admin-login.html")
                 .replace("{{HQ_DASHBOARD_PATH}}", "/" + adminSecretSlug);
@@ -60,7 +71,7 @@ public class PortalRouteController {
                 .body(html);
     }
 
-    @GetMapping("/${ADMIN_SECRET_PATH:turath-hq}.js")
+    @GetMapping("/${ADMIN_SECRET_PATH}.js")
     public ResponseEntity<String> serveSecretAdminScript() throws IOException {
         String js = readResource("private-hq/admin.js")
                 .replace("{{HQ_LOGIN_PATH}}", "/" + adminSecretSlug + "-login");

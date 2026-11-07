@@ -24,7 +24,6 @@ public class QuizService {
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
     private final PlaylistBonusClaimRepository playlistBonusClaimRepository;
     private final WatchProgressService watchProgressService;
-    private final AiQuizService aiQuizService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public QuizService(
@@ -34,8 +33,7 @@ public class QuizService {
             UserRepository userRepository,
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
             PlaylistBonusClaimRepository playlistBonusClaimRepository,
-            WatchProgressService watchProgressService,
-            AiQuizService aiQuizService) {
+            WatchProgressService watchProgressService) {
         this.quizRepository = quizRepository;
         this.quizAttemptRepository = quizAttemptRepository;
         this.episodeRepository = episodeRepository;
@@ -43,10 +41,9 @@ public class QuizService {
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
         this.playlistBonusClaimRepository = playlistBonusClaimRepository;
         this.watchProgressService = watchProgressService;
-        this.aiQuizService = aiQuizService;
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public QuizViewResponse getStudentQuizView(String username, Long episodeId, boolean betaUnlockRequested) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
@@ -59,25 +56,33 @@ public class QuizService {
         watchProgressService.assertEpisodeUnlocked(user, episode, betaUnlockRequested);
 
         Quiz quiz = quizRepository.findByEpisodeId(episodeId).orElse(null);
-        if (quiz == null || quiz.getQuestions().size() < AiQuizService.TARGET_QUESTION_COUNT) {
-            quiz = aiQuizService.generateQuizForEpisode(episodeId);
-        } else if (quiz.getPassingScorePercentage() == null || quiz.getPassingScorePercentage() < 100.0) {
-            quiz.setPassingScorePercentage(100.0);
-            quiz = quizRepository.save(quiz);
+        if (quiz == null || quiz.getQuestions() == null) {
+            return QuizViewResponse.notReady(episodeId, "Quiz not ready yet");
         }
 
-        List<QuestionViewResponse> questionViews = quiz.getQuestions().stream().map(q -> {
-            List<OptionViewResponse> optionViews = new ArrayList<>(
-                    q.getOptions().stream()
-                            .map(opt -> new OptionViewResponse(opt.getId(), opt.getOptionText()))
-                            .toList()
-            );
-            // Shuffle options on every fetch so button positions cannot be memorized
-            Collections.shuffle(optionViews, secureRandom);
-            return new QuestionViewResponse(q.getId(), q.getQuestionText(), q.getQuestionOrder(), optionViews);
-        }).toList();
+        List<Question> approvedQuestions = quiz.getQuestions().stream()
+                .filter(q -> q.isActive() && q.getStatus() == QuestionStatus.APPROVED)
+                .toList();
 
-        return new QuizViewResponse(quiz.getId(), episodeId, quiz.getPassingScorePercentage(), questionViews);
+        if (approvedQuestions.isEmpty()) {
+            return QuizViewResponse.notReady(episodeId, "Quiz not ready yet");
+        }
+
+        List<QuestionViewResponse> questionViews = new ArrayList<>(
+                approvedQuestions.stream().map(q -> {
+                    List<OptionViewResponse> optionViews = new ArrayList<>(
+                            q.getOptions().stream()
+                                    .map(opt -> new OptionViewResponse(opt.getId(), opt.getOptionText()))
+                                    .toList()
+                    );
+                    Collections.shuffle(optionViews, secureRandom);
+                    return new QuestionViewResponse(q.getId(), q.getQuestionText(), q.getQuestionOrder(), optionViews);
+                }).toList()
+        );
+        Collections.shuffle(questionViews, secureRandom);
+
+        double passPct = quiz.getPassingScorePercentage() != null ? quiz.getPassingScorePercentage() : 100.0;
+        return new QuizViewResponse(quiz.getId(), episodeId, passPct, questionViews);
     }
 
     @Transactional
@@ -101,11 +106,13 @@ public class QuizService {
         watchProgressService.assertEpisodeUnlocked(student, episode, betaUnlockRequested);
 
         Quiz quiz = quizRepository.findByEpisodeId(episode.getId())
-                .orElseThrow(() -> new IllegalArgumentException("No quiz configured for episode id: " + episode.getId()));
+                .orElseThrow(() -> new IllegalStateException("Quiz not ready yet"));
 
-        List<Question> questions = quiz.getQuestions();
-        if (questions == null || questions.isEmpty()) {
-            throw new IllegalStateException("Quiz has no questions configured.");
+        List<Question> questions = quiz.getQuestions() == null ? List.of() : quiz.getQuestions().stream()
+                .filter(q -> q.isActive() && q.getStatus() == QuestionStatus.APPROVED)
+                .toList();
+        if (questions.isEmpty()) {
+            throw new IllegalStateException("Quiz not ready yet");
         }
 
         boolean alreadyPassed = episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episode.getId())
@@ -164,13 +171,11 @@ public class QuizService {
                     rewardAmount = playlist != null ? playlist.getEnglishRewardRate() : effectiveWatchMode.getDefaultReward();
                 }
 
-                // Persist unique episode reward claim
                 episodeRewardClaimRepository.save(new EpisodeRewardClaim(student, episode, effectiveWatchMode, rewardAmount));
 
                 message = String.format("Congratulations! Perfect %.0f%% (%d/%d) — you earned $%s!",
                         scorePercentage, correctAnswers, totalQuestions, rewardAmount);
 
-                // Check one-time playlist completion bonus (guarded by UNIQUE(student_id, playlist_id))
                 if (playlist != null) {
                     long totalActiveEpisodes = episodeRepository.countActiveByPlaylistId(playlist.getId());
                     long previouslyPassed = quizAttemptRepository.countPassedEpisodesByStudentAndPlaylist(student.getId(), playlist.getId());
@@ -183,7 +188,7 @@ public class QuizService {
                         BigDecimal bonus = playlist.getCompletionBonus();
                         playlistBonusClaimRepository.save(new PlaylistBonusClaim(student, playlist, bonus));
                         rewardAmount = rewardAmount.add(bonus);
-                        message += String.format(" 🏆 BONUS UNLOCKED! You completed all %d episodes and earned the one-time $%s completion bonus!",
+                        message += String.format(" BONUS UNLOCKED! You completed all %d episodes and earned the one-time $%s completion bonus!",
                                 totalActiveEpisodes, bonus);
                     }
                 }

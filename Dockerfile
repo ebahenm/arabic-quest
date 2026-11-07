@@ -13,8 +13,13 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
-# Copy compiled jar
-COPY --from=build /app/target/*.jar app.jar
+# Create unprivileged non-root runtime user
+RUN groupadd -r -g 10001 appgroup && useradd -r -u 10001 -g appgroup -d /app -s /sbin/nologin appuser
+
+# Copy compiled jar owned by non-root user
+COPY --from=build --chown=appuser:appgroup /app/target/*.jar app.jar
+
+USER appuser
 
 # Expose dynamic port
 EXPOSE 8080

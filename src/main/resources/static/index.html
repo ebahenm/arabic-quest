@@ -262,7 +262,7 @@
                 <div class="mode-card-top">
                     <div class="mode-info">
                         <h2 id="current-episode-title">Loading episode...</h2>
-                        <p id="mode-helper-text">Watch 10 minutes of the episode to unlock the 20-question quiz. Score 100% (20/20) to earn +$15.00 and unlock the next episode.</p>
+                        <p id="mode-helper-text">Watch 30 minutes (or the full video if shorter) in the player below to unlock the comprehension quiz.</p>
                     </div>
                     <span class="quiz-pass-badge" style="white-space: nowrap; font-size: 0.85rem; padding: 0.45rem 0.9rem;">+$15.00 Episode Reward</span>
                 </div>
@@ -272,32 +272,32 @@
                 <div id="yt-player-mount"></div>
             </div>
 
-            <!-- Live Video-Playback Watch Progress Bar (10 Minutes Required) -->
+            <!-- Live Video-Playback Watch Progress Bar (30 Minutes Cap) -->
             <div class="watch-progress-strip">
                 <div class="watch-progress-row">
                     <div>
-                        <strong id="watch-status-label" style="color: #a7f3d0;">⏱️ Watch Progress: 00:00 / 10:00 (Play video to start timer)</strong>
+                        <strong id="watch-status-label" style="color: #a7f3d0;">⏱️ Watch Progress: 00:00 / 30:00 (Play video to start timer)</strong>
                     </div>
                 </div>
                 <div class="progress-bar-bg">
                     <div id="watch-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
                 </div>
                 <div id="watch-live-subnote" style="font-size: 0.75rem; color: var(--text-subtle);">
-                    Watch 10 minutes (10:00) of real video playback to unlock the 20-question quiz. Pausing or skipping forward does not add watch time.
+                    Watch 30 minutes (or the full video if shorter) of real playback in the player above to unlock the quiz. Pausing or skipping forward does not add watch time.
                 </div>
             </div>
 
-            <!-- External YouTube Support Banner -->
+            <!-- Reference Link to YouTube (no external timer credit) -->
             <div class="extension-support-banner">
                 <div>
-                    <strong style="color: #93c5fd; font-size: 0.88rem;">Prefer watching directly on YouTube?</strong>
+                    <strong style="color: #93c5fd; font-size: 0.88rem;">YouTube Source Link</strong>
                     <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">
-                        Open this episode directly on YouTube. Your 10-minute watch progress tracks automatically while you watch!
+                        Note: Verified watch time is recorded only during real playback inside the embedded player above.
                     </p>
                 </div>
                 <div style="display: flex; gap: 0.65rem; align-items: center;">
-                    <a id="btn-yt-external-link" href="#" target="_blank" rel="noopener noreferrer" class="btn-yt-external" onclick="handleStartExternalWatch()">
-                        <span>▶ Watch on YouTube</span>
+                    <a id="btn-yt-external-link" href="#" target="_blank" rel="noopener noreferrer" class="btn-yt-external">
+                        <span>▶ Open on YouTube</span>
                         <span>↗</span>
                     </a>
                 </div>

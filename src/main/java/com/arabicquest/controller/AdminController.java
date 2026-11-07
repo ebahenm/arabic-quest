@@ -5,8 +5,10 @@ import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
 import com.arabicquest.service.AiQuizService;
 import com.arabicquest.service.PayoutService;
+import com.arabicquest.service.QuestionBankImportExportService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -36,6 +38,7 @@ public class AdminController {
     private final WatchSessionRepository watchSessionRepository;
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
     private final AiQuizService aiQuizService;
+    private final QuestionBankImportExportService questionBankImportExportService;
     private final PasswordEncoder passwordEncoder;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -50,6 +53,7 @@ public class AdminController {
             WatchSessionRepository watchSessionRepository,
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
             AiQuizService aiQuizService,
+            QuestionBankImportExportService questionBankImportExportService,
             PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.quizAttemptRepository = quizAttemptRepository;
@@ -61,6 +65,7 @@ public class AdminController {
         this.watchSessionRepository = watchSessionRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
         this.aiQuizService = aiQuizService;
+        this.questionBankImportExportService = questionBankImportExportService;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -241,10 +246,10 @@ public class AdminController {
         if (request.getPlaylistId() != null) {
             playlist = playlistRepository.findById(request.getPlaylistId())
                     .or(() -> playlistRepository.findFirstByOrderByIdAsc())
-                    .orElseThrow(() -> new IllegalArgumentException("No active playlist found"));
+                    .orElseGet(() -> playlistRepository.save(new Playlist("Default Course", "default-course", "")));
         } else {
             playlist = playlistRepository.findFirstByOrderByIdAsc()
-                    .orElseThrow(() -> new IllegalArgumentException("No active playlist found"));
+                    .orElseGet(() -> playlistRepository.save(new Playlist("Default Course", "default-course", "")));
         }
 
         String cleanVideoId = extractYoutubeVideoId(request.getYoutubeVideoId());
@@ -325,6 +330,20 @@ public class AdminController {
 
         Quiz saved = quizRepository.save(quiz);
         return ResponseEntity.ok(QuizAdminViewResponse.from(saved, episodeId));
+    }
+
+    @GetMapping("/question-bank/export")
+    public ResponseEntity<QuestionBankBackupDto> exportQuestionBank() {
+        QuestionBankBackupDto exported = questionBankImportExportService.exportQuestionBank();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"turathtona-question-bank.private.json\"")
+                .body(exported);
+    }
+
+    @PostMapping("/question-bank/import")
+    public ResponseEntity<Map<String, Object>> importQuestionBank(@RequestBody QuestionBankBackupDto backup) {
+        Map<String, Object> result = questionBankImportExportService.importQuestionBank(backup);
+        return ResponseEntity.ok(result);
     }
 
     @Transactional

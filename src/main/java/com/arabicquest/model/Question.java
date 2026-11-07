@@ -25,6 +25,13 @@ public class Question {
     @Column(name = "question_order", nullable = false)
     private Integer questionOrder;
 
+    @Column(name = "active")
+    private Boolean active = true;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 20)
+    private QuestionStatus status = QuestionStatus.APPROVED;
+
     @OneToMany(mappedBy = "question", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<QuestionOption> options = new ArrayList<>();
 
@@ -38,11 +45,19 @@ public class Question {
         this.quiz = quiz;
         this.questionText = questionText;
         this.questionOrder = questionOrder;
+        this.active = true;
+        this.status = QuestionStatus.APPROVED;
     }
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (this.active == null) {
+            this.active = true;
+        }
+        if (this.status == null) {
+            this.status = QuestionStatus.APPROVED;
+        }
     }
 
     public Long getId() {
@@ -75,6 +90,26 @@ public class Question {
 
     public void setQuestionOrder(Integer questionOrder) {
         this.questionOrder = questionOrder;
+    }
+
+    public boolean isActive() {
+        return active == null || active;
+    }
+
+    public Boolean getActive() {
+        return active == null ? Boolean.TRUE : active;
+    }
+
+    public void setActive(Boolean active) {
+        this.active = active;
+    }
+
+    public QuestionStatus getStatus() {
+        return status == null ? QuestionStatus.APPROVED : status;
+    }
+
+    public void setStatus(QuestionStatus status) {
+        this.status = status;
     }
 
     public List<QuestionOption> getOptions() {

@@ -101,6 +101,11 @@ function wireEvents() {
     document.getElementById('btn-refresh-audit').addEventListener('click', loadAdminDashboard);
     document.getElementById('audit-student-filter').addEventListener('change', renderAttemptsTable);
     document.getElementById('form-change-admin-pw').addEventListener('submit', handleChangeAdminPassword);
+
+    const exportBtn = document.getElementById('btn-export-qbank');
+    if (exportBtn) exportBtn.addEventListener('click', handleExportQuestionBank);
+    const importBtn = document.getElementById('btn-import-qbank');
+    if (importBtn) importBtn.addEventListener('click', handleImportQuestionBank);
 }
 
 async function initAdmin() {
@@ -850,6 +855,71 @@ async function handleChangeAdminPassword(e) {
         }
     } catch (err) {
         showFeedback('change-admin-pw-msg', 'Connection error: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function handleExportQuestionBank() {
+    hideFeedback('qbank-backup-msg');
+    try {
+        const res = await apiFetch('/api/admin/question-bank/export');
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showFeedback('qbank-backup-msg', err.error || 'Export failed.', true);
+            return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'turathtona-question-bank.private.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showFeedback('qbank-backup-msg', '✓ Question bank exported to turathtona-question-bank.private.json');
+    } catch (err) {
+        showFeedback('qbank-backup-msg', 'Export error: ' + err.message, true);
+    }
+}
+
+async function handleImportQuestionBank() {
+    hideFeedback('qbank-backup-msg');
+    const fileInput = document.getElementById('input-import-qbank-file');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        showFeedback('qbank-backup-msg', 'Please select a JSON backup file first.', true);
+        return;
+    }
+    const file = fileInput.files[0];
+    const btn = document.getElementById('btn-import-qbank');
+    btn.disabled = true;
+    try {
+        const rawText = await file.text();
+        let parsed;
+        try {
+            parsed = JSON.parse(rawText);
+        } catch (_) {
+            showFeedback('qbank-backup-msg', 'Selected file is not valid JSON.', true);
+            return;
+        }
+        const res = await apiFetch('/api/admin/question-bank/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(parsed)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            fileInput.value = '';
+            showFeedback('qbank-backup-msg',
+                `✓ Imported ${data.coursesImported || 0} course(s), ${data.episodesImported || 0} episode(s), and ${data.questionsImported || 0} question(s).`);
+            await loadEpisodes();
+            await loadAdminDashboard();
+        } else {
+            showFeedback('qbank-backup-msg', data.error || 'Import failed.', true);
+        }
+    } catch (err) {
+        showFeedback('qbank-backup-msg', 'Import error: ' + err.message, true);
     } finally {
         btn.disabled = false;
     }
