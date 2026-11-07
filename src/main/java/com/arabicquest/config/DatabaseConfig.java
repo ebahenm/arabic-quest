@@ -23,6 +23,7 @@ public class DatabaseConfig {
     private static final Logger log = LoggerFactory.getLogger(DatabaseConfig.class);
 
     public record ParsedJdbcConfig(String jdbcUrl, String username, String password) {}
+    public record HostAndDatabase(String host, String databaseName) {}
 
     @Bean
     @Primary
@@ -44,11 +45,15 @@ public class DatabaseConfig {
             url = parsed.jdbcUrl();
             username = parsed.username();
             password = parsed.password();
-        } else if (url != null && !url.startsWith("jdbc:")) {
+        } else if (url != null && !url.isBlank() && !url.startsWith("jdbc:")) {
             ParsedJdbcConfig parsed = parseDatabaseUrl(url.trim(), username, password);
             url = parsed.jdbcUrl();
             username = parsed.username();
             password = parsed.password();
+        }
+
+        if (url == null || url.isBlank()) {
+            throw new IllegalStateException("DATABASE_URL is missing in 'prod' profile.");
         }
 
         HikariConfig hikari = new HikariConfig();
@@ -76,8 +81,38 @@ public class DatabaseConfig {
         hikari.addDataSourceProperty("tcpKeepAlive", "true");
         hikari.addDataSourceProperty("prepareThreshold", "0");
 
-        log.info("Initialized resilient HikariDataSource (maxPoolSize=4, minIdle=0, connTimeout=60s) for url={}", url);
+        HostAndDatabase redacted = extractHostAndDatabase(url);
+        log.info("Initialized resilient HikariDataSource (maxPoolSize=4, minIdle=0, connTimeout=60s) for host={}, database={}",
+                redacted.host(), redacted.databaseName());
         return new HikariDataSource(hikari);
+    }
+
+    public static HostAndDatabase extractHostAndDatabase(String jdbcOrRawUrl) {
+        if (jdbcOrRawUrl == null || jdbcOrRawUrl.isBlank()) {
+            return new HostAndDatabase("unknown", "unknown");
+        }
+        try {
+            String stripped = jdbcOrRawUrl.trim();
+            if (stripped.startsWith("jdbc:")) {
+                stripped = stripped.substring("jdbc:".length());
+            }
+            if (stripped.startsWith("postgres://")) {
+                stripped = "postgresql://" + stripped.substring("postgres://".length());
+            }
+            URI uri = new URI(stripped);
+            String host = uri.getHost() != null ? uri.getHost() : "unknown";
+            String path = uri.getPath();
+            String dbName = "unknown";
+            if (path != null && !path.isBlank()) {
+                dbName = path.startsWith("/") ? path.substring(1) : path;
+                if (dbName.isBlank()) {
+                    dbName = "unknown";
+                }
+            }
+            return new HostAndDatabase(host, dbName);
+        } catch (Exception e) {
+            return new HostAndDatabase("unparseable-host", "unknown");
+        }
     }
 
     public static ParsedJdbcConfig parseDatabaseUrl(String rawUrl, String fallbackUsername, String fallbackPassword) {
@@ -123,7 +158,7 @@ public class DatabaseConfig {
             String jdbcUrl = "jdbc:postgresql://" + host + ":" + port + path + "?" + finalQuery;
             return new ParsedJdbcConfig(jdbcUrl, username, password);
         } catch (Exception e) {
-            throw new IllegalStateException("Invalid DATABASE_URL format", e);
+            throw new IllegalStateException("Invalid DATABASE_URL format");
         }
     }
 

@@ -40,7 +40,7 @@ public class SecurityConfig {
     public SecurityConfig(
             JwtAuthenticationFilter jwtAuthenticationFilter,
             Environment environment,
-            @Value("${ADMIN_SECRET_PATH:turath-hq}") String adminSecretPath,
+            @Value("${ADMIN_SECRET_PATH}") String adminSecretPath,
             @Value("${ALLOWED_ORIGINS:https://turathtona.site,https://www.turathtona.site}") String allowedOriginsProp) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.environment = environment;
@@ -137,6 +137,14 @@ public class SecurityConfig {
                     "/style.css",
                     "/app.js",
                     "/favicon.ico",
+                    "/favicon-16x16.png",
+                    "/favicon-32x32.png",
+                    "/apple-touch-icon.png",
+                    "/icon-192.png",
+                    "/icon-512.png",
+                    "/site.webmanifest",
+                    "/images/**",
+                    "/fonts/**",
                     hqBase,
                     hqBase + "/",
                     hqLogin,
@@ -170,12 +178,10 @@ public class SecurityConfig {
     }
 
     private static String cleanSlug(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return "turath-hq";
+        String normalized = ProdStartupValidator.normalizeSlug(raw);
+        if (normalized == null) {
+            throw new IllegalStateException("ADMIN_SECRET_PATH must be configured and non-blank");
         }
-        String s = raw.trim();
-        while (s.startsWith("/")) s = s.substring(1);
-        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
-        return s.isEmpty() ? "turath-hq" : s;
+        return normalized;
     }
 }

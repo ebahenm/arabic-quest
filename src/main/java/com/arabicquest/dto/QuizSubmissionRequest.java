@@ -3,26 +3,37 @@ package com.arabicquest.dto;
 import com.arabicquest.model.WatchMode;
 import jakarta.validation.constraints.NotNull;
 import java.util.Map;
+import java.util.UUID;
 
 public class QuizSubmissionRequest {
 
-    @NotNull
+    @NotNull(message = "Quiz session ID is required")
+    private UUID sessionId;
+
     private Long episodeId;
 
-    @NotNull
     private WatchMode watchMode;
 
     // Map of questionId -> selectedOptionId
-    @NotNull
+    @NotNull(message = "Answers map is required")
     private Map<Long, Long> answers;
 
     public QuizSubmissionRequest() {
     }
 
-    public QuizSubmissionRequest(Long episodeId, WatchMode watchMode, Map<Long, Long> answers) {
+    public QuizSubmissionRequest(UUID sessionId, Long episodeId, WatchMode watchMode, Map<Long, Long> answers) {
+        this.sessionId = sessionId;
         this.episodeId = episodeId;
         this.watchMode = watchMode;
         this.answers = answers;
+    }
+
+    public UUID getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(UUID sessionId) {
+        this.sessionId = sessionId;
     }
 
     public Long getEpisodeId() {

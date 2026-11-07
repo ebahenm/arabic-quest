@@ -3,8 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Turathtona (تراثُنا) | Student Login</title>
-    <link rel="stylesheet" href="/style.css?v=4">
+    <title>Turathtona (تراثُنا) | Sign In</title>
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta name="theme-color" content="#0b1f33">
+    <link rel="stylesheet" href="/style.css?v=6">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         .auth-container {
@@ -13,52 +19,70 @@
             align-items: center;
             min-height: 100vh;
             padding: 1rem;
-            background: radial-gradient(circle at top, #142820, #090d16 65%);
+            background: radial-gradient(circle at top, #045b62 0%, #0b1f33 62%);
         }
         .auth-card {
-            background: rgba(17, 24, 39, 0.95);
-            border: 1px solid rgba(16, 185, 129, 0.35);
+            background: rgba(16, 42, 67, 0.96);
+            border: 1px solid rgba(201, 162, 77, 0.42);
             border-radius: var(--radius-lg);
             padding: 2.25rem 1.75rem;
             max-width: 420px;
             width: 100%;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 24px var(--primary-glow);
+            box-shadow: 0 22px 44px rgba(0, 0, 0, 0.65), 0 0 28px rgba(201, 162, 77, 0.16);
             text-align: center;
         }
         .auth-logo {
-            width: 52px;
-            height: 52px;
-            background: linear-gradient(135deg, #10b981, #059669);
-            border-radius: 16px;
+            width: 84px;
+            height: 84px;
+            background: radial-gradient(circle, #045b62 0%, #0b1f33 85%);
+            border: 2px solid rgba(201, 162, 77, 0.65);
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.85rem;
-            margin: 0 auto 0.75rem auto;
-            box-shadow: 0 8px 20px var(--primary-glow);
+            margin: 0 auto 0.85rem auto;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+        .auth-logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
         }
         .domain-tag {
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: #6ee7b7;
-            background: rgba(16, 185, 129, 0.15);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            padding: 0.2rem 0.6rem;
+            font-size: 0.74rem;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--brand-cream);
+            background: rgba(4, 91, 98, 0.45);
+            border: 1px solid rgba(201, 162, 77, 0.35);
+            padding: 0.22rem 0.7rem;
             border-radius: var(--radius-full);
             display: inline-block;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.45rem;
+        }
+        .auth-arabic-wordmark {
+            font-family: var(--font-arabic-display);
+            font-size: 2.35rem;
+            font-weight: 700;
+            color: var(--brand-gold);
+            line-height: 1.15;
+            margin-bottom: 0.15rem;
         }
         .auth-title {
-            font-size: 1.55rem;
+            font-size: 1.15rem;
             font-weight: 800;
-            color: white;
-            font-family: 'Cairo', sans-serif;
-            margin-bottom: 0.2rem;
+            color: var(--brand-cream);
+            margin-bottom: 0.35rem;
         }
         .auth-subtitle {
-            font-size: 0.82rem;
+            font-size: 0.84rem;
             color: var(--text-muted);
             margin-bottom: 1.5rem;
+            line-height: 1.5;
         }
         .form-group {
             text-align: left;
@@ -79,33 +103,44 @@
             background: var(--bg-subtle);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            color: white;
+            color: var(--brand-cream);
             font-size: 1rem;
             font-family: inherit;
             outline: none;
             transition: all 0.2s;
         }
         .form-input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px var(--primary-glow);
+            border-color: var(--brand-gold);
+            box-shadow: 0 0 0 3px var(--gold-glow);
         }
         .auth-btn {
             width: 100%;
-            padding: 0.9rem;
-            background: linear-gradient(135deg, #10b981, #059669);
-            border: none;
+            padding: 0.92rem;
+            background: linear-gradient(135deg, var(--brand-gold), var(--brand-amber));
+            border: 1px solid rgba(245, 236, 214, 0.35);
             border-radius: var(--radius-sm);
-            color: white;
+            color: #0b1f33;
             font-size: 1rem;
             font-weight: 800;
             cursor: pointer;
             transition: all 0.2s;
             margin-top: 0.35rem;
-            box-shadow: 0 4px 14px var(--primary-glow);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
         }
         .auth-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+            filter: brightness(1.06);
+        }
+        .back-home-link {
+            display: inline-block;
+            margin-top: 1.25rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+        .back-home-link:hover {
+            color: var(--brand-gold);
         }
         .divider-line {
             display: flex;
@@ -154,10 +189,13 @@
 
     <div class="auth-container">
         <div class="auth-card">
-            <div class="auth-logo">⚔️</div>
-            <span class="domain-tag">turathtona.site</span>
-            <h1 class="auth-title">تراثُنا • Student Portal</h1>
-            <p class="auth-subtitle">Sign in with your assigned student account to watch episodes, pass quizzes, and earn rewards.</p>
+            <div class="auth-logo">
+                <img id="login-emblem-img" src="/images/emblem.png" width="84" height="84" alt="Turathtona emblem">
+            </div>
+            <span id="login-brand-tag" class="domain-tag">Turathtona</span>
+            <div class="auth-arabic-wordmark" lang="ar" dir="rtl">تراثُنا</div>
+            <h1 class="auth-title">Sign in to Your Courses</h1>
+            <p class="auth-subtitle">Sign in with your assigned student account to watch courses, pass quizzes, and earn rewards.</p>
 
             <div id="error-box" class="auth-error"></div>
 
@@ -172,7 +210,7 @@
                     <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password" required>
                 </div>
 
-                <button type="submit" id="btn-login-submit" class="auth-btn">Enter Quest ➔</button>
+                <button type="submit" id="btn-login-submit" class="auth-btn">Sign in ➔</button>
             </form>
 
             <div id="google-auth-section" class="google-section">
@@ -181,6 +219,8 @@
                 </div>
                 <div id="google-btn-container" class="google-btn-wrap"></div>
             </div>
+
+            <a href="/" class="back-home-link">← Back to Turathtona</a>
         </div>
     </div>
 
@@ -207,6 +247,14 @@
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
+            const loginEmb = document.getElementById('login-emblem-img');
+            if (loginEmb) {
+                loginEmb.addEventListener('error', () => {
+                    loginEmb.style.display = 'none';
+                    if (loginEmb.parentElement) loginEmb.parentElement.textContent = 'ت';
+                });
+            }
+
             const nextDest = getPostLoginDestination();
             if (nextDest.startsWith('/beta')) {
                 const sub = document.querySelector('.auth-subtitle');
@@ -227,11 +275,15 @@
                 }
             } catch (_) {}
 
-            // Load Google Client ID dynamically if configured on server
+            // Load public brand config & Google Client ID dynamically
             try {
                 const cfgRes = await fetch('/api/public/config', { credentials: 'same-origin' });
                 if (cfgRes.ok) {
                     const cfg = await cfgRes.json();
+                    if (cfg.brandNameLatin) {
+                        const tagEl = document.getElementById('login-brand-tag');
+                        if (tagEl) tagEl.textContent = cfg.brandNameLatin;
+                    }
                     if (cfg.googleSignInEnabled && cfg.googleClientId) {
                         initGoogleButton(cfg.googleClientId);
                     }

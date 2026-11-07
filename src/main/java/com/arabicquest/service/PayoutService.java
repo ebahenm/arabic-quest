@@ -1,44 +1,43 @@
 package com.arabicquest.service;
 
+import com.arabicquest.config.BrandConstants;
 import com.arabicquest.dto.EarningsSummaryResponse;
-import com.arabicquest.model.Payout;
-import com.arabicquest.model.Playlist;
-import com.arabicquest.model.User;
-import com.arabicquest.repository.EpisodeRepository;
-import com.arabicquest.repository.PayoutRepository;
-import com.arabicquest.repository.PlaylistBonusClaimRepository;
-import com.arabicquest.repository.PlaylistRepository;
-import com.arabicquest.repository.QuizAttemptRepository;
-import com.arabicquest.repository.UserRepository;
+import com.arabicquest.model.*;
+import com.arabicquest.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Set;
 
 @Service
 public class PayoutService {
 
     private final UserRepository userRepository;
-    private final QuizAttemptRepository quizAttemptRepository;
+    private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
+    private final PlaylistBonusClaimRepository playlistBonusClaimRepository;
+    private final OpenAnswerSubmissionRepository openAnswerSubmissionRepository;
     private final PayoutRepository payoutRepository;
     private final EpisodeRepository episodeRepository;
     private final PlaylistRepository playlistRepository;
-    private final PlaylistBonusClaimRepository playlistBonusClaimRepository;
 
     public PayoutService(
             UserRepository userRepository,
-            QuizAttemptRepository quizAttemptRepository,
+            EpisodeRewardClaimRepository episodeRewardClaimRepository,
+            PlaylistBonusClaimRepository playlistBonusClaimRepository,
+            OpenAnswerSubmissionRepository openAnswerSubmissionRepository,
             PayoutRepository payoutRepository,
             EpisodeRepository episodeRepository,
-            PlaylistRepository playlistRepository,
-            PlaylistBonusClaimRepository playlistBonusClaimRepository) {
+            PlaylistRepository playlistRepository) {
         this.userRepository = userRepository;
-        this.quizAttemptRepository = quizAttemptRepository;
+        this.episodeRewardClaimRepository = episodeRewardClaimRepository;
+        this.playlistBonusClaimRepository = playlistBonusClaimRepository;
+        this.openAnswerSubmissionRepository = openAnswerSubmissionRepository;
         this.payoutRepository = payoutRepository;
         this.episodeRepository = episodeRepository;
         this.playlistRepository = playlistRepository;
-        this.playlistBonusClaimRepository = playlistBonusClaimRepository;
     }
 
     @Transactional(readOnly = true)
@@ -46,22 +45,54 @@ public class PayoutService {
         User student = userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
 
-        BigDecimal totalEarned = quizAttemptRepository.calculateTotalEarnedByStudent(student.getId());
+        BigDecimal episodeEarned = episodeRewardClaimRepository.calculateTotalEpisodeRewardsByStudent(student.getId());
+        BigDecimal bonusEarned = playlistBonusClaimRepository.calculateTotalBonusesByStudent(student.getId());
+        BigDecimal totalEarned = episodeEarned.add(bonusEarned);
+
+        Set<Long> claimedEpisodeIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(student.getId());
+        List<OpenAnswerSubmission> submissions = openAnswerSubmissionRepository
+                .findByStudentIdWithEpisodeAndPlaylist(student.getId());
+
+        BigDecimal pendingReviewAmount = BigDecimal.ZERO;
+        long pendingReviewCount = 0L;
+        for (OpenAnswerSubmission sub : submissions) {
+            if (sub.getStatus() == OpenAnswerStatus.PENDING
+                    && !claimedEpisodeIds.contains(sub.getEpisode().getId())) {
+                Playlist p = sub.getEpisode().getPlaylist();
+                BigDecimal rate = sub.getWatchMode() == WatchMode.ENGLISH_DUB
+                        ? (p != null && p.getEnglishRewardRate() != null ? p.getEnglishRewardRate() : BrandConstants.DEFAULT_RATE_ENGLISH_DUB)
+                        : (p != null && p.getArabicRewardRate() != null ? p.getArabicRewardRate() : BrandConstants.DEFAULT_RATE_ARABIC_SUB);
+                pendingReviewAmount = pendingReviewAmount.add(rate);
+                pendingReviewCount++;
+            }
+        }
+
         BigDecimal totalPaid = payoutRepository.calculateTotalPaidToStudent(student.getId());
         BigDecimal balanceOwed = totalEarned.subtract(totalPaid);
 
-        Playlist playlist = playlistRepository.findFirstByOrderByIdAsc().orElse(null);
-        long totalEpisodes = playlist != null ? episodeRepository.countActiveByPlaylistId(playlist.getId()) : 0;
-        long passedEpisodes = playlist != null ? quizAttemptRepository.countPassedEpisodesByStudentAndPlaylist(student.getId(), playlist.getId()) : 0;
-        boolean bonusUnlocked = playlist != null && (
-                playlistBonusClaimRepository.existsByStudentIdAndPlaylistId(student.getId(), playlist.getId())
-                || (totalEpisodes >= playlist.getMinEpisodesForBonus() && passedEpisodes >= totalEpisodes)
-        );
-        BigDecimal bonusAmount = playlist != null ? playlist.getCompletionBonus() : new BigDecimal("100.00");
+        List<Playlist> publishedCourses = playlistRepository.findPublishedActiveOrderBySortOrderAsc();
+        long totalEpisodes = 0;
+        long passedEpisodes = 0;
+        boolean bonusUnlocked = false;
+        BigDecimal bonusAmount = BrandConstants.DEFAULT_COMPLETION_BONUS;
+        for (int i = 0; i < publishedCourses.size(); i++) {
+            Playlist c = publishedCourses.get(i);
+            totalEpisodes += episodeRepository.countActiveByPlaylistId(c.getId());
+            passedEpisodes += episodeRewardClaimRepository
+                    .countClaimedActiveEpisodesByStudentAndPlaylist(student.getId(), c.getId());
+            if (playlistBonusClaimRepository.existsByStudentIdAndPlaylistId(student.getId(), c.getId())) {
+                bonusUnlocked = true;
+            }
+            if (i == 0 && c.getCompletionBonus() != null) {
+                bonusAmount = c.getCompletionBonus();
+            }
+        }
 
         return new EarningsSummaryResponse(
                 student.getUsername(),
                 totalEarned,
+                pendingReviewAmount,
+                pendingReviewCount,
                 totalPaid,
                 balanceOwed,
                 passedEpisodes,

@@ -5,7 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <title>Turathtona (تراثُنا) | Secret HQ</title>
-    <link rel="stylesheet" href="/style.css?v=4">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta name="theme-color" content="#0b1f33">
+    <link rel="stylesheet" href="/style.css?v=6">
     <style>
         .auth-container {
             display: flex;
@@ -13,47 +19,55 @@
             align-items: center;
             min-height: 100vh;
             padding: 1rem;
-            background: radial-gradient(circle at top, #2b1f0e, #090d16 65%);
+            background: radial-gradient(circle at top, #045b62 0%, #0b1f33 65%);
         }
         .auth-card {
-            background: rgba(17, 24, 39, 0.95);
-            border: 1px solid rgba(245, 158, 11, 0.4);
+            background: rgba(16, 42, 67, 0.96);
+            border: 1px solid rgba(201, 162, 77, 0.45);
             border-radius: var(--radius-lg);
             padding: 2.25rem 1.75rem;
             max-width: 420px;
             width: 100%;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 24px var(--gold-glow);
+            box-shadow: 0 22px 44px rgba(0, 0, 0, 0.65), 0 0 24px var(--gold-glow);
             text-align: center;
         }
         .auth-logo {
-            width: 52px;
-            height: 52px;
-            background: linear-gradient(135deg, #f59e0b, #d97706);
-            border-radius: 16px;
+            width: 80px;
+            height: 80px;
+            background: radial-gradient(circle, #045b62 0%, #0b1f33 85%);
+            border: 2px solid rgba(201, 162, 77, 0.65);
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.85rem;
             margin: 0 auto 0.75rem auto;
-            box-shadow: 0 8px 20px var(--gold-glow);
+            overflow: hidden;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+        }
+        .auth-logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
         }
         .domain-tag {
             font-size: 0.75rem;
             font-weight: 700;
-            color: #fde68a;
-            background: rgba(245, 158, 11, 0.15);
-            border: 1px solid rgba(245, 158, 11, 0.3);
-            padding: 0.2rem 0.6rem;
+            color: var(--brand-cream);
+            background: rgba(201, 162, 77, 0.16);
+            border: 1px solid rgba(201, 162, 77, 0.35);
+            padding: 0.2rem 0.65rem;
             border-radius: var(--radius-full);
             display: inline-block;
             margin-bottom: 0.5rem;
         }
         .auth-title {
-            font-size: 1.55rem;
+            font-size: 1.5rem;
             font-weight: 800;
-            color: white;
-            font-family: 'Cairo', sans-serif;
-            margin-bottom: 0.2rem;
+            color: var(--brand-gold);
+            font-family: var(--font-ui);
+            margin-bottom: 0.25rem;
         }
         .auth-subtitle {
             font-size: 0.82rem;
@@ -132,7 +146,9 @@
 
     <div class="auth-container">
         <div class="auth-card">
-            <div class="auth-logo">🛡️</div>
+            <div class="auth-logo">
+                <img id="admin-login-emblem-img" src="/images/emblem.png" width="80" height="80" alt="Turathtona emblem">
+            </div>
             <span class="domain-tag">Restricted HQ Access</span>
             <h1 class="auth-title">Admin Command Center</h1>
             <p class="auth-subtitle">Authorized administrator verification required.</p>
@@ -157,6 +173,14 @@
 
     <script>
         const HQ_DASHBOARD_PATH = '{{HQ_DASHBOARD_PATH}}';
+
+        const adminLoginEmb = document.getElementById('admin-login-emblem-img');
+        if (adminLoginEmb) {
+            adminLoginEmb.addEventListener('error', () => {
+                adminLoginEmb.style.display = 'none';
+                if (adminLoginEmb.parentElement) adminLoginEmb.parentElement.textContent = '🛡️';
+            });
+        }
 
         // Purge any legacy plaintext credentials from older client versions
         try {

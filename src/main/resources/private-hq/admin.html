@@ -5,7 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <title>Turathtona (تراثُنا) | Admin Command Center</title>
-    <link rel="stylesheet" href="/style.css?v=4">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta name="theme-color" content="#0b1f33">
+    <link rel="stylesheet" href="/style.css?v=6">
     <style>
         .admin-nav-actions {
             display: flex;
@@ -215,10 +221,12 @@
     <!-- Header -->
     <header>
         <div class="brand">
-            <div class="brand-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 12px var(--gold-glow);">🛡️</div>
+            <div class="brand-icon">
+                <img id="admin-header-emblem-img" src="/images/emblem.png" width="40" height="40" alt="Turathtona emblem">
+            </div>
             <div>
                 <div class="brand-title">Admin Command Center</div>
-                <div class="brand-subtitle">تراثُنا • turathtona.site</div>
+                <div class="brand-subtitle"><span lang="ar" dir="rtl">تراثُنا</span> • Turathtona</div>
             </div>
         </div>
 
@@ -246,17 +254,21 @@
                 </button>
             </div>
 
-            <!-- Organized 5-Tab Navigation Bar -->
+            <!-- Organized 6-Tab Navigation Bar -->
             <nav class="admin-tabs-nav" aria-label="Admin Sections">
                 <button type="button" class="admin-tab-btn active" data-tab="overview">
                     <span>📊 Overview &amp; Payouts</span>
+                </button>
+                <button type="button" class="admin-tab-btn" data-tab="reviews">
+                    <span>✍️ Review Queue</span>
+                    <span id="tab-badge-reviews" class="tab-count-pill">0</span>
                 </button>
                 <button type="button" class="admin-tab-btn" data-tab="students">
                     <span>👨‍🎓 Students</span>
                     <span id="tab-badge-students" class="tab-count-pill">0</span>
                 </button>
                 <button type="button" class="admin-tab-btn" data-tab="course">
-                    <span>🎬 Course &amp; AI Quizzes</span>
+                    <span>🎬 Courses &amp; Question Bank</span>
                     <span id="tab-badge-episodes" class="tab-count-pill">0</span>
                 </button>
                 <button type="button" class="admin-tab-btn" data-tab="audit">
@@ -287,6 +299,10 @@
                     <div class="metric-card">
                         <div class="metric-label">Student Total Earned</div>
                         <div id="admin-metric-earned" class="metric-value green">$0.00</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Pending Written Review</div>
+                        <div id="admin-metric-pending" class="metric-value gold">$0.00</div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-label">Total Paid Out</div>
@@ -339,6 +355,33 @@
                         </thead>
                         <tbody id="admin-payouts-tbody"></tbody>
                     </table>
+                </div>
+            </section>
+
+            <!-- ========================================================== -->
+            <!-- TAB 1B: WRITTEN ANSWERS REVIEW QUEUE                       -->
+            <!-- ========================================================== -->
+            <section id="tab-panel-reviews" class="admin-tab-panel">
+                <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.5);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: var(--gold);">✍️ Written Reflections Review Queue</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Episode rewards and course completion bonuses are created only when you approve a student's written answer here. AI grade suggestions never approve anything automatically.
+                            </p>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                            <select id="review-status-filter" class="select-input" style="width: 190px; padding: 0.5rem 0.75rem; font-size: 0.84rem;">
+                                <option value="PENDING">Pending Review</option>
+                                <option value="REVISION_REQUESTED">Revision Requested</option>
+                                <option value="APPROVED">Approved</option>
+                                <option value="ALL">All Submissions</option>
+                            </select>
+                            <button type="button" id="btn-refresh-reviews" class="btn-ghost">↻ Refresh Queue</button>
+                        </div>
+                    </div>
+                    <div id="review-queue-msg" class="feedback-msg"></div>
+                    <div id="open-answers-review-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
                 </div>
             </section>
 
@@ -431,83 +474,439 @@
                     </form>
                     <div id="reset-student-pw-msg" class="feedback-msg"></div>
                 </div>
-            </section>
 
-            <!-- ========================================================== -->
-            <!-- TAB 3: COURSE EPISODES & AI QUIZ GENERATOR                 -->
-            <!-- ========================================================== -->
-            <section id="tab-panel-course" class="admin-tab-panel">
-                <div class="admin-card-section">
+                <!-- Per-Student Episode Unlock / Lock Overrides Card -->
+                <div class="admin-card-section" style="border-color: rgba(59, 130, 246, 0.4);">
                     <div class="card-header-bar">
                         <div>
-                            <h3>🤖 AI Quiz &amp; Vocabulary Generator (Gemini 2.5 Flash)</h3>
-                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Generate a fresh 20-question (100% pass mark) comprehension quiz with randomized answer positions for any episode.
+                            <h3 style="color: #93c5fd;">🔓 Per-Student Episode Access Overrides</h3>
+                            <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.15rem;">
+                                Managing access for: <strong id="override-student-indicator" style="color: #bfdbfe;">Select a student above</strong>. Unlock any episode out of sequence or lock it again for this student.
                             </p>
                         </div>
+                        <button type="button" id="btn-refresh-student-overrides" class="btn-ghost">↻ Refresh Access</button>
                     </div>
-
-                    <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
-                        <div style="flex: 1; min-width: 260px;">
-                            <label for="ai-episode-select" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Select Episode:</label>
-                            <select id="ai-episode-select" class="select-input"></select>
-                        </div>
-                        <div>
-                            <button type="button" id="btn-run-ai" class="btn-ai-generate">
-                                ✨ Generate AI Quiz Now
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="ai-result-box" class="ai-result-box">
-                        <h4 style="color: #c4b5fd; font-weight: 800; margin-bottom: 0.5rem;" id="ai-result-title">Quiz Generated Successfully!</h4>
-                        <div id="ai-result-content" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6;"></div>
-                    </div>
-                </div>
-
-                <div class="admin-card-section">
-                    <div class="card-header-bar">
-                        <div>
-                            <h3>📚 Add &amp; Manage Course Episodes</h3>
-                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Students must pass each episode in numerical order (#1 → #2 → #3...) before the next episode unlocks.
-                            </p>
-                        </div>
-                    </div>
-
-                    <form id="form-add-episode">
-                        <div class="form-row">
-                            <div>
-                                <label for="new-ep-num" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Number</label>
-                                <input type="number" id="new-ep-num" class="text-input" min="1" placeholder="e.g. 16" required>
-                            </div>
-                            <div style="grid-column: span 2;">
-                                <label for="new-ep-title" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Title (Arabic)</label>
-                                <input type="text" id="new-ep-title" class="text-input" maxlength="250" placeholder="e.g. 16- 100 سؤال في التاريخ | ..." required>
-                            </div>
-                            <div>
-                                <label for="new-ep-videoid" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">YouTube Video ID or URL</label>
-                                <input type="text" id="new-ep-videoid" class="text-input" maxlength="200" placeholder="e.g. EXrpLeyeSeU or https://youtu.be/..." required>
-                            </div>
-                        </div>
-                        <button type="submit" id="btn-add-episode" class="btn-primary" style="padding: 0.7rem 1.5rem;">Add Episode ➔</button>
-                    </form>
-                    <div id="add-episode-msg" class="feedback-msg"></div>
-
-                    <div class="table-container" style="margin-top: 1.25rem;">
+                    <div id="student-overrides-msg" class="feedback-msg"></div>
+                    <div class="table-container" style="margin-top: 0.5rem;">
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>Ep #</th>
+                                    <th>Course</th>
+                                    <th>Episode</th>
+                                    <th>Effective Status</th>
+                                    <th>Admin Override</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="student-overrides-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================== -->
+            <!-- TAB 3: COURSES, YOUTUBE IMPORT & QUESTION BANK             -->
+            <!-- ========================================================== -->
+            <section id="tab-panel-course" class="admin-tab-panel">
+                <!-- Add Course from YouTube (Two-Step Preview -> Save Draft) -->
+                <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.55);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: var(--gold);">📺 Add a Course from YouTube</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Step 1: Preview the YouTube series (skips private &amp; deleted videos and fetches authoritative durations). Step 2: Save as an unpublished draft course with custom rates and bonus.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 280px;">
+                            <label for="yt-playlist-input" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.35rem;">YouTube URL or ID</label>
+                            <input type="text" id="yt-playlist-input" class="text-input" maxlength="500" placeholder="https://www.youtube.com/playlist?list=PL... or PL...">
+                        </div>
+                        <button type="button" id="btn-yt-preview" class="btn-primary" style="padding: 0.7rem 1.35rem;">
+                            🔍 Step 1: Preview Series
+                        </button>
+                    </div>
+                    <div id="yt-import-msg" class="feedback-msg"></div>
+
+                    <!-- Step 2 Preview & Draft Save Panel -->
+                    <div id="yt-preview-box" style="display: none; margin-top: 1.15rem; padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid rgba(201, 162, 77, 0.4); background: var(--bg-subtle);">
+                        <div style="display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; margin-bottom: 1rem;">
+                            <img id="yt-preview-thumb" alt="Course preview thumbnail" style="width: 168px; height: 95px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border); display: none;">
+                            <div style="flex: 1; min-width: 220px;">
+                                <h4 id="yt-preview-title" style="font-size: 1.02rem; font-weight: 800; color: #fde68a; margin-bottom: 0.25rem;"></h4>
+                                <p id="yt-preview-meta" style="font-size: 0.84rem; color: var(--text-muted);"></p>
+                                <p id="yt-preview-warning" style="font-size: 0.82rem; color: #fca5a5; margin-top: 0.25rem; display: none;"></p>
+                            </div>
+                        </div>
+
+                        <form id="form-yt-save-draft">
+                            <div class="form-row">
+                                <div style="grid-column: span 2;">
+                                    <label for="yt-draft-title" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Course Title</label>
+                                    <input type="text" id="yt-draft-title" class="text-input" maxlength="200" required>
+                                </div>
+                                <div>
+                                    <label for="yt-draft-rate-ar" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Arabic Sub Rate ($)</label>
+                                    <input type="number" id="yt-draft-rate-ar" class="text-input" min="0" step="0.01" value="15.00" required>
+                                </div>
+                                <div>
+                                    <label for="yt-draft-rate-en" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">English Dub Rate ($)</label>
+                                    <input type="number" id="yt-draft-rate-en" class="text-input" min="0" step="0.01" value="10.00" required>
+                                </div>
+                                <div>
+                                    <label for="yt-draft-bonus" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Completion Bonus ($)</label>
+                                    <input type="number" id="yt-draft-bonus" class="text-input" min="0" step="0.01" value="100.00" required>
+                                </div>
+                                <div style="grid-column: span 2;">
+                                    <label for="yt-draft-cover" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Cover Image URL</label>
+                                    <input type="text" id="yt-draft-cover" class="text-input" maxlength="1000">
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 0.85rem;">
+                                <label for="yt-draft-desc" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Course Description</label>
+                                <textarea id="yt-draft-desc" class="text-input" rows="2" maxlength="5000"></textarea>
+                            </div>
+                            <button type="submit" id="btn-yt-save-draft" class="btn-primary" style="padding: 0.7rem 1.4rem;">
+                                💾 Step 2: Save as Draft Course (Unpublished)
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Course Management & Episode Syllabus Readiness -->
+                <div class="admin-card-section" style="border-color: rgba(4, 91, 98, 0.7);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: #5eead4;">🎓 Course Management &amp; Syllabus</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Edit course metadata, reward rates, completion bonus, publish/archive state, re-sync from YouTube, reorder episodes, and verify quiz readiness.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.55rem; flex-wrap: wrap;">
+                            <button type="button" id="btn-new-manual-course" class="btn-ghost" style="padding: 0.5rem 0.9rem; font-size: 0.82rem;">➕ Manual Draft Course</button>
+                            <button type="button" id="btn-refresh-courses" class="btn-ghost" style="padding: 0.5rem 0.9rem; font-size: 0.82rem;">↻ Refresh Courses</button>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 0.85rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; padding: 0.85rem 1rem; background: var(--bg-subtle); border-radius: var(--radius-md); border: 1px solid var(--border);">
+                        <div style="flex: 1; min-width: 240px;">
+                            <label for="admin-course-select" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Selected Course</label>
+                            <select id="admin-course-select" class="select-input"></select>
+                        </div>
+                        <span id="admin-course-status-badge" class="tab-count-pill" style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">DRAFT</span>
+                        <button type="button" id="btn-course-publish-toggle" class="btn-primary" style="padding: 0.55rem 1rem; font-size: 0.82rem;">Publish Course</button>
+                        <button type="button" id="btn-course-resync" class="btn-ghost" style="padding: 0.55rem 1rem; font-size: 0.82rem;">🔄 Re-sync YouTube</button>
+                        <button type="button" id="btn-course-archive-toggle" class="btn-danger-outline" style="padding: 0.55rem 0.95rem; font-size: 0.82rem;">Archive</button>
+                    </div>
+
+                    <div id="course-mgmt-msg" class="feedback-msg"></div>
+
+                    <form id="form-edit-course" style="margin-bottom: 1.35rem;">
+                        <div class="form-row">
+                            <div style="grid-column: span 2;">
+                                <label for="edit-course-title" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Course Title</label>
+                                <input type="text" id="edit-course-title" class="text-input" maxlength="200" required>
+                            </div>
+                            <div>
+                                <label for="edit-course-sort" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Sort Order</label>
+                                <input type="number" id="edit-course-sort" class="text-input" value="0">
+                            </div>
+                            <div>
+                                <label for="edit-course-rate-ar" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Arabic Sub Rate ($)</label>
+                                <input type="number" id="edit-course-rate-ar" class="text-input" min="0" step="0.01" required>
+                            </div>
+                            <div>
+                                <label for="edit-course-rate-en" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">English Dub Rate ($)</label>
+                                <input type="number" id="edit-course-rate-en" class="text-input" min="0" step="0.01" required>
+                            </div>
+                            <div>
+                                <label for="edit-course-bonus" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Completion Bonus ($)</label>
+                                <input type="number" id="edit-course-bonus" class="text-input" min="0" step="0.01" required>
+                            </div>
+                            <div style="grid-column: span 2;">
+                                <label for="edit-course-cover" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Cover Image URL</label>
+                                <input type="text" id="edit-course-cover" class="text-input" maxlength="1000" placeholder="https://...">
+                            </div>
+                            <div>
+                                <label for="edit-course-ytid" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">YouTube Series ID</label>
+                                <input type="text" id="edit-course-ytid" class="text-input" maxlength="100">
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 0.85rem;">
+                            <label for="edit-course-desc" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Course Description</label>
+                            <textarea id="edit-course-desc" class="text-input" rows="2" maxlength="5000"></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary" style="padding: 0.6rem 1.3rem;">Save Course Settings ➔</button>
+                    </form>
+
+                    <!-- Add Single Episode to Selected Course -->
+                    <details style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.85rem 1.1rem; margin-bottom: 1rem;">
+                        <summary style="cursor: pointer; font-weight: 800; color: #a7f3d0; font-size: 0.9rem;">➕ Add Single Episode to Selected Course</summary>
+                        <form id="form-add-episode" style="margin-top: 0.85rem;">
+                            <div class="form-row">
+                                <div>
+                                    <label for="new-ep-num" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Number</label>
+                                    <input type="number" id="new-ep-num" class="text-input" min="1" placeholder="e.g. 16" required>
+                                </div>
+                                <div style="grid-column: span 2;">
+                                    <label for="new-ep-title" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Title</label>
+                                    <input type="text" id="new-ep-title" class="text-input" maxlength="250" placeholder="Episode title" required>
+                                </div>
+                                <div>
+                                    <label for="new-ep-videoid" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">YouTube Video ID or URL</label>
+                                    <input type="text" id="new-ep-videoid" class="text-input" maxlength="200" placeholder="e.g. EXrpLeyeSeU" required>
+                                </div>
+                                <div>
+                                    <label for="new-ep-duration" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Duration (Seconds)</label>
+                                    <input type="number" id="new-ep-duration" class="text-input" min="1" value="1800" required>
+                                </div>
+                            </div>
+                            <button type="submit" id="btn-add-episode" class="btn-primary" style="padding: 0.6rem 1.25rem;">Add Episode ➔</button>
+                        </form>
+                    </details>
+                    <div id="add-episode-msg" class="feedback-msg"></div>
+
+                    <!-- Inline Edit Selected Episode Box -->
+                    <div id="edit-episode-inline-box" style="display: none; margin-bottom: 1rem; padding: 0.9rem 1.1rem; border-radius: var(--radius-md); border: 1px solid rgba(59, 130, 246, 0.45); background: var(--bg-subtle);">
+                        <h4 id="edit-episode-inline-heading" style="font-size: 0.9rem; font-weight: 800; color: #93c5fd; margin-bottom: 0.65rem;">✏️ Edit Episode</h4>
+                        <form id="form-edit-episode-inline" style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+                            <input type="hidden" id="edit-ep-id" value="">
+                            <div style="flex: 2; min-width: 220px;">
+                                <label for="edit-ep-title" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Title</label>
+                                <input type="text" id="edit-ep-title" class="text-input" maxlength="250" required>
+                            </div>
+                            <div style="width: 150px;">
+                                <label for="edit-ep-duration" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Duration (Seconds)</label>
+                                <input type="number" id="edit-ep-duration" class="text-input" min="1" required>
+                            </div>
+                            <button type="submit" class="btn-primary" style="padding: 0.6rem 1.1rem;">Save Episode</button>
+                            <button type="button" id="btn-cancel-ep-edit" class="btn-ghost" style="padding: 0.6rem 0.9rem;">Cancel</button>
+                        </form>
+                    </div>
+
+                    <div class="table-container" style="margin-top: 0.75rem;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Order</th>
                                     <th>Title</th>
-                                    <th>Length</th>
-                                    <th>YouTube ID</th>
-                                    <th>Action</th>
+                                    <th>Duration</th>
+                                    <th>Quiz Readiness</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="admin-episodes-tbody"></tbody>
                         </table>
                     </div>
+                </div>
+
+                <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.45);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: var(--gold);">📦 Question Bank Backup (Export &amp; Import JSON)</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Back up or restore courses, episodes, and approved/draft question banks outside the repository (`*.private.json`).
+                            </p>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                        <button type="button" id="btn-export-qbank" class="btn-primary" style="padding: 0.65rem 1.25rem;">
+                            ⬇️ Export Question Bank (JSON)
+                        </button>
+                        <input type="file" id="input-import-qbank-file" accept=".json,application/json" class="text-input" style="max-width: 320px; padding: 0.5rem;">
+                        <button type="button" id="btn-import-qbank" class="btn-ghost" style="padding: 0.65rem 1.25rem;">
+                            ⬆️ Import Question Bank (JSON)
+                        </button>
+                    </div>
+                    <div id="qbank-backup-msg" class="feedback-msg"></div>
+                </div>
+
+                <div class="admin-card-section">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3>🤖 Transcript Question Bank Generator (2-Pass Gemini Verification)</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Paste an episode transcript (up to 60,000 chars). Pass 1 generates 30 MCQs + 3 open questions; Pass 2 verifies every item against the transcript and deduplicates. Everything saves as <strong>DRAFT</strong> until you approve it below.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 0.85rem;">
+                        <label for="ai-episode-select" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Select Episode (controls both Generator &amp; Question Bank Manager below):</label>
+                        <select id="ai-episode-select" class="select-input"></select>
+                    </div>
+
+                    <div style="margin-bottom: 0.85rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                            <label for="ai-transcript-input" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted);">Episode Transcript (Required for AI Generation):</label>
+                            <span id="ai-transcript-char-count" style="font-size: 0.78rem; color: var(--text-muted);">0 / 60,000 chars</span>
+                        </div>
+                        <textarea id="ai-transcript-input" class="text-input" rows="6" maxlength="65000" placeholder="Paste the episode transcript here (up to ~60,000 characters)..." style="resize: vertical; line-height: 1.5;"></textarea>
+                    </div>
+
+                    <div>
+                        <button type="button" id="btn-run-ai" class="btn-ai-generate">
+                            ✨ Generate Draft Bank from Transcript (2-Pass)
+                        </button>
+                    </div>
+
+                    <div id="ai-result-box" class="ai-result-box">
+                        <h4 style="color: #c4b5fd; font-weight: 800; margin-bottom: 0.5rem;" id="ai-result-title">Draft Bank Generated!</h4>
+                        <div id="ai-result-content" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6;"></div>
+                    </div>
+                </div>
+
+                <!-- Question Bank Manager for Selected Episode -->
+                <div class="admin-card-section" style="border-color: rgba(16, 185, 129, 0.35);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: #6ee7b7;">🗂️ Episode Question Bank Manager</h3>
+                            <p id="qbank-summary-bar" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Select an episode above to inspect, filter, edit, approve, or retire MCQs and open questions.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                            <button type="button" id="btn-qbank-bulk-approve" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 0.82rem;">
+                                ✓ Bulk Approve All Drafts
+                            </button>
+                            <button type="button" id="btn-qbank-refresh" class="btn-ghost" style="padding: 0.5rem 0.9rem; font-size: 0.82rem;">
+                                ↻ Refresh Bank
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="qbank-manager-msg" class="feedback-msg"></div>
+
+                    <!-- Filters -->
+                    <div style="display: flex; gap: 0.85rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; background: var(--bg-subtle); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+                        <div>
+                            <label for="qbank-filter-status" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.2rem;">Status</label>
+                            <select id="qbank-filter-status" class="select-input" style="width: 155px; padding: 0.45rem 0.65rem; font-size: 0.82rem;">
+                                <option value="ALL">All Statuses</option>
+                                <option value="DRAFT">Draft Only</option>
+                                <option value="APPROVED">Approved Only</option>
+                                <option value="RETIRED">Retired Only</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="qbank-filter-type" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.2rem;">MCQ Type</label>
+                            <select id="qbank-filter-type" class="select-input" style="width: 165px; padding: 0.45rem 0.65rem; font-size: 0.82rem;">
+                                <option value="ALL">All Types</option>
+                                <option value="RECALL">Recall</option>
+                                <option value="REASONING">Reasoning</option>
+                                <option value="VOCABULARY">Vocabulary</option>
+                                <option value="LISTENING">Listening</option>
+                            </select>
+                        </div>
+                        <label style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.84rem; font-weight: 700; color: #fca5a5; cursor: pointer; margin-top: 1rem;">
+                            <input type="checkbox" id="qbank-filter-reported" style="width: 16px; height: 16px;">
+                            <span>🚩 Reported Questions Only</span>
+                        </label>
+                    </div>
+
+                    <!-- Add / Edit MCQ Form -->
+                    <details id="mcq-editor-details" style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1.15rem; margin-bottom: 1.25rem;">
+                        <summary id="mcq-editor-summary" style="cursor: pointer; font-weight: 800; color: #a7f3d0; font-size: 0.92rem;">➕ Add / Edit Multiple-Choice Question</summary>
+                        <form id="form-upsert-mcq" style="margin-top: 0.9rem;">
+                            <input type="hidden" id="mcq-edit-id" value="">
+                            <div class="form-row">
+                                <div style="grid-column: span 2;">
+                                    <label for="mcq-text" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Question Stem (English; Arabic terms in parentheses)</label>
+                                    <input type="text" id="mcq-text" class="text-input" maxlength="2000" required>
+                                </div>
+                                <div>
+                                    <label for="mcq-type" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Type</label>
+                                    <select id="mcq-type" class="select-input">
+                                        <option value="RECALL">RECALL</option>
+                                        <option value="REASONING">REASONING</option>
+                                        <option value="VOCABULARY">VOCABULARY</option>
+                                        <option value="LISTENING">LISTENING</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="mcq-status" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Status</label>
+                                    <select id="mcq-status" class="select-input">
+                                        <option value="APPROVED">APPROVED</option>
+                                        <option value="DRAFT">DRAFT</option>
+                                        <option value="RETIRED">RETIRED</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 0.85rem;">
+                                <label for="mcq-evidence" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Admin Evidence / Transcript Quote</label>
+                                <input type="text" id="mcq-evidence" class="text-input" maxlength="3000" placeholder="Short quote or note from the transcript">
+                            </div>
+                            <div class="form-row">
+                                <div>
+                                    <label style="font-size: 0.75rem; font-weight: 700; color: #6ee7b7; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                        <input type="radio" name="mcq_correct_idx" value="0" checked> Option 1 (Select radio if correct)
+                                    </label>
+                                    <input type="text" id="mcq-opt-0" class="text-input" maxlength="1000" required>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                        <input type="radio" name="mcq_correct_idx" value="1"> Option 2
+                                    </label>
+                                    <input type="text" id="mcq-opt-1" class="text-input" maxlength="1000" required>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                        <input type="radio" name="mcq_correct_idx" value="2"> Option 3
+                                    </label>
+                                    <input type="text" id="mcq-opt-2" class="text-input" maxlength="1000" required>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                        <input type="radio" name="mcq_correct_idx" value="3"> Option 4
+                                    </label>
+                                    <input type="text" id="mcq-opt-3" class="text-input" maxlength="1000" required>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.65rem;">
+                                <button type="submit" class="btn-primary" style="padding: 0.55rem 1.2rem;">Save MCQ</button>
+                                <button type="button" id="btn-cancel-mcq-edit" class="btn-ghost">Clear / Cancel Edit</button>
+                            </div>
+                        </form>
+                    </details>
+
+                    <!-- Add / Edit Open Question Form -->
+                    <details id="openq-editor-details" style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1.15rem; margin-bottom: 1.25rem;">
+                        <summary id="openq-editor-summary" style="cursor: pointer; font-weight: 800; color: #fde68a; font-size: 0.92rem;">➕ Add / Edit Open Written Question (Target: 3+ per episode)</summary>
+                        <form id="form-upsert-openq" style="margin-top: 0.9rem;">
+                            <input type="hidden" id="openq-edit-id" value="">
+                            <div class="form-row">
+                                <div style="grid-column: span 2;">
+                                    <label for="openq-prompt" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Open Reflection Prompt (English)</label>
+                                    <input type="text" id="openq-prompt" class="text-input" maxlength="2000" required>
+                                </div>
+                                <div>
+                                    <label for="openq-status" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Status</label>
+                                    <select id="openq-status" class="select-input">
+                                        <option value="APPROVED">APPROVED</option>
+                                        <option value="DRAFT">DRAFT</option>
+                                        <option value="RETIRED">RETIRED</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 0.85rem;">
+                                <label for="openq-evidence" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Admin Evidence / Rubric Note</label>
+                                <input type="text" id="openq-evidence" class="text-input" maxlength="3000" placeholder="Expected points from transcript">
+                            </div>
+                            <div style="display: flex; gap: 0.65rem;">
+                                <button type="submit" class="btn-primary" style="padding: 0.55rem 1.2rem;">Save Open Question</button>
+                                <button type="button" id="btn-cancel-openq-edit" class="btn-ghost">Clear / Cancel Edit</button>
+                            </div>
+                        </form>
+                    </details>
+
+                    <h4 style="font-size: 0.95rem; font-weight: 800; margin-bottom: 0.65rem; color: #e2e8f0;">Multiple-Choice Questions</h4>
+                    <div id="qbank-mcq-list" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;"></div>
+
+                    <h4 style="font-size: 0.95rem; font-weight: 800; margin-bottom: 0.65rem; color: #fde68a;">Open Written Questions</h4>
+                    <div id="qbank-open-list" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
                 </div>
             </section>
 
@@ -519,7 +918,7 @@
                     <div style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                         <div>
                             <h3 style="font-size: 1.05rem;">📋 Student Quiz Attempts Audit Log</h3>
-                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">Every passed (100% • 20/20) and failed quiz submission with score and reward.</p>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">Every passed (100% • 10/10) and failed quiz session submission with score.</p>
                         </div>
                         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
                             <select id="audit-student-filter" class="select-input" style="width: 220px; padding: 0.5rem 0.75rem; font-size: 0.82rem;">
@@ -564,7 +963,7 @@
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem; font-size: 0.84rem; color: var(--text-muted);">
                         <div style="background: var(--bg-subtle); padding: 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
                             <strong style="color: #e9d5ff; display: block; margin-bottom: 0.25rem;">⏩ Instant Watch Unlock</strong>
-                            Simulate completing the 10-minute video watch requirement in 1 click to immediately test the 20-question (100% pass) quiz.
+                            Simulate completing the video watch requirement in 1 click to immediately test the 10-question (100% pass) session quiz &amp; written reflection.
                         </div>
                         <div style="background: var(--bg-subtle); padding: 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
                             <strong style="color: #e9d5ff; display: block; margin-bottom: 0.25rem;">🔓 Toggle Episode Locks</strong>

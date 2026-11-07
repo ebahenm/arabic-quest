@@ -107,7 +107,7 @@ public class AuthController {
 
         try {
             URI verifyUri = UriComponentsBuilder
-                    .fromHttpUrl("https://oauth2.googleapis.com/tokeninfo")
+                    .fromUriString("https://oauth2.googleapis.com/tokeninfo")
                     .queryParam("id_token", request.getCredential())
                     .build()
                     .encode()

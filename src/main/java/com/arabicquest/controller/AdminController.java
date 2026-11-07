@@ -3,12 +3,14 @@ package com.arabicquest.controller;
 import com.arabicquest.dto.*;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
-import com.arabicquest.service.AiQuizService;
-import com.arabicquest.service.PayoutService;
+import com.arabicquest.service.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -33,9 +35,22 @@ public class AdminController {
     private final PlaylistRepository playlistRepository;
     private final EpisodeRepository episodeRepository;
     private final QuizRepository quizRepository;
+    private final OpenQuestionRepository openQuestionRepository;
+    private final OpenAnswerSubmissionRepository openAnswerSubmissionRepository;
+    private final StudentOpenQuestionAssignmentRepository assignmentRepository;
+    private final QuizAttemptSessionRepository quizAttemptSessionRepository;
+    private final StudentQuestionExposureRepository exposureRepository;
+    private final QuestionReportRepository questionReportRepository;
+    private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
+    private final StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository;
     private final WatchSessionRepository watchSessionRepository;
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
+    private final WatchProgressService watchProgressService;
     private final AiQuizService aiQuizService;
+    private final QuestionBankService questionBankService;
+    private final OpenAnswerReviewService openAnswerReviewService;
+    private final QuestionBankImportExportService questionBankImportExportService;
+    private final CourseService courseService;
     private final PasswordEncoder passwordEncoder;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -47,9 +62,22 @@ public class AdminController {
             PlaylistRepository playlistRepository,
             EpisodeRepository episodeRepository,
             QuizRepository quizRepository,
+            OpenQuestionRepository openQuestionRepository,
+            OpenAnswerSubmissionRepository openAnswerSubmissionRepository,
+            StudentOpenQuestionAssignmentRepository assignmentRepository,
+            QuizAttemptSessionRepository quizAttemptSessionRepository,
+            StudentQuestionExposureRepository exposureRepository,
+            QuestionReportRepository questionReportRepository,
+            StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
+            StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository,
             WatchSessionRepository watchSessionRepository,
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
+            WatchProgressService watchProgressService,
             AiQuizService aiQuizService,
+            QuestionBankService questionBankService,
+            OpenAnswerReviewService openAnswerReviewService,
+            QuestionBankImportExportService questionBankImportExportService,
+            CourseService courseService,
             PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.quizAttemptRepository = quizAttemptRepository;
@@ -58,9 +86,22 @@ public class AdminController {
         this.playlistRepository = playlistRepository;
         this.episodeRepository = episodeRepository;
         this.quizRepository = quizRepository;
+        this.openQuestionRepository = openQuestionRepository;
+        this.openAnswerSubmissionRepository = openAnswerSubmissionRepository;
+        this.assignmentRepository = assignmentRepository;
+        this.quizAttemptSessionRepository = quizAttemptSessionRepository;
+        this.exposureRepository = exposureRepository;
+        this.questionReportRepository = questionReportRepository;
+        this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
+        this.studentFavoriteEpisodeRepository = studentFavoriteEpisodeRepository;
         this.watchSessionRepository = watchSessionRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
+        this.watchProgressService = watchProgressService;
         this.aiQuizService = aiQuizService;
+        this.questionBankService = questionBankService;
+        this.openAnswerReviewService = openAnswerReviewService;
+        this.questionBankImportExportService = questionBankImportExportService;
+        this.courseService = courseService;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -178,6 +219,50 @@ public class AdminController {
         return ResponseEntity.ok(payoutService.getStudentEarnings(username));
     }
 
+    @GetMapping("/students/{studentId}/episode-overrides")
+    public ResponseEntity<List<WatchProgressService.StudentEpisodeOverrideView>> getStudentEpisodeOverrides(
+            @PathVariable Long studentId) {
+        return ResponseEntity.ok(watchProgressService.listStudentEpisodeOverrides(studentId));
+    }
+
+    @PostMapping("/students/{studentId}/episodes/{episodeId}/unlock")
+    public ResponseEntity<Map<String, Object>> unlockEpisodeForStudent(
+            @PathVariable Long studentId,
+            @PathVariable Long episodeId) {
+        StudentEpisodeOverride.OverrideState state = watchProgressService.setStudentEpisodeOverride(
+                studentId, episodeId, StudentEpisodeOverride.OverrideState.UNLOCKED);
+        return ResponseEntity.ok(Map.of(
+                "studentId", studentId,
+                "episodeId", episodeId,
+                "overrideState", state.name()
+        ));
+    }
+
+    @PostMapping("/students/{studentId}/episodes/{episodeId}/lock")
+    public ResponseEntity<Map<String, Object>> lockEpisodeForStudent(
+            @PathVariable Long studentId,
+            @PathVariable Long episodeId) {
+        StudentEpisodeOverride.OverrideState state = watchProgressService.setStudentEpisodeOverride(
+                studentId, episodeId, StudentEpisodeOverride.OverrideState.LOCKED);
+        return ResponseEntity.ok(Map.of(
+                "studentId", studentId,
+                "episodeId", episodeId,
+                "overrideState", state.name()
+        ));
+    }
+
+    @DeleteMapping("/students/{studentId}/episodes/{episodeId}/override")
+    public ResponseEntity<Map<String, Object>> clearEpisodeOverrideForStudent(
+            @PathVariable Long studentId,
+            @PathVariable Long episodeId) {
+        watchProgressService.setStudentEpisodeOverride(studentId, episodeId, null);
+        return ResponseEntity.ok(Map.of(
+                "studentId", studentId,
+                "episodeId", episodeId,
+                "overrideState", "AUTO"
+        ));
+    }
+
     @Transactional(readOnly = true)
     @GetMapping("/attempts")
     public ResponseEntity<List<AttemptAdminViewResponse>> getAllAttempts() {
@@ -217,18 +302,97 @@ public class AdminController {
         return ResponseEntity.ok(PayoutResponse.from(payout));
     }
 
+    // --- Courses & YouTube Playlist Import / Re-Sync ---
+
+    @GetMapping("/courses")
+    public ResponseEntity<List<CourseAdminResponse>> listAdminCourses() {
+        return ResponseEntity.ok(courseService.listAllCoursesForAdmin());
+    }
+
+    @GetMapping("/courses/{courseId}")
+    public ResponseEntity<CourseAdminResponse> getAdminCourse(@PathVariable Long courseId) {
+        return ResponseEntity.ok(courseService.getCourseForAdmin(courseId));
+    }
+
+    @PostMapping("/courses")
+    public ResponseEntity<CourseAdminResponse> createAdminCourse(@Valid @RequestBody UpsertCourseRequest request) {
+        return ResponseEntity.ok(courseService.createDraftCourse(request));
+    }
+
+    @PutMapping("/courses/{courseId}")
+    public ResponseEntity<CourseAdminResponse> updateAdminCourse(
+            @PathVariable Long courseId,
+            @Valid @RequestBody UpsertCourseRequest request) {
+        return ResponseEntity.ok(courseService.updateCourse(courseId, request));
+    }
+
+    @PostMapping("/courses/{courseId}/publish")
+    public ResponseEntity<CourseAdminResponse> setCoursePublished(
+            @PathVariable Long courseId,
+            @RequestParam(required = false) Boolean published,
+            @RequestBody(required = false) Map<String, Boolean> body) {
+        boolean targetPublished = published != null
+                ? published
+                : (body != null && body.containsKey("published") ? Boolean.TRUE.equals(body.get("published")) : true);
+        return ResponseEntity.ok(courseService.setCoursePublished(courseId, targetPublished));
+    }
+
+    @PostMapping("/courses/{courseId}/archive")
+    public ResponseEntity<CourseAdminResponse> setCourseArchived(
+            @PathVariable Long courseId,
+            @RequestParam(required = false) Boolean archived,
+            @RequestBody(required = false) Map<String, Boolean> body) {
+        boolean targetArchived = archived != null
+                ? archived
+                : (body != null && body.containsKey("archived") ? Boolean.TRUE.equals(body.get("archived")) : true);
+        return ResponseEntity.ok(courseService.setCourseArchived(courseId, targetArchived));
+    }
+
+    @PutMapping("/courses/{courseId}/episodes/reorder")
+    public ResponseEntity<CourseAdminResponse> reorderCourseEpisodes(
+            @PathVariable Long courseId,
+            @Valid @RequestBody ReorderEpisodesRequest request) {
+        return ResponseEntity.ok(courseService.reorderCourseEpisodes(courseId, request.episodeIds()));
+    }
+
+    @PostMapping("/courses/youtube-preview")
+    public ResponseEntity<YouTubePreviewResponse> previewYouTubePlaylist(
+            @Valid @RequestBody YouTubePreviewRequest request) {
+        return ResponseEntity.ok(courseService.previewYouTubePlaylist(request.playlistUrlOrId()));
+    }
+
+    @PostMapping("/courses/youtube-import")
+    public ResponseEntity<CourseAdminResponse> importCourseFromYouTube(
+            @Valid @RequestBody YouTubeImportCourseRequest request) {
+        return ResponseEntity.ok(courseService.importCourseFromYouTube(request));
+    }
+
+    @PostMapping("/courses/{courseId}/resync")
+    public ResponseEntity<CourseResyncResponse> resyncCourseFromYouTube(@PathVariable Long courseId) {
+        return ResponseEntity.ok(courseService.resyncCourseFromYouTube(courseId));
+    }
+
+    @PutMapping("/episodes/{episodeId}")
+    public ResponseEntity<CourseAdminResponse.EpisodeAdminItem> updateEpisodeAdmin(
+            @PathVariable Long episodeId,
+            @Valid @RequestBody UpdateEpisodeAdminRequest request) {
+        return ResponseEntity.ok(courseService.updateEpisodeAdmin(episodeId, request));
+    }
+
     @Transactional(readOnly = true)
     @GetMapping("/episodes")
     public ResponseEntity<List<Map<String, Object>>> getActiveEpisodes() {
-        List<Map<String, Object>> list = episodeRepository.findAllActiveOrderByEpisodeNumberAsc()
+        List<Map<String, Object>> list = episodeRepository.findAllNonArchivedOrderByCourseAndSortOrderAsc()
                 .stream()
                 .map(ep -> Map.<String, Object>of(
                         "id", ep.getId(),
                         "playlistId", ep.getPlaylist().getId(),
+                        "courseTitle", ep.getPlaylist().getTitle(),
                         "episodeNumber", ep.getEpisodeNumber(),
                         "title", ep.getTitle(),
                         "youtubeVideoId", ep.getYoutubeVideoId(),
-                        "durationSeconds", ep.getDurationSeconds()
+                        "durationSeconds", ep.getDurationSeconds(),
+                        "enabled", ep.isEnabled()
                 ))
                 .toList();
         return ResponseEntity.ok(list);
@@ -241,15 +405,13 @@ public class AdminController {
         if (request.getPlaylistId() != null) {
             playlist = playlistRepository.findById(request.getPlaylistId())
                     .or(() -> playlistRepository.findFirstByOrderByIdAsc())
-                    .orElseThrow(() -> new IllegalArgumentException("No active playlist found"));
+                    .orElseGet(() -> playlistRepository.save(new Playlist("Default Course", "default-course", "")));
         } else {
             playlist = playlistRepository.findFirstByOrderByIdAsc()
-                    .orElseThrow(() -> new IllegalArgumentException("No active playlist found"));
+                    .orElseGet(() -> playlistRepository.save(new Playlist("Default Course", "default-course", "")));
         }
 
         String cleanVideoId = extractYoutubeVideoId(request.getYoutubeVideoId());
-
-        // Check if an archived episode with the same number exists; if so, restore and update it
         Episode existing = episodeRepository.findByPlaylistIdAndEpisodeNumber(playlist.getId(), request.getEpisodeNumber())
                 .orElse(null);
 
@@ -257,7 +419,7 @@ public class AdminController {
         if (existing != null) {
             if (!existing.isArchived()) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("error", "Episode " + request.getEpisodeNumber() + " already exists in this playlist"));
+                        .body(Map.of("error", "Episode " + request.getEpisodeNumber() + " already exists in this course"));
             }
             existing.setTitle(request.getTitle().trim());
             existing.setYoutubeVideoId(cleanVideoId);
@@ -286,11 +448,111 @@ public class AdminController {
         ));
     }
 
-    @Transactional
-    @PostMapping("/episodes/{episodeId}/generate-quiz")
-    public ResponseEntity<QuizAdminViewResponse> generateQuizWithAi(@PathVariable Long episodeId) {
-        Quiz quiz = aiQuizService.generateQuizForEpisode(episodeId);
-        return ResponseEntity.ok(QuizAdminViewResponse.from(quiz, episodeId));
+    // --- Written Answer Review Queue ---
+
+    @GetMapping("/open-answers")
+    public ResponseEntity<List<OpenAnswerAdminViewResponse>> listOpenAnswers(
+            @RequestParam(required = false, defaultValue = "ALL") String status) {
+        return ResponseEntity.ok(openAnswerReviewService.listSubmissionsForAdmin(status));
+    }
+
+    @PostMapping("/open-answers/{submissionId}/approve")
+    public ResponseEntity<Map<String, Object>> approveOpenAnswer(
+            @PathVariable Long submissionId,
+            @Valid @RequestBody(required = false) AdminReviewDecisionRequest request) {
+        String feedback = request != null ? request.feedback() : null;
+        return ResponseEntity.ok(openAnswerReviewService.approveSubmission(submissionId, feedback));
+    }
+
+    @PostMapping("/open-answers/{submissionId}/request-revision")
+    public ResponseEntity<OpenAnswerAdminViewResponse> requestOpenAnswerRevision(
+            @PathVariable Long submissionId,
+            @Valid @RequestBody(required = false) AdminReviewDecisionRequest request) {
+        String feedback = request != null ? request.feedback() : null;
+        return ResponseEntity.ok(openAnswerReviewService.requestRevision(submissionId, feedback));
+    }
+
+    @PostMapping("/open-answers/{submissionId}/suggest-grade")
+    public ResponseEntity<GradeSuggestionResponse> suggestOpenAnswerGrade(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long submissionId) {
+        return ResponseEntity.ok(openAnswerReviewService.suggestGrade(userDetails.getUsername(), submissionId));
+    }
+
+    // --- Question Bank Manager & Transcript 2-Pass AI Generator ---
+
+    @GetMapping("/episodes/{episodeId}/question-bank")
+    public ResponseEntity<QuestionBankAdminResponse> getEpisodeQuestionBank(
+            @PathVariable Long episodeId,
+            @RequestParam(required = false, defaultValue = "ALL") String status,
+            @RequestParam(required = false, defaultValue = "ALL") String type,
+            @RequestParam(required = false, defaultValue = "false") boolean reportedOnly) {
+        return ResponseEntity.ok(questionBankService.getEpisodeQuestionBank(episodeId, status, type, reportedOnly));
+    }
+
+    @PostMapping("/episodes/{episodeId}/generate-bank")
+    public ResponseEntity<AiQuizService.GeneratedBankSummary> generateBankFromTranscript(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long episodeId,
+            @RequestBody(required = false) GenerateBankFromTranscriptRequest request) {
+        String transcript = request != null ? request.transcript() : null;
+        return ResponseEntity.ok(aiQuizService.generateQuestionBankFromTranscript(
+                userDetails.getUsername(), episodeId, transcript));
+    }
+
+    @PostMapping("/episodes/{episodeId}/questions")
+    public ResponseEntity<QuestionBankAdminResponse.McqAdminItem> createQuestion(
+            @PathVariable Long episodeId,
+            @Valid @RequestBody UpsertQuestionRequest request) {
+        return ResponseEntity.ok(questionBankService.createMcq(episodeId, request));
+    }
+
+    @PutMapping("/questions/{questionId}")
+    public ResponseEntity<QuestionBankAdminResponse.McqAdminItem> updateQuestion(
+            @PathVariable Long questionId,
+            @Valid @RequestBody UpsertQuestionRequest request) {
+        return ResponseEntity.ok(questionBankService.updateMcq(questionId, request));
+    }
+
+    @PostMapping("/questions/{questionId}/approve")
+    public ResponseEntity<QuestionBankAdminResponse.McqAdminItem> approveQuestion(@PathVariable Long questionId) {
+        return ResponseEntity.ok(questionBankService.approveMcq(questionId));
+    }
+
+    @PostMapping("/questions/{questionId}/retire")
+    public ResponseEntity<QuestionBankAdminResponse.McqAdminItem> retireQuestion(@PathVariable Long questionId) {
+        return ResponseEntity.ok(questionBankService.retireMcq(questionId));
+    }
+
+    @PostMapping("/episodes/{episodeId}/questions/bulk-approve")
+    public ResponseEntity<Map<String, Integer>> bulkApproveEpisodeDrafts(@PathVariable Long episodeId) {
+        return ResponseEntity.ok(questionBankService.bulkApproveDrafts(episodeId));
+    }
+
+    @PostMapping("/episodes/{episodeId}/open-questions")
+    public ResponseEntity<QuestionBankAdminResponse.OpenQuestionAdminItem> createOpenQuestion(
+            @PathVariable Long episodeId,
+            @Valid @RequestBody UpsertOpenQuestionRequest request) {
+        return ResponseEntity.ok(questionBankService.createOpenQuestion(episodeId, request));
+    }
+
+    @PutMapping("/open-questions/{openQuestionId}")
+    public ResponseEntity<QuestionBankAdminResponse.OpenQuestionAdminItem> updateOpenQuestion(
+            @PathVariable Long openQuestionId,
+            @Valid @RequestBody UpsertOpenQuestionRequest request) {
+        return ResponseEntity.ok(questionBankService.updateOpenQuestion(openQuestionId, request));
+    }
+
+    @PostMapping("/open-questions/{openQuestionId}/approve")
+    public ResponseEntity<QuestionBankAdminResponse.OpenQuestionAdminItem> approveOpenQuestion(
+            @PathVariable Long openQuestionId) {
+        return ResponseEntity.ok(questionBankService.approveOpenQuestion(openQuestionId));
+    }
+
+    @PostMapping("/open-questions/{openQuestionId}/retire")
+    public ResponseEntity<QuestionBankAdminResponse.OpenQuestionAdminItem> retireOpenQuestion(
+            @PathVariable Long openQuestionId) {
+        return ResponseEntity.ok(questionBankService.retireOpenQuestion(openQuestionId));
     }
 
     @Transactional
@@ -304,13 +566,15 @@ public class AdminController {
         Quiz quiz = quizRepository.findByEpisodeId(episodeId)
                 .orElse(new Quiz(episode));
 
-        quiz.setPassingScorePercentage(request.getPassingScorePercentage() != null ? request.getPassingScorePercentage() : 80.0);
+        quiz.setPassingScorePercentage(100.0);
         quiz.getQuestions().clear();
 
         if (request.getQuestions() != null) {
             int order = 1;
             for (CreateQuizRequest.CreateQuestionRequest qReq : request.getQuestions()) {
                 Question question = new Question(quiz, qReq.getQuestionText(), order++);
+                question.setStatus(QuestionStatus.APPROVED);
+                question.setActive(true);
                 if (qReq.getOptions() != null) {
                     List<CreateQuizRequest.CreateOptionRequest> shuffled = new ArrayList<>(qReq.getOptions());
                     Collections.shuffle(shuffled, secureRandom);
@@ -327,6 +591,20 @@ public class AdminController {
         return ResponseEntity.ok(QuizAdminViewResponse.from(saved, episodeId));
     }
 
+    @GetMapping("/question-bank/export")
+    public ResponseEntity<QuestionBankBackupDto> exportQuestionBank() {
+        QuestionBankBackupDto exported = questionBankImportExportService.exportQuestionBank();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"turathtona-question-bank.private.json\"")
+                .body(exported);
+    }
+
+    @PostMapping("/question-bank/import")
+    public ResponseEntity<Map<String, Object>> importQuestionBank(@RequestBody QuestionBankBackupDto backup) {
+        Map<String, Object> result = questionBankImportExportService.importQuestionBank(backup);
+        return ResponseEntity.ok(result);
+    }
+
     @Transactional
     @DeleteMapping("/episodes/{episodeId}")
     public ResponseEntity<Void> deleteEpisode(@PathVariable Long episodeId) {
@@ -338,13 +616,20 @@ public class AdminController {
         watchSessionRepository.deleteByEpisodeId(episodeId);
 
         boolean hasHistory = quizAttemptRepository.existsByEpisodeId(episodeId)
-                || episodeRewardClaimRepository.existsByEpisodeId(episodeId);
+                || episodeRewardClaimRepository.existsByEpisodeId(episodeId)
+                || openAnswerSubmissionRepository.existsByEpisodeId(episodeId)
+                || assignmentRepository.existsByEpisodeId(episodeId);
 
         if (hasHistory) {
-            // Soft-archive to preserve student earnings & audit history without FK violation
             episode.setArchived(true);
             episodeRepository.save(episode);
         } else {
+            questionReportRepository.deleteByEpisodeId(episodeId);
+            exposureRepository.deleteByEpisodeId(episodeId);
+            quizAttemptSessionRepository.deleteByEpisodeId(episodeId);
+            studentEpisodeOverrideRepository.deleteByEpisodeId(episodeId);
+            studentFavoriteEpisodeRepository.deleteByEpisodeId(episodeId);
+            openQuestionRepository.deleteByEpisodeId(episodeId);
             episodeRepository.delete(episode);
         }
         return ResponseEntity.noContent().build();
