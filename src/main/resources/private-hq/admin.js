@@ -56,6 +56,13 @@ function switchAdminTab(tabKey) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    const adminEmb = document.getElementById('admin-header-emblem-img');
+    if (adminEmb) {
+        adminEmb.addEventListener('error', () => {
+            adminEmb.style.display = 'none';
+            if (adminEmb.parentElement) adminEmb.parentElement.textContent = '🛡️';
+        });
+    }
     wireEvents();
     initAdmin();
 });

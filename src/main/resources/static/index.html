@@ -4,9 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="strict-origin-when-cross-origin">
-    <title>تراثُنا • Turathtona | Student Portal</title>
-    <link rel="stylesheet" href="/style.css?v=5">
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+    <meta name="description" content="Turathtona (تراثُنا) — Know your history. Stand tall.">
+    <title>تراثُنا • Turathtona | Know your history. Stand tall.</title>
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta name="theme-color" content="#0b1f33">
+    <link rel="stylesheet" href="/style.css?v=6">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" defer></script>
     <style>
         .student-user-pill {
             display: flex;
@@ -188,12 +195,59 @@
 </head>
 <body>
 
-    <header>
+    <!-- ================================================================== -->
+    <!-- LOGGED-OUT LANDING PAGE (/ for unauthenticated visitors)           -->
+    <!-- ================================================================== -->
+    <main id="landing-view" class="landing-hero" aria-label="Turathtona welcome page">
+        <div class="landing-artwork-col">
+            <picture>
+                <source media="(max-width: 768px)" srcset="/images/hero-800.webp" width="800" height="1201" type="image/webp">
+                <img
+                    id="landing-hero-img"
+                    src="/images/hero-1200.webp"
+                    width="1200"
+                    height="1802"
+                    fetchpriority="high"
+                    decoding="async"
+                    class="landing-hero-img"
+                    alt="Portrait painting of a scholar reading a manuscript by warm candlelight beneath a crescent moon and classical domes">
+            </picture>
+            <div class="landing-artwork-overlay" aria-hidden="true"></div>
+        </div>
+
+        <div class="landing-content-col">
+            <div class="landing-emblem-wrap">
+                <img
+                    id="landing-emblem-img"
+                    src="/images/emblem.png"
+                    width="108"
+                    height="108"
+                    decoding="async"
+                    class="landing-emblem-img"
+                    alt="Turathtona round emblem with gold crescent, shield, and crossed swords">
+                <span id="landing-emblem-fallback" class="landing-emblem-fallback" lang="ar" dir="rtl" aria-hidden="true">ت</span>
+            </div>
+
+            <h1 class="landing-arabic-wordmark" lang="ar" dir="rtl">تراثُنا</h1>
+            <div id="landing-brand-latin" class="landing-latin-name">Turathtona</div>
+            <p id="landing-tagline" class="landing-tagline">Know your history. Stand tall.</p>
+
+            <div class="landing-cta-wrap">
+                <a href="/login" class="landing-signin-btn">Sign in</a>
+                <span class="landing-private-note">Private family learning portal</span>
+            </div>
+        </div>
+        <!-- TODO(artwork-credit): Verify painting licence and add artist attribution / licence notice in a visible footer if required. -->
+    </main>
+
+    <header id="app-header" style="display: none;">
         <div class="brand" style="cursor: pointer;" onclick="showCourseCatalogView()">
-            <div class="brand-icon">⚔️</div>
+            <div class="brand-icon">
+                <img id="header-emblem-img" src="/images/emblem.png" width="40" height="40" alt="Turathtona emblem">
+            </div>
             <div>
-                <div class="brand-title">تراثُنا • Turathtona</div>
-                <div class="brand-subtitle">Know your history. Stand tall. • turathtona.site</div>
+                <div class="brand-title"><span lang="ar" dir="rtl">تراثُنا</span> • <span id="header-brand-latin">Turathtona</span></div>
+                <div id="header-brand-tagline" class="brand-subtitle">Know your history. Stand tall.</div>
             </div>
         </div>
 
@@ -510,6 +564,6 @@
         </div>
     </div>
 
-    <script src="/app.js?v=5"></script>
+    <script src="/app.js?v=6"></script>
 </body>
 </html>

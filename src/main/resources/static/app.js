@@ -56,6 +56,7 @@ function betaQuerySuffix(prefix = '?') {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    wireGracefulAssetFallbacks();
     const openTextarea = document.getElementById('open-answer-textarea');
     if (openTextarea) {
         openTextarea.addEventListener('input', updateOpenAnswerCharCount);
@@ -64,13 +65,66 @@ document.addEventListener('DOMContentLoaded', () => {
     initApp();
 });
 
+function wireGracefulAssetFallbacks() {
+    const landingHeroImg = document.getElementById('landing-hero-img');
+    if (landingHeroImg) {
+        landingHeroImg.addEventListener('error', () => {
+            landingHeroImg.style.display = 'none';
+        });
+    }
+    const landingEmblemImg = document.getElementById('landing-emblem-img');
+    const landingEmblemFallback = document.getElementById('landing-emblem-fallback');
+    if (landingEmblemImg) {
+        landingEmblemImg.addEventListener('error', () => {
+            landingEmblemImg.style.display = 'none';
+            if (landingEmblemFallback) landingEmblemFallback.style.display = 'inline';
+        });
+    }
+    const headerEmblemImg = document.getElementById('header-emblem-img');
+    if (headerEmblemImg) {
+        headerEmblemImg.addEventListener('error', () => {
+            headerEmblemImg.style.display = 'none';
+            const parent = headerEmblemImg.parentElement;
+            if (parent) parent.textContent = 'ت';
+        });
+    }
+}
+
+async function applyPublicBrandConfig() {
+    try {
+        const cfgRes = await fetch('/api/public/config', { credentials: 'same-origin' });
+        if (!cfgRes.ok) return;
+        const cfg = await cfgRes.json();
+        if (cfg.brandNameLatin) {
+            const elLanding = document.getElementById('landing-brand-latin');
+            const elHeader = document.getElementById('header-brand-latin');
+            if (elLanding) elLanding.textContent = cfg.brandNameLatin;
+            if (elHeader) elHeader.textContent = cfg.brandNameLatin;
+        }
+        if (cfg.tagline) {
+            const elTagLanding = document.getElementById('landing-tagline');
+            const elTagHeader = document.getElementById('header-brand-tagline');
+            if (elTagLanding) elTagLanding.textContent = cfg.tagline;
+            if (elTagHeader) elTagHeader.textContent = cfg.tagline;
+        }
+    } catch (_) {}
+}
+
 async function initApp() {
+    const pathname = window.location.pathname || '/';
+    const isRootLandingRoute = pathname === '/' || pathname === '/index.html';
+    applyPublicBrandConfig();
+
     try {
         const meRes = await fetch('/api/auth/me', {
             credentials: 'same-origin',
             headers: apiHeaders()
         });
         if (!meRes.ok) {
+            if (isRootLandingRoute) {
+                setActivePortalView('LANDING');
+                return;
+            }
             window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
             return;
         }
@@ -81,6 +135,11 @@ async function initApp() {
             window.location.replace('/');
             return;
         }
+
+        const headerEl = document.getElementById('app-header');
+        if (headerEl) headerEl.style.display = 'flex';
+        const landingEl = document.getElementById('landing-view');
+        if (landingEl) landingEl.style.display = 'none';
 
         const displayEl = document.getElementById('student-name-display');
         if (displayEl) {
@@ -100,6 +159,10 @@ async function initApp() {
         await Promise.all([fetchEarnings(), fetchCourseCatalog()]);
         showCourseCatalogView(false);
     } catch (e) {
+        if (isRootLandingRoute) {
+            setActivePortalView('LANDING');
+            return;
+        }
         window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
     }
 }
@@ -113,9 +176,13 @@ function pausePlayerSafely() {
 
 function setActivePortalView(viewName) {
     currentView = viewName;
+    const landingEl = document.getElementById('landing-view');
+    const headerEl = document.getElementById('app-header');
     const catEl = document.getElementById('catalog-view');
     const sylEl = document.getElementById('course-syllabus-view');
     const epEl = document.getElementById('episode-player-view');
+    if (landingEl) landingEl.style.display = (viewName === 'LANDING') ? '' : 'none';
+    if (headerEl && viewName === 'LANDING') headerEl.style.display = 'none';
     if (catEl) catEl.style.display = (viewName === 'CATALOG') ? 'block' : 'none';
     if (sylEl) sylEl.style.display = (viewName === 'SYLLABUS') ? 'block' : 'none';
     if (epEl) epEl.style.display = (viewName === 'EPISODE') ? 'grid' : 'none';
