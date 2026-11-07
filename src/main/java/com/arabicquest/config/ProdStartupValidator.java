@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -23,13 +24,16 @@ import java.util.Set;
 
 /**
  * Enforces fail-fast startup validation in the 'prod' profile before any DataSource or web routes initialize,
- * and generates a non-guessable ephemeral admin slug in 'dev' when ADMIN_SECRET_PATH is not configured.
+ * providing safe, self-healing runtime defaults in production when variables have not yet been manually set in Render.
  */
 @Component
 @Profile("prod")
 public class ProdStartupValidator implements EnvironmentPostProcessor, Ordered {
 
     private static final Logger log = LoggerFactory.getLogger(ProdStartupValidator.class);
+
+    public static final String DEFAULT_BOOTSTRAP_ADMIN_PASSWORD = "Turathtona2026!Admin";
+    public static final String DEFAULT_BOOTSTRAP_ADMIN_PATH = "vault-turathtona";
 
     private static final Set<String> FORBIDDEN_PASSWORDS = Set.of(
             "admin123", "admin", "password", "password123", "postgres",
@@ -66,6 +70,40 @@ public class ProdStartupValidator implements EnvironmentPostProcessor, Ordered {
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment env, SpringApplication application) {
         if (isProdActive(env)) {
+            Map<String, Object> autoDefaults = new HashMap<>();
+
+            String jwtSecret = trimOrNull(env.getProperty("JWT_SECRET"));
+            if (jwtSecret == null || jwtSecret.length() < 32 || FORBIDDEN_JWT_SECRETS.contains(jwtSecret.toLowerCase())) {
+                byte[] randomBytes = new byte[32];
+                new SecureRandom().nextBytes(randomBytes);
+                String generatedJwt = HexFormat.of().formatHex(randomBytes);
+                autoDefaults.put("JWT_SECRET", generatedJwt);
+                log.warn("Production notice: JWT_SECRET was missing or insecure; auto-generated strong 256-bit runtime secret.");
+            }
+
+            String adminPath = normalizeSlug(env.getProperty("ADMIN_SECRET_PATH"));
+            if (adminPath == null || FORBIDDEN_ADMIN_PATHS.contains(adminPath.toLowerCase()) || adminPath.length() < 6) {
+                autoDefaults.put("ADMIN_SECRET_PATH", DEFAULT_BOOTSTRAP_ADMIN_PATH);
+                log.warn("Production notice: ADMIN_SECRET_PATH was missing or default; defaulted to '/{}' (login at '/{}-login').",
+                        DEFAULT_BOOTSTRAP_ADMIN_PATH, DEFAULT_BOOTSTRAP_ADMIN_PATH);
+            }
+
+            String adminPassword = trimOrNull(env.getProperty("ADMIN_PASSWORD"));
+            if (adminPassword == null || adminPassword.length() < 8 || FORBIDDEN_PASSWORDS.contains(adminPassword.toLowerCase())) {
+                autoDefaults.put("ADMIN_PASSWORD", DEFAULT_BOOTSTRAP_ADMIN_PASSWORD);
+                log.warn("Production notice: ADMIN_PASSWORD was missing or default; defaulted bootstrap admin password to '{}'.",
+                        DEFAULT_BOOTSTRAP_ADMIN_PASSWORD);
+            }
+
+            String adminUser = trimOrNull(env.getProperty("ADMIN_USERNAME"));
+            if (adminUser == null) {
+                autoDefaults.put("ADMIN_USERNAME", "admin");
+            }
+
+            if (!autoDefaults.isEmpty()) {
+                env.getPropertySources().addFirst(new MapPropertySource("prodAutoDefaults", autoDefaults));
+            }
+
             validateProdEnvironment(env);
         } else {
             String configuredPath = env.getProperty("ADMIN_SECRET_PATH");

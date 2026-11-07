@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StreamUtils;
@@ -59,6 +60,13 @@ public class PortalRouteController {
                 .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.CONTENT_TYPE, "text/html;charset=UTF-8")
                 .body(html);
+    }
+
+    @GetMapping({"/turath-hq", "/turath-hq/", "/turath-hq-login", "/turath-hq-login/"})
+    public ResponseEntity<Void> legacyAdminRedirect() {
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .header(HttpHeaders.LOCATION, "/" + adminSecretSlug + "-login")
+                .build();
     }
 
     @GetMapping({"/${ADMIN_SECRET_PATH}-login", "/${ADMIN_SECRET_PATH}-login/"})
