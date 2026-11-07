@@ -497,9 +497,204 @@
             </section>
 
             <!-- ========================================================== -->
-            <!-- TAB 3: COURSE EPISODES & AI QUIZ GENERATOR                 -->
+            <!-- TAB 3: COURSES, YOUTUBE IMPORT & QUESTION BANK             -->
             <!-- ========================================================== -->
             <section id="tab-panel-course" class="admin-tab-panel">
+                <!-- Add Course from YouTube (Two-Step Preview -> Save Draft) -->
+                <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.55);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: var(--gold);">📺 Add a Course from YouTube</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Step 1: Preview the YouTube series (skips private &amp; deleted videos and fetches authoritative durations). Step 2: Save as an unpublished draft course with custom rates and bonus.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 280px;">
+                            <label for="yt-playlist-input" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.35rem;">YouTube URL or ID</label>
+                            <input type="text" id="yt-playlist-input" class="text-input" maxlength="500" placeholder="https://www.youtube.com/playlist?list=PL... or PL...">
+                        </div>
+                        <button type="button" id="btn-yt-preview" class="btn-primary" style="padding: 0.7rem 1.35rem;">
+                            🔍 Step 1: Preview Series
+                        </button>
+                    </div>
+                    <div id="yt-import-msg" class="feedback-msg"></div>
+
+                    <!-- Step 2 Preview & Draft Save Panel -->
+                    <div id="yt-preview-box" style="display: none; margin-top: 1.15rem; padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid rgba(201, 162, 77, 0.4); background: var(--bg-subtle);">
+                        <div style="display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; margin-bottom: 1rem;">
+                            <img id="yt-preview-thumb" alt="Course preview thumbnail" style="width: 168px; height: 95px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border); display: none;">
+                            <div style="flex: 1; min-width: 220px;">
+                                <h4 id="yt-preview-title" style="font-size: 1.02rem; font-weight: 800; color: #fde68a; margin-bottom: 0.25rem;"></h4>
+                                <p id="yt-preview-meta" style="font-size: 0.84rem; color: var(--text-muted);"></p>
+                                <p id="yt-preview-warning" style="font-size: 0.82rem; color: #fca5a5; margin-top: 0.25rem; display: none;"></p>
+                            </div>
+                        </div>
+
+                        <form id="form-yt-save-draft">
+                            <div class="form-row">
+                                <div style="grid-column: span 2;">
+                                    <label for="yt-draft-title" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Course Title</label>
+                                    <input type="text" id="yt-draft-title" class="text-input" maxlength="200" required>
+                                </div>
+                                <div>
+                                    <label for="yt-draft-rate-ar" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Arabic Sub Rate ($)</label>
+                                    <input type="number" id="yt-draft-rate-ar" class="text-input" min="0" step="0.01" value="15.00" required>
+                                </div>
+                                <div>
+                                    <label for="yt-draft-rate-en" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">English Dub Rate ($)</label>
+                                    <input type="number" id="yt-draft-rate-en" class="text-input" min="0" step="0.01" value="10.00" required>
+                                </div>
+                                <div>
+                                    <label for="yt-draft-bonus" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Completion Bonus ($)</label>
+                                    <input type="number" id="yt-draft-bonus" class="text-input" min="0" step="0.01" value="100.00" required>
+                                </div>
+                                <div style="grid-column: span 2;">
+                                    <label for="yt-draft-cover" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Cover Image URL</label>
+                                    <input type="text" id="yt-draft-cover" class="text-input" maxlength="1000">
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 0.85rem;">
+                                <label for="yt-draft-desc" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Course Description</label>
+                                <textarea id="yt-draft-desc" class="text-input" rows="2" maxlength="5000"></textarea>
+                            </div>
+                            <button type="submit" id="btn-yt-save-draft" class="btn-primary" style="padding: 0.7rem 1.4rem;">
+                                💾 Step 2: Save as Draft Course (Unpublished)
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Course Management & Episode Syllabus Readiness -->
+                <div class="admin-card-section" style="border-color: rgba(4, 91, 98, 0.7);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: #5eead4;">🎓 Course Management &amp; Syllabus</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Edit course metadata, reward rates, completion bonus, publish/archive state, re-sync from YouTube, reorder episodes, and verify quiz readiness.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.55rem; flex-wrap: wrap;">
+                            <button type="button" id="btn-new-manual-course" class="btn-ghost" style="padding: 0.5rem 0.9rem; font-size: 0.82rem;">➕ Manual Draft Course</button>
+                            <button type="button" id="btn-refresh-courses" class="btn-ghost" style="padding: 0.5rem 0.9rem; font-size: 0.82rem;">↻ Refresh Courses</button>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 0.85rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; padding: 0.85rem 1rem; background: var(--bg-subtle); border-radius: var(--radius-md); border: 1px solid var(--border);">
+                        <div style="flex: 1; min-width: 240px;">
+                            <label for="admin-course-select" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Selected Course</label>
+                            <select id="admin-course-select" class="select-input"></select>
+                        </div>
+                        <span id="admin-course-status-badge" class="tab-count-pill" style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">DRAFT</span>
+                        <button type="button" id="btn-course-publish-toggle" class="btn-primary" style="padding: 0.55rem 1rem; font-size: 0.82rem;">Publish Course</button>
+                        <button type="button" id="btn-course-resync" class="btn-ghost" style="padding: 0.55rem 1rem; font-size: 0.82rem;">🔄 Re-sync YouTube</button>
+                        <button type="button" id="btn-course-archive-toggle" class="btn-danger-outline" style="padding: 0.55rem 0.95rem; font-size: 0.82rem;">Archive</button>
+                    </div>
+
+                    <div id="course-mgmt-msg" class="feedback-msg"></div>
+
+                    <form id="form-edit-course" style="margin-bottom: 1.35rem;">
+                        <div class="form-row">
+                            <div style="grid-column: span 2;">
+                                <label for="edit-course-title" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Course Title</label>
+                                <input type="text" id="edit-course-title" class="text-input" maxlength="200" required>
+                            </div>
+                            <div>
+                                <label for="edit-course-sort" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Sort Order</label>
+                                <input type="number" id="edit-course-sort" class="text-input" value="0">
+                            </div>
+                            <div>
+                                <label for="edit-course-rate-ar" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Arabic Sub Rate ($)</label>
+                                <input type="number" id="edit-course-rate-ar" class="text-input" min="0" step="0.01" required>
+                            </div>
+                            <div>
+                                <label for="edit-course-rate-en" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">English Dub Rate ($)</label>
+                                <input type="number" id="edit-course-rate-en" class="text-input" min="0" step="0.01" required>
+                            </div>
+                            <div>
+                                <label for="edit-course-bonus" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Completion Bonus ($)</label>
+                                <input type="number" id="edit-course-bonus" class="text-input" min="0" step="0.01" required>
+                            </div>
+                            <div style="grid-column: span 2;">
+                                <label for="edit-course-cover" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Cover Image URL</label>
+                                <input type="text" id="edit-course-cover" class="text-input" maxlength="1000" placeholder="https://...">
+                            </div>
+                            <div>
+                                <label for="edit-course-ytid" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">YouTube Series ID</label>
+                                <input type="text" id="edit-course-ytid" class="text-input" maxlength="100">
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 0.85rem;">
+                            <label for="edit-course-desc" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Course Description</label>
+                            <textarea id="edit-course-desc" class="text-input" rows="2" maxlength="5000"></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary" style="padding: 0.6rem 1.3rem;">Save Course Settings ➔</button>
+                    </form>
+
+                    <!-- Add Single Episode to Selected Course -->
+                    <details style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.85rem 1.1rem; margin-bottom: 1rem;">
+                        <summary style="cursor: pointer; font-weight: 800; color: #a7f3d0; font-size: 0.9rem;">➕ Add Single Episode to Selected Course</summary>
+                        <form id="form-add-episode" style="margin-top: 0.85rem;">
+                            <div class="form-row">
+                                <div>
+                                    <label for="new-ep-num" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Number</label>
+                                    <input type="number" id="new-ep-num" class="text-input" min="1" placeholder="e.g. 16" required>
+                                </div>
+                                <div style="grid-column: span 2;">
+                                    <label for="new-ep-title" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Title</label>
+                                    <input type="text" id="new-ep-title" class="text-input" maxlength="250" placeholder="Episode title" required>
+                                </div>
+                                <div>
+                                    <label for="new-ep-videoid" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">YouTube Video ID or URL</label>
+                                    <input type="text" id="new-ep-videoid" class="text-input" maxlength="200" placeholder="e.g. EXrpLeyeSeU" required>
+                                </div>
+                                <div>
+                                    <label for="new-ep-duration" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Duration (Seconds)</label>
+                                    <input type="number" id="new-ep-duration" class="text-input" min="1" value="1800" required>
+                                </div>
+                            </div>
+                            <button type="submit" id="btn-add-episode" class="btn-primary" style="padding: 0.6rem 1.25rem;">Add Episode ➔</button>
+                        </form>
+                    </details>
+                    <div id="add-episode-msg" class="feedback-msg"></div>
+
+                    <!-- Inline Edit Selected Episode Box -->
+                    <div id="edit-episode-inline-box" style="display: none; margin-bottom: 1rem; padding: 0.9rem 1.1rem; border-radius: var(--radius-md); border: 1px solid rgba(59, 130, 246, 0.45); background: var(--bg-subtle);">
+                        <h4 id="edit-episode-inline-heading" style="font-size: 0.9rem; font-weight: 800; color: #93c5fd; margin-bottom: 0.65rem;">✏️ Edit Episode</h4>
+                        <form id="form-edit-episode-inline" style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+                            <input type="hidden" id="edit-ep-id" value="">
+                            <div style="flex: 2; min-width: 220px;">
+                                <label for="edit-ep-title" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Title</label>
+                                <input type="text" id="edit-ep-title" class="text-input" maxlength="250" required>
+                            </div>
+                            <div style="width: 150px;">
+                                <label for="edit-ep-duration" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Duration (Seconds)</label>
+                                <input type="number" id="edit-ep-duration" class="text-input" min="1" required>
+                            </div>
+                            <button type="submit" class="btn-primary" style="padding: 0.6rem 1.1rem;">Save Episode</button>
+                            <button type="button" id="btn-cancel-ep-edit" class="btn-ghost" style="padding: 0.6rem 0.9rem;">Cancel</button>
+                        </form>
+                    </div>
+
+                    <div class="table-container" style="margin-top: 0.75rem;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Order</th>
+                                    <th>Title</th>
+                                    <th>Duration</th>
+                                    <th>Quiz Readiness</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-episodes-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.45);">
                     <div class="card-header-bar">
                         <div>
@@ -704,51 +899,6 @@
 
                     <h4 style="font-size: 0.95rem; font-weight: 800; margin-bottom: 0.65rem; color: #fde68a;">Open Written Questions</h4>
                     <div id="qbank-open-list" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
-                </div>
-
-                <div class="admin-card-section">
-                    <div class="card-header-bar">
-                        <div>
-                            <h3>📚 Add &amp; Manage Course Episodes</h3>
-                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Students must pass each episode in numerical order (#1 → #2 → #3...) before the next episode unlocks.
-                            </p>
-                        </div>
-                    </div>
-
-                    <form id="form-add-episode">
-                        <div class="form-row">
-                            <div>
-                                <label for="new-ep-num" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Number</label>
-                                <input type="number" id="new-ep-num" class="text-input" min="1" placeholder="e.g. 16" required>
-                            </div>
-                            <div style="grid-column: span 2;">
-                                <label for="new-ep-title" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Episode Title (Arabic)</label>
-                                <input type="text" id="new-ep-title" class="text-input" maxlength="250" placeholder="e.g. 16- 100 سؤال في التاريخ | ..." required>
-                            </div>
-                            <div>
-                                <label for="new-ep-videoid" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">YouTube Video ID or URL</label>
-                                <input type="text" id="new-ep-videoid" class="text-input" maxlength="200" placeholder="e.g. EXrpLeyeSeU or https://youtu.be/..." required>
-                            </div>
-                        </div>
-                        <button type="submit" id="btn-add-episode" class="btn-primary" style="padding: 0.7rem 1.5rem;">Add Episode ➔</button>
-                    </form>
-                    <div id="add-episode-msg" class="feedback-msg"></div>
-
-                    <div class="table-container" style="margin-top: 1.25rem;">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Ep #</th>
-                                    <th>Title</th>
-                                    <th>Length</th>
-                                    <th>YouTube ID</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="admin-episodes-tbody"></tbody>
-                        </table>
-                    </div>
                 </div>
             </section>
 

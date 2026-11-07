@@ -49,6 +49,7 @@ public class AdminController {
     private final QuestionBankService questionBankService;
     private final OpenAnswerReviewService openAnswerReviewService;
     private final QuestionBankImportExportService questionBankImportExportService;
+    private final CourseService courseService;
     private final PasswordEncoder passwordEncoder;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -74,6 +75,7 @@ public class AdminController {
             QuestionBankService questionBankService,
             OpenAnswerReviewService openAnswerReviewService,
             QuestionBankImportExportService questionBankImportExportService,
+            CourseService courseService,
             PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.quizAttemptRepository = quizAttemptRepository;
@@ -96,6 +98,7 @@ public class AdminController {
         this.questionBankService = questionBankService;
         this.openAnswerReviewService = openAnswerReviewService;
         this.questionBankImportExportService = questionBankImportExportService;
+        this.courseService = courseService;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -296,18 +299,97 @@ public class AdminController {
         return ResponseEntity.ok(PayoutResponse.from(payout));
     }
 
+    // --- Courses & YouTube Playlist Import / Re-Sync ---
+
+    @GetMapping("/courses")
+    public ResponseEntity<List<CourseAdminResponse>> listAdminCourses() {
+        return ResponseEntity.ok(courseService.listAllCoursesForAdmin());
+    }
+
+    @GetMapping("/courses/{courseId}")
+    public ResponseEntity<CourseAdminResponse> getAdminCourse(@PathVariable Long courseId) {
+        return ResponseEntity.ok(courseService.getCourseForAdmin(courseId));
+    }
+
+    @PostMapping("/courses")
+    public ResponseEntity<CourseAdminResponse> createAdminCourse(@Valid @RequestBody UpsertCourseRequest request) {
+        return ResponseEntity.ok(courseService.createDraftCourse(request));
+    }
+
+    @PutMapping("/courses/{courseId}")
+    public ResponseEntity<CourseAdminResponse> updateAdminCourse(
+            @PathVariable Long courseId,
+            @Valid @RequestBody UpsertCourseRequest request) {
+        return ResponseEntity.ok(courseService.updateCourse(courseId, request));
+    }
+
+    @PostMapping("/courses/{courseId}/publish")
+    public ResponseEntity<CourseAdminResponse> setCoursePublished(
+            @PathVariable Long courseId,
+            @RequestParam(required = false) Boolean published,
+            @RequestBody(required = false) Map<String, Boolean> body) {
+        boolean targetPublished = published != null
+                ? published
+                : (body != null && body.containsKey("published") ? Boolean.TRUE.equals(body.get("published")) : true);
+        return ResponseEntity.ok(courseService.setCoursePublished(courseId, targetPublished));
+    }
+
+    @PostMapping("/courses/{courseId}/archive")
+    public ResponseEntity<CourseAdminResponse> setCourseArchived(
+            @PathVariable Long courseId,
+            @RequestParam(required = false) Boolean archived,
+            @RequestBody(required = false) Map<String, Boolean> body) {
+        boolean targetArchived = archived != null
+                ? archived
+                : (body != null && body.containsKey("archived") ? Boolean.TRUE.equals(body.get("archived")) : true);
+        return ResponseEntity.ok(courseService.setCourseArchived(courseId, targetArchived));
+    }
+
+    @PutMapping("/courses/{courseId}/episodes/reorder")
+    public ResponseEntity<CourseAdminResponse> reorderCourseEpisodes(
+            @PathVariable Long courseId,
+            @Valid @RequestBody ReorderEpisodesRequest request) {
+        return ResponseEntity.ok(courseService.reorderCourseEpisodes(courseId, request.episodeIds()));
+    }
+
+    @PostMapping("/courses/youtube-preview")
+    public ResponseEntity<YouTubePreviewResponse> previewYouTubePlaylist(
+            @Valid @RequestBody YouTubePreviewRequest request) {
+        return ResponseEntity.ok(courseService.previewYouTubePlaylist(request.playlistUrlOrId()));
+    }
+
+    @PostMapping("/courses/youtube-import")
+    public ResponseEntity<CourseAdminResponse> importCourseFromYouTube(
+            @Valid @RequestBody YouTubeImportCourseRequest request) {
+        return ResponseEntity.ok(courseService.importCourseFromYouTube(request));
+    }
+
+    @PostMapping("/courses/{courseId}/resync")
+    public ResponseEntity<CourseResyncResponse> resyncCourseFromYouTube(@PathVariable Long courseId) {
+        return ResponseEntity.ok(courseService.resyncCourseFromYouTube(courseId));
+    }
+
+    @PutMapping("/episodes/{episodeId}")
+    public ResponseEntity<CourseAdminResponse.EpisodeAdminItem> updateEpisodeAdmin(
+            @PathVariable Long episodeId,
+            @Valid @RequestBody UpdateEpisodeAdminRequest request) {
+        return ResponseEntity.ok(courseService.updateEpisodeAdmin(episodeId, request));
+    }
+
     @Transactional(readOnly = true)
     @GetMapping("/episodes")
     public ResponseEntity<List<Map<String, Object>>> getActiveEpisodes() {
-        List<Map<String, Object>> list = episodeRepository.findAllActiveOrderByEpisodeNumberAsc()
+        List<Map<String, Object>> list = episodeRepository.findAllNonArchivedOrderByCourseAndSortOrderAsc()
                 .stream()
                 .map(ep -> Map.<String, Object>of(
                         "id", ep.getId(),
                         "playlistId", ep.getPlaylist().getId(),
+                        "courseTitle", ep.getPlaylist().getTitle(),
                         "episodeNumber", ep.getEpisodeNumber(),
                         "title", ep.getTitle(),
                         "youtubeVideoId", ep.getYoutubeVideoId(),
-                        "durationSeconds", ep.getDurationSeconds()
+                        "durationSeconds", ep.getDurationSeconds(),
+                        "enabled", ep.isEnabled()
                 ))
                 .toList();
         return ResponseEntity.ok(list);

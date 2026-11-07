@@ -30,6 +30,22 @@ public interface EpisodeRepository extends JpaRepository<Episode, Long> {
            "ORDER BY COALESCE(e.sortOrder, e.episodeNumber) ASC, e.episodeNumber ASC, e.id ASC")
     List<Episode> findActiveByPlaylistIdOrderByEpisodeNumberAsc(@Param("playlistId") Long playlistId);
 
+    @Query("SELECT e FROM Episode e JOIN FETCH e.playlist " +
+           "WHERE e.playlist.id = :playlistId " +
+           "AND (e.archived IS NULL OR e.archived = false) " +
+           "ORDER BY COALESCE(e.sortOrder, e.episodeNumber) ASC, e.episodeNumber ASC, e.id ASC")
+    List<Episode> findNonArchivedByPlaylistIdOrderBySortOrderAsc(@Param("playlistId") Long playlistId);
+
+    @Query("SELECT e FROM Episode e JOIN FETCH e.playlist " +
+           "WHERE e.playlist.id = :playlistId " +
+           "ORDER BY COALESCE(e.sortOrder, e.episodeNumber) ASC, e.episodeNumber ASC, e.id ASC")
+    List<Episode> findAllByPlaylistIdOrderBySortOrderAsc(@Param("playlistId") Long playlistId);
+
+    @Query("SELECT e FROM Episode e JOIN FETCH e.playlist " +
+           "WHERE (e.archived IS NULL OR e.archived = false) " +
+           "ORDER BY COALESCE(e.playlist.sortOrder, 0) ASC, e.playlist.id ASC, COALESCE(e.sortOrder, e.episodeNumber) ASC, e.episodeNumber ASC, e.id ASC")
+    List<Episode> findAllNonArchivedOrderByCourseAndSortOrderAsc();
+
     @Query("SELECT e FROM Episode e JOIN FETCH e.playlist WHERE e.id = :id")
     Optional<Episode> findByIdWithPlaylist(@Param("id") Long id);
 

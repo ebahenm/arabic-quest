@@ -6,6 +6,9 @@ let currentAdmin = null;
 let allStudents = [];
 let selectedStudent = null;
 let episodes = [];
+let adminCourses = [];
+let selectedAdminCourseId = null;
+let lastYoutubePreview = null;
 let cachedAttempts = [];
 let lastOwedAmount = 0;
 
@@ -148,6 +151,35 @@ function wireEvents() {
     if (refreshOverridesBtn) {
         refreshOverridesBtn.addEventListener('click', () => {
             if (selectedStudent) loadStudentEpisodeOverrides(selectedStudent.id);
+        });
+    }
+
+    // Phase 5: YouTube Course Import & Course Management events
+    const ytPreviewBtn = document.getElementById('btn-yt-preview');
+    if (ytPreviewBtn) ytPreviewBtn.addEventListener('click', handlePreviewYouTubePlaylist);
+    const ytDraftForm = document.getElementById('form-yt-save-draft');
+    if (ytDraftForm) ytDraftForm.addEventListener('submit', handleSaveYouTubeDraftCourse);
+    const courseSelect = document.getElementById('admin-course-select');
+    if (courseSelect) courseSelect.addEventListener('change', handleAdminCourseSelectChange);
+    const newManualCourseBtn = document.getElementById('btn-new-manual-course');
+    if (newManualCourseBtn) newManualCourseBtn.addEventListener('click', handleCreateManualDraftCourse);
+    const refreshCoursesBtn = document.getElementById('btn-refresh-courses');
+    if (refreshCoursesBtn) refreshCoursesBtn.addEventListener('click', () => loadAdminCourses(selectedAdminCourseId));
+    const publishToggleBtn = document.getElementById('btn-course-publish-toggle');
+    if (publishToggleBtn) publishToggleBtn.addEventListener('click', handleToggleCoursePublish);
+    const resyncBtn = document.getElementById('btn-course-resync');
+    if (resyncBtn) resyncBtn.addEventListener('click', handleResyncCourse);
+    const archiveToggleBtn = document.getElementById('btn-course-archive-toggle');
+    if (archiveToggleBtn) archiveToggleBtn.addEventListener('click', handleToggleCourseArchive);
+    const editCourseForm = document.getElementById('form-edit-course');
+    if (editCourseForm) editCourseForm.addEventListener('submit', handleSaveCourseSettings);
+    const inlineEpForm = document.getElementById('form-edit-episode-inline');
+    if (inlineEpForm) inlineEpForm.addEventListener('submit', handleSaveInlineEpisodeEdit);
+    const cancelEpEditBtn = document.getElementById('btn-cancel-ep-edit');
+    if (cancelEpEditBtn) {
+        cancelEpEditBtn.addEventListener('click', () => {
+            const box = document.getElementById('edit-episode-inline-box');
+            if (box) box.style.display = 'none';
         });
     }
 }
@@ -564,66 +596,23 @@ async function loadEpisodes() {
         const epCountBadge = document.getElementById('tab-badge-episodes');
         if (epCountBadge) epCountBadge.textContent = String(episodes.length);
 
-        // Populate AI dropdown
+        // Populate AI Question Bank episode dropdown
         const select = document.getElementById('ai-episode-select');
         const prevSelectedEpId = select ? select.value : '';
         clearElement(select);
         episodes.forEach((ep) => {
             const opt = document.createElement('option');
             opt.value = String(ep.id);
-            opt.textContent = `Ep. ${ep.episodeNumber}: ${ep.title}`;
+            const prefix = ep.courseTitle ? `[${ep.courseTitle}] ` : '';
+            const inactiveNote = ep.enabled === false ? ' (Inactive)' : '';
+            opt.textContent = `${prefix}Ep. ${ep.episodeNumber}: ${ep.title}${inactiveNote}`;
             select.appendChild(opt);
         });
         if (prevSelectedEpId && [...select.options].some((o) => o.value === prevSelectedEpId)) {
             select.value = prevSelectedEpId;
         }
         await loadEpisodeQuestionBank();
-
-        // Populate active episodes management table
-        const tbody = document.getElementById('admin-episodes-tbody');
-        clearElement(tbody);
-        episodes.forEach((ep) => {
-            const tr = document.createElement('tr');
-
-            const tdNum = document.createElement('td');
-            const strongNum = document.createElement('strong');
-            strongNum.textContent = `#${ep.episodeNumber}`;
-            tdNum.appendChild(strongNum);
-
-            const tdTitle = document.createElement('td');
-            tdTitle.style.fontFamily = "'Cairo', sans-serif";
-            tdTitle.textContent = ep.title;
-
-            const tdLen = document.createElement('td');
-            tdLen.style.color = 'var(--text-muted)';
-            tdLen.style.fontSize = '0.82rem';
-            const mins = Math.round((ep.durationSeconds || 1200) / 60);
-            tdLen.textContent = `~${mins} min`;
-
-            const tdVid = document.createElement('td');
-            const ytLink = document.createElement('a');
-            ytLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(ep.youtubeVideoId)}`;
-            ytLink.target = '_blank';
-            ytLink.rel = 'noopener noreferrer';
-            ytLink.style.color = '#93c5fd';
-            ytLink.textContent = ep.youtubeVideoId + ' ↗';
-            tdVid.appendChild(ytLink);
-
-            const tdAction = document.createElement('td');
-            const delBtn = document.createElement('button');
-            delBtn.type = 'button';
-            delBtn.className = 'btn-danger-outline';
-            delBtn.textContent = 'Archive / Remove';
-            delBtn.addEventListener('click', () => handleDeleteEpisode(ep));
-            tdAction.appendChild(delBtn);
-
-            tr.appendChild(tdNum);
-            tr.appendChild(tdTitle);
-            tr.appendChild(tdLen);
-            tr.appendChild(tdVid);
-            tr.appendChild(tdAction);
-            tbody.appendChild(tr);
-        });
+        await loadAdminCourses(selectedAdminCourseId);
     } catch (e) {
         console.warn('Failed to load episodes:', e);
     }
@@ -1086,6 +1075,7 @@ async function loadEpisodeQuestionBank() {
 
         renderMcqBankList(bank.questions || []);
         renderOpenQuestionBankList(bank.openQuestions || []);
+        syncEpisodeReadinessFromBank(Number(episodeId), bank);
     } catch (err) {
         console.warn('Question bank load failed:', err);
     }
@@ -1458,6 +1448,8 @@ async function handleAddEpisodeSubmit(e) {
     const episodeNumber = parseInt(document.getElementById('new-ep-num').value, 10);
     const title = document.getElementById('new-ep-title').value.trim();
     const youtubeVideoId = document.getElementById('new-ep-videoid').value.trim();
+    const durationEl = document.getElementById('new-ep-duration');
+    const durationSeconds = durationEl ? parseInt(durationEl.value, 10) || 1800 : 1800;
     const btn = document.getElementById('btn-add-episode');
 
     btn.disabled = true;
@@ -1466,12 +1458,19 @@ async function handleAddEpisodeSubmit(e) {
         const res = await apiFetch('/api/admin/episodes', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ episodeNumber, title, youtubeVideoId })
+            body: JSON.stringify({
+                playlistId: selectedAdminCourseId || null,
+                episodeNumber,
+                title,
+                youtubeVideoId,
+                durationSeconds
+            })
         });
 
         if (res.ok) {
             showFeedback('add-episode-msg', `✓ Added Episode #${episodeNumber}: ${title}`);
             document.getElementById('form-add-episode').reset();
+            if (durationEl) durationEl.value = '1800';
             await loadEpisodes();
             await loadAdminDashboard();
         } else {
@@ -1751,5 +1750,697 @@ async function setStudentEpisodeOverrideAction(studentId, episodeId, action) {
         }
     } catch (err) {
         showFeedback('student-overrides-msg', 'Override error: ' + err.message, true);
+    }
+}
+
+// ============================================================================
+// PHASE 5: YOUTUBE COURSE IMPORT, RE-SYNC & COURSE MANAGEMENT
+// ============================================================================
+
+function formatDurationHuman(totalSeconds) {
+    const secs = Math.max(0, Math.round(Number(totalSeconds) || 0));
+    const hrs = Math.floor(secs / 3600);
+    const mins = Math.floor((secs % 3600) / 60);
+    const rem = secs % 60;
+    if (hrs > 0) {
+        return `${hrs}h ${mins}m`;
+    }
+    if (mins > 0) {
+        return rem > 0 ? `${mins}m ${rem}s` : `${mins}m`;
+    }
+    return `${rem}s`;
+}
+
+async function handlePreviewYouTubePlaylist() {
+    hideFeedback('yt-import-msg');
+    const input = document.getElementById('yt-playlist-input');
+    const raw = input ? input.value.trim() : '';
+    const previewBox = document.getElementById('yt-preview-box');
+    const btn = document.getElementById('btn-yt-preview');
+
+    if (!raw) {
+        showFeedback('yt-import-msg', 'Paste a YouTube URL or ID first.', true);
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Fetching from YouTube...';
+
+    try {
+        const res = await apiFetch('/api/admin/courses/youtube-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ playlistUrlOrId: raw })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            if (previewBox) previewBox.style.display = 'none';
+            showFeedback('yt-import-msg', data.error || 'Could not preview YouTube series.', true);
+            return;
+        }
+
+        lastYoutubePreview = data;
+        document.getElementById('yt-preview-title').textContent = data.title || 'Untitled Series';
+        document.getElementById('yt-preview-meta').textContent =
+            `ID: ${data.youtubePlaylistId} • ${data.episodeCount} active episode(s) • Total duration: ${formatDurationHuman(data.totalDurationSeconds)}`
+            + (data.skippedCount > 0 ? ` • Skipped ${data.skippedCount} private/deleted video(s)` : '');
+
+        const thumbEl = document.getElementById('yt-preview-thumb');
+        if (thumbEl) {
+            if (data.thumbnailUrl) {
+                thumbEl.src = data.thumbnailUrl;
+                thumbEl.style.display = 'block';
+                thumbEl.onerror = () => {
+                    thumbEl.style.display = 'none';
+                };
+            } else {
+                thumbEl.style.display = 'none';
+            }
+        }
+
+        const warnEl = document.getElementById('yt-preview-warning');
+        const saveBtn = document.getElementById('btn-yt-save-draft');
+        if (data.alreadyImported) {
+            if (warnEl) {
+                warnEl.textContent = '⚠️ This YouTube series is already imported. Select it in Course Management below and click Re-sync.';
+                warnEl.style.display = 'block';
+            }
+            if (saveBtn) saveBtn.disabled = true;
+        } else {
+            if (warnEl) warnEl.style.display = 'none';
+            if (saveBtn) saveBtn.disabled = false;
+        }
+
+        document.getElementById('yt-draft-title').value = data.title || '';
+        document.getElementById('yt-draft-desc').value = data.description || '';
+        document.getElementById('yt-draft-cover').value = data.thumbnailUrl || '';
+        document.getElementById('yt-draft-rate-ar').value = '15.00';
+        document.getElementById('yt-draft-rate-en').value = '10.00';
+        document.getElementById('yt-draft-bonus').value = '100.00';
+
+        if (previewBox) previewBox.style.display = 'block';
+    } catch (err) {
+        showFeedback('yt-import-msg', 'Connection error: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Step 1: Preview Series';
+    }
+}
+
+async function handleSaveYouTubeDraftCourse(e) {
+    e.preventDefault();
+    hideFeedback('yt-import-msg');
+    const raw = (document.getElementById('yt-playlist-input') || {}).value || (lastYoutubePreview && lastYoutubePreview.youtubePlaylistId) || '';
+    if (!raw.trim()) {
+        showFeedback('yt-import-msg', 'Preview a YouTube series first.', true);
+        return;
+    }
+
+    const btn = document.getElementById('btn-yt-save-draft');
+    btn.disabled = true;
+    btn.textContent = '⏳ Importing Draft Course...';
+
+    const payload = {
+        playlistUrlOrId: raw.trim(),
+        title: document.getElementById('yt-draft-title').value.trim(),
+        description: document.getElementById('yt-draft-desc').value.trim(),
+        coverImageUrl: document.getElementById('yt-draft-cover').value.trim(),
+        rateArabicSub: parseFloat(document.getElementById('yt-draft-rate-ar').value) || 15.0,
+        rateEnglishDub: parseFloat(document.getElementById('yt-draft-rate-en').value) || 10.0,
+        completionBonus: parseFloat(document.getElementById('yt-draft-bonus').value) || 100.0
+    };
+
+    try {
+        const res = await apiFetch('/api/admin/courses/youtube-import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            const previewBox = document.getElementById('yt-preview-box');
+            if (previewBox) previewBox.style.display = 'none';
+            document.getElementById('yt-playlist-input').value = '';
+            lastYoutubePreview = null;
+            selectedAdminCourseId = data.id;
+            showFeedback('yt-import-msg',
+                `✓ Created unpublished draft course "${data.title}" with ${data.activeEpisodeCount} episode(s). Generate/approve quizzes and click Publish when ready!`);
+            await loadEpisodes();
+            await loadAdminDashboard();
+        } else {
+            showFeedback('yt-import-msg', data.error || 'Failed to import draft course.', true);
+        }
+    } catch (err) {
+        showFeedback('yt-import-msg', 'Connection error: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '💾 Step 2: Save as Draft Course (Unpublished)';
+    }
+}
+
+async function loadAdminCourses(preferredCourseId = null) {
+    try {
+        const res = await apiFetch('/api/admin/courses');
+        if (!res.ok) return;
+        adminCourses = await res.json() || [];
+
+        const select = document.getElementById('admin-course-select');
+        if (!select) return;
+        clearElement(select);
+
+        if (adminCourses.length === 0) {
+            selectedAdminCourseId = null;
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'No courses yet — import from YouTube above';
+            select.appendChild(opt);
+            clearElement(document.getElementById('admin-episodes-tbody'));
+            return;
+        }
+
+        adminCourses.forEach((c) => {
+            const opt = document.createElement('option');
+            opt.value = String(c.id);
+            const stateTag = c.archived ? '[ARCHIVED] ' : (c.published ? '[PUBLISHED] ' : '[DRAFT] ');
+            opt.textContent = `${stateTag}${c.title} (${c.activeEpisodeCount} active ep.)`;
+            select.appendChild(opt);
+        });
+
+        const targetId = preferredCourseId || selectedAdminCourseId || adminCourses[0].id;
+        const matched = adminCourses.find((c) => c.id === Number(targetId)) || adminCourses[0];
+        selectedAdminCourseId = matched.id;
+        select.value = String(matched.id);
+        renderSelectedAdminCourse(matched);
+    } catch (err) {
+        console.warn('Failed to load admin courses:', err);
+    }
+}
+
+function handleAdminCourseSelectChange() {
+    const sel = document.getElementById('admin-course-select');
+    if (!sel || !sel.value) return;
+    selectedAdminCourseId = Number(sel.value);
+    const course = adminCourses.find((c) => c.id === selectedAdminCourseId);
+    if (course) {
+        hideFeedback('course-mgmt-msg');
+        renderSelectedAdminCourse(course);
+    }
+}
+
+function renderSelectedAdminCourse(course) {
+    if (!course) return;
+    const badge = document.getElementById('admin-course-status-badge');
+    const pubBtn = document.getElementById('btn-course-publish-toggle');
+    const archBtn = document.getElementById('btn-course-archive-toggle');
+    const resyncBtn = document.getElementById('btn-course-resync');
+
+    if (badge) {
+        if (course.archived) {
+            badge.textContent = 'ARCHIVED';
+            badge.style.color = '#fca5a5';
+        } else if (course.published) {
+            badge.textContent = 'PUBLISHED';
+            badge.style.color = '#6ee7b7';
+        } else {
+            badge.textContent = 'DRAFT (UNPUBLISHED)';
+            badge.style.color = '#fde68a';
+        }
+    }
+
+    if (pubBtn) {
+        pubBtn.textContent = course.published ? 'Unpublish' : '✓ Publish Course';
+    }
+    if (archBtn) {
+        archBtn.textContent = course.archived ? 'Unarchive' : 'Archive';
+    }
+    if (resyncBtn) {
+        resyncBtn.disabled = Boolean(!course.youtubePlaylistId || String(course.youtubePlaylistId).startsWith('manual-'));
+    }
+
+    document.getElementById('edit-course-title').value = course.title || '';
+    document.getElementById('edit-course-sort').value = String(course.sortOrder ?? 0);
+    document.getElementById('edit-course-rate-ar').value = Number(course.rateArabicSub ?? 15).toFixed(2);
+    document.getElementById('edit-course-rate-en').value = Number(course.rateEnglishDub ?? 10).toFixed(2);
+    document.getElementById('edit-course-bonus').value = Number(course.completionBonus ?? 100).toFixed(2);
+    document.getElementById('edit-course-cover').value = course.coverImageUrl || '';
+    document.getElementById('edit-course-ytid').value = course.youtubePlaylistId || '';
+    document.getElementById('edit-course-desc').value = course.description || '';
+
+    const inlineBox = document.getElementById('edit-episode-inline-box');
+    if (inlineBox) inlineBox.style.display = 'none';
+
+    renderAdminCourseEpisodesTable(course);
+}
+
+function renderAdminCourseEpisodesTable(course) {
+    const tbody = document.getElementById('admin-episodes-tbody');
+    if (!tbody) return;
+    clearElement(tbody);
+
+    const eps = course.episodes || [];
+    if (eps.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 6;
+        td.style.textAlign = 'center';
+        td.style.color = 'var(--text-muted)';
+        td.style.padding = '1.35rem';
+        td.textContent = 'No episodes in this course yet.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+    }
+
+    eps.forEach((ep, idx) => {
+        const tr = document.createElement('tr');
+        if (!ep.enabled) {
+            tr.style.opacity = '0.62';
+        }
+
+        // 1. Order + Move Up/Down
+        const tdOrder = document.createElement('td');
+        const orderWrap = document.createElement('div');
+        orderWrap.style.display = 'flex';
+        orderWrap.style.alignItems = 'center';
+        orderWrap.style.gap = '0.35rem';
+
+        const numStrong = document.createElement('strong');
+        numStrong.textContent = `#${ep.episodeNumber}`;
+        orderWrap.appendChild(numStrong);
+
+        const upBtn = document.createElement('button');
+        upBtn.type = 'button';
+        upBtn.className = 'btn-ghost';
+        upBtn.style.padding = '0.15rem 0.42rem';
+        upBtn.style.fontSize = '0.72rem';
+        upBtn.textContent = '↑';
+        upBtn.disabled = idx === 0;
+        upBtn.title = 'Move episode up';
+        upBtn.addEventListener('click', () => handleMoveCourseEpisode(course, idx, -1));
+
+        const downBtn = document.createElement('button');
+        downBtn.type = 'button';
+        downBtn.className = 'btn-ghost';
+        downBtn.style.padding = '0.15rem 0.42rem';
+        downBtn.style.fontSize = '0.72rem';
+        downBtn.textContent = '↓';
+        downBtn.disabled = idx === eps.length - 1;
+        downBtn.title = 'Move episode down';
+        downBtn.addEventListener('click', () => handleMoveCourseEpisode(course, idx, 1));
+
+        orderWrap.appendChild(upBtn);
+        orderWrap.appendChild(downBtn);
+        tdOrder.appendChild(orderWrap);
+
+        // 2. Title + YouTube link
+        const tdTitle = document.createElement('td');
+        const titleDiv = document.createElement('div');
+        titleDiv.style.fontWeight = '700';
+        titleDiv.textContent = ep.title;
+        const ytLink = document.createElement('a');
+        ytLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(ep.youtubeVideoId)}`;
+        ytLink.target = '_blank';
+        ytLink.rel = 'noopener noreferrer';
+        ytLink.style.fontSize = '0.76rem';
+        ytLink.style.color = '#93c5fd';
+        ytLink.textContent = `${ep.youtubeVideoId} ↗`;
+        tdTitle.appendChild(titleDiv);
+        tdTitle.appendChild(ytLink);
+
+        // 3. Authoritative Duration
+        const tdDur = document.createElement('td');
+        tdDur.style.fontSize = '0.82rem';
+        tdDur.style.color = 'var(--text-muted)';
+        tdDur.textContent = formatDurationHuman(ep.durationSeconds);
+
+        // 4. Quiz Readiness (no bank / drafts only / N approved)
+        const tdReady = document.createElement('td');
+        const readyPill = document.createElement('span');
+        readyPill.style.display = 'inline-block';
+        readyPill.style.fontSize = '0.75rem';
+        readyPill.style.fontWeight = '700';
+        readyPill.style.padding = '0.2rem 0.55rem';
+        readyPill.style.borderRadius = '999px';
+        readyPill.textContent = ep.quizReadinessLabel || 'No bank';
+
+        if (ep.quizReadinessStatus === 'READY') {
+            readyPill.style.background = 'rgba(16, 185, 129, 0.18)';
+            readyPill.style.color = '#6ee7b7';
+        } else if (ep.quizReadinessStatus === 'DRAFTS_ONLY') {
+            readyPill.style.background = 'rgba(245, 158, 11, 0.18)';
+            readyPill.style.color = '#fde68a';
+        } else if (ep.quizReadinessStatus === 'PARTIAL') {
+            readyPill.style.background = 'rgba(59, 130, 246, 0.18)';
+            readyPill.style.color = '#93c5fd';
+        } else {
+            readyPill.style.background = 'rgba(148, 163, 184, 0.15)';
+            readyPill.style.color = '#cbd5e1';
+        }
+        tdReady.appendChild(readyPill);
+
+        // 5. Status (Enabled / Inactive)
+        const tdStatus = document.createElement('td');
+        const stSpan = document.createElement('span');
+        stSpan.style.fontSize = '0.76rem';
+        stSpan.style.fontWeight = '700';
+        stSpan.style.color = ep.enabled ? '#6ee7b7' : '#fca5a5';
+        stSpan.textContent = ep.enabled ? 'Enabled' : 'Inactive';
+        tdStatus.appendChild(stSpan);
+
+        // 6. Actions
+        const tdActions = document.createElement('td');
+        tdActions.style.display = 'flex';
+        tdActions.style.gap = '0.4rem';
+        tdActions.style.flexWrap = 'wrap';
+
+        const bankBtn = document.createElement('button');
+        bankBtn.type = 'button';
+        bankBtn.className = 'btn-ghost';
+        bankBtn.style.padding = '0.26rem 0.55rem';
+        bankBtn.style.fontSize = '0.75rem';
+        bankBtn.textContent = '🗂️ Bank';
+        bankBtn.addEventListener('click', () => {
+            const aiSel = document.getElementById('ai-episode-select');
+            if (aiSel) {
+                aiSel.value = String(ep.id);
+                loadEpisodeQuestionBank();
+                aiSel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        });
+
+        const editEpBtn = document.createElement('button');
+        editEpBtn.type = 'button';
+        editEpBtn.className = 'btn-ghost';
+        editEpBtn.style.padding = '0.26rem 0.55rem';
+        editEpBtn.style.fontSize = '0.75rem';
+        editEpBtn.textContent = '✏️ Edit';
+        editEpBtn.addEventListener('click', () => openInlineEpisodeEdit(ep));
+
+        const toggleEnableBtn = document.createElement('button');
+        toggleEnableBtn.type = 'button';
+        toggleEnableBtn.className = 'btn-ghost';
+        toggleEnableBtn.style.padding = '0.26rem 0.55rem';
+        toggleEnableBtn.style.fontSize = '0.75rem';
+        toggleEnableBtn.textContent = ep.enabled ? '⏸ Disable' : '▶ Enable';
+        toggleEnableBtn.addEventListener('click', () => handleToggleEpisodeEnabled(ep));
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn-danger-outline';
+        delBtn.style.padding = '0.26rem 0.55rem';
+        delBtn.style.fontSize = '0.75rem';
+        delBtn.textContent = 'Archive';
+        delBtn.addEventListener('click', () => handleDeleteEpisode(ep));
+
+        tdActions.appendChild(bankBtn);
+        tdActions.appendChild(editEpBtn);
+        tdActions.appendChild(toggleEnableBtn);
+        tdActions.appendChild(delBtn);
+
+        tr.appendChild(tdOrder);
+        tr.appendChild(tdTitle);
+        tr.appendChild(tdDur);
+        tr.appendChild(tdReady);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdActions);
+        tbody.appendChild(tr);
+    });
+}
+
+function syncEpisodeReadinessFromBank(episodeId, bank) {
+    if (!adminCourses || adminCourses.length === 0 || !bank) return;
+    let touchedCourse = null;
+    for (const c of adminCourses) {
+        const ep = (c.episodes || []).find((item) => item.id === episodeId);
+        if (ep) {
+            const approvedMcq = Number(bank.approvedMcqCount || 0);
+            const draftMcq = Number(bank.draftMcqCount || 0);
+            const approvedOpen = Number(bank.approvedOpenCount || 0);
+            const draftOpen = Number(bank.draftOpenCount || 0);
+            ep.approvedMcqCount = approvedMcq;
+            ep.draftMcqCount = draftMcq;
+            ep.approvedOpenCount = approvedOpen;
+            ep.draftOpenCount = draftOpen;
+            ep.quizReady = Boolean(bank.quizReadyForStudents);
+
+            if (approvedMcq === 0 && draftMcq === 0 && approvedOpen === 0 && draftOpen === 0) {
+                ep.quizReadinessStatus = 'NO_BANK';
+                ep.quizReadinessLabel = 'No bank';
+            } else if (approvedMcq === 0 && approvedOpen === 0) {
+                ep.quizReadinessStatus = 'DRAFTS_ONLY';
+                ep.quizReadinessLabel = `Drafts only (${draftMcq} MCQ, ${draftOpen} open)`;
+            } else if (ep.quizReady) {
+                ep.quizReadinessStatus = 'READY';
+                ep.quizReadinessLabel = `${approvedMcq} approved (${approvedOpen} open) • Ready`;
+            } else {
+                ep.quizReadinessStatus = 'PARTIAL';
+                ep.quizReadinessLabel = `${approvedMcq} approved (${approvedOpen} open) • Needs 10 MCQ + 1 open`;
+            }
+            touchedCourse = c;
+            break;
+        }
+    }
+    if (touchedCourse && touchedCourse.id === selectedAdminCourseId) {
+        renderAdminCourseEpisodesTable(touchedCourse);
+    }
+}
+
+async function handleCreateManualDraftCourse() {
+    hideFeedback('course-mgmt-msg');
+    const rawTitle = window.prompt('Enter title for the new draft course:');
+    if (!rawTitle || !rawTitle.trim()) return;
+
+    try {
+        const res = await apiFetch('/api/admin/courses', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: rawTitle.trim(),
+                rateArabicSub: 15.0,
+                rateEnglishDub: 10.0,
+                completionBonus: 100.0
+            })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            selectedAdminCourseId = data.id;
+            showFeedback('course-mgmt-msg', `✓ Created manual draft course "${data.title}".`);
+            await loadAdminCourses(data.id);
+        } else {
+            showFeedback('course-mgmt-msg', data.error || 'Could not create course.', true);
+        }
+    } catch (err) {
+        showFeedback('course-mgmt-msg', 'Error: ' + err.message, true);
+    }
+}
+
+async function handleSaveCourseSettings(e) {
+    e.preventDefault();
+    hideFeedback('course-mgmt-msg');
+    if (!selectedAdminCourseId) return;
+
+    const payload = {
+        title: document.getElementById('edit-course-title').value.trim(),
+        sortOrder: parseInt(document.getElementById('edit-course-sort').value, 10) || 0,
+        rateArabicSub: parseFloat(document.getElementById('edit-course-rate-ar').value) || 0,
+        rateEnglishDub: parseFloat(document.getElementById('edit-course-rate-en').value) || 0,
+        completionBonus: parseFloat(document.getElementById('edit-course-bonus').value) || 0,
+        coverImageUrl: document.getElementById('edit-course-cover').value.trim(),
+        youtubePlaylistId: document.getElementById('edit-course-ytid').value.trim(),
+        description: document.getElementById('edit-course-desc').value.trim()
+    };
+
+    try {
+        const res = await apiFetch(`/api/admin/courses/${selectedAdminCourseId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showFeedback('course-mgmt-msg', `✓ Saved settings for "${data.title}".`);
+            await loadEpisodes();
+        } else {
+            showFeedback('course-mgmt-msg', data.error || 'Failed to save course settings.', true);
+        }
+    } catch (err) {
+        showFeedback('course-mgmt-msg', 'Error: ' + err.message, true);
+    }
+}
+
+async function handleToggleCoursePublish() {
+    hideFeedback('course-mgmt-msg');
+    const course = adminCourses.find((c) => c.id === selectedAdminCourseId);
+    if (!course) return;
+    const nextPublished = !course.published;
+
+    try {
+        const res = await apiFetch(`/api/admin/courses/${course.id}/publish`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ published: nextPublished })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showFeedback('course-mgmt-msg',
+                nextPublished
+                    ? `✓ Published "${data.title}" — now visible in the student catalog.`
+                    : `✓ Unpublished "${data.title}" — hidden from students.`);
+            await loadAdminCourses(course.id);
+        } else {
+            showFeedback('course-mgmt-msg', data.error || 'Could not update publish status.', true);
+        }
+    } catch (err) {
+        showFeedback('course-mgmt-msg', 'Error: ' + err.message, true);
+    }
+}
+
+async function handleToggleCourseArchive() {
+    hideFeedback('course-mgmt-msg');
+    const course = adminCourses.find((c) => c.id === selectedAdminCourseId);
+    if (!course) return;
+    const nextArchived = !course.archived;
+
+    if (nextArchived && !window.confirm(`Archive course "${course.title}"? It will be unpublished and hidden from students while keeping all student history intact.`)) {
+        return;
+    }
+
+    try {
+        const res = await apiFetch(`/api/admin/courses/${course.id}/archive`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ archived: nextArchived })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showFeedback('course-mgmt-msg', nextArchived ? `✓ Archived "${data.title}".` : `✓ Unarchived "${data.title}" (as draft).`);
+            await loadAdminCourses(course.id);
+        } else {
+            showFeedback('course-mgmt-msg', data.error || 'Could not update archive status.', true);
+        }
+    } catch (err) {
+        showFeedback('course-mgmt-msg', 'Error: ' + err.message, true);
+    }
+}
+
+async function handleResyncCourse() {
+    hideFeedback('course-mgmt-msg');
+    const course = adminCourses.find((c) => c.id === selectedAdminCourseId);
+    if (!course) return;
+
+    const btn = document.getElementById('btn-course-resync');
+    btn.disabled = true;
+    btn.textContent = '⏳ Syncing...';
+
+    try {
+        const res = await apiFetch(`/api/admin/courses/${course.id}/resync`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showFeedback('course-mgmt-msg',
+                `✓ Re-sync complete: +${data.addedEpisodes || 0} added, ${data.updatedEpisodes || 0} updated, ${data.deactivatedEpisodes || 0} marked inactive (quizzes & progress preserved).`);
+            await loadEpisodes();
+            await loadAdminDashboard();
+        } else {
+            showFeedback('course-mgmt-msg', data.error || 'YouTube re-sync failed.', true);
+        }
+    } catch (err) {
+        showFeedback('course-mgmt-msg', 'Re-sync error: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔄 Re-sync YouTube';
+    }
+}
+
+async function handleMoveCourseEpisode(course, index, delta) {
+    hideFeedback('course-mgmt-msg');
+    const eps = [...(course.episodes || [])];
+    const targetIdx = index + delta;
+    if (targetIdx < 0 || targetIdx >= eps.length) return;
+
+    const swapped = eps[index];
+    eps[index] = eps[targetIdx];
+    eps[targetIdx] = swapped;
+
+    const orderedIds = eps.map((item) => item.id);
+    try {
+        const res = await apiFetch(`/api/admin/courses/${course.id}/episodes/reorder`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ episodeIds: orderedIds })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showFeedback('course-mgmt-msg', '✓ Reordered course syllabus.');
+            await loadEpisodes();
+        } else {
+            showFeedback('course-mgmt-msg', data.error || 'Failed to reorder episodes.', true);
+        }
+    } catch (err) {
+        showFeedback('course-mgmt-msg', 'Reorder error: ' + err.message, true);
+    }
+}
+
+function openInlineEpisodeEdit(ep) {
+    const box = document.getElementById('edit-episode-inline-box');
+    if (!box) return;
+    document.getElementById('edit-ep-id').value = String(ep.id);
+    document.getElementById('edit-ep-title').value = ep.title || '';
+    document.getElementById('edit-ep-duration').value = String(ep.durationSeconds || 1800);
+    const heading = document.getElementById('edit-episode-inline-heading');
+    if (heading) heading.textContent = `✏️ Edit Episode #${ep.episodeNumber}`;
+    box.style.display = 'block';
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function handleSaveInlineEpisodeEdit(e) {
+    e.preventDefault();
+    hideFeedback('course-mgmt-msg');
+    const epId = document.getElementById('edit-ep-id').value;
+    if (!epId) return;
+
+    const title = document.getElementById('edit-ep-title').value.trim();
+    const durationSeconds = parseInt(document.getElementById('edit-ep-duration').value, 10);
+
+    try {
+        const res = await apiFetch(`/api/admin/episodes/${encodeURIComponent(epId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, durationSeconds })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            const box = document.getElementById('edit-episode-inline-box');
+            if (box) box.style.display = 'none';
+            showFeedback('course-mgmt-msg', `✓ Updated Episode #${data.episodeNumber}.`);
+            await loadEpisodes();
+        } else {
+            showFeedback('course-mgmt-msg', data.error || 'Failed to update episode.', true);
+        }
+    } catch (err) {
+        showFeedback('course-mgmt-msg', 'Error: ' + err.message, true);
+    }
+}
+
+async function handleToggleEpisodeEnabled(ep) {
+    hideFeedback('course-mgmt-msg');
+    try {
+        const res = await apiFetch(`/api/admin/episodes/${ep.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: !ep.enabled })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showFeedback('course-mgmt-msg',
+                data.enabled
+                    ? `✓ Enabled Episode #${data.episodeNumber}.`
+                    : `✓ Disabled Episode #${data.episodeNumber} (hidden from student syllabus; progress & quizzes preserved).`);
+            await loadEpisodes();
+            await loadAdminDashboard();
+        } else {
+            showFeedback('course-mgmt-msg', data.error || 'Failed to toggle episode status.', true);
+        }
+    } catch (err) {
+        showFeedback('course-mgmt-msg', 'Error: ' + err.message, true);
     }
 }
