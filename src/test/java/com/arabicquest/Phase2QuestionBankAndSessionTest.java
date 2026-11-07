@@ -325,6 +325,7 @@ class Phase2QuestionBankAndSessionTest {
         // Create 2-episode course where completion bonus ($100) triggers after both written answers are approved
         long[] courseData = transactionTemplate.execute(st -> {
             Playlist c = new Playlist("Two-Episode Bonus Course", "PL_P2_BONUS_FLOW", "Test course");
+            c.setPublished(true);
             c.setArabicRewardRate(new BigDecimal("15.00"));
             c.setEnglishRewardRate(new BigDecimal("10.00"));
             c.setCompletionBonus(new BigDecimal("100.00"));
@@ -483,7 +484,9 @@ class Phase2QuestionBankAndSessionTest {
                 .andExpect(status().isForbidden());
 
         Episode genEp = transactionTemplate.execute(st -> {
-            Playlist p = playlistRepository.save(new Playlist("AI Gen Course", "PL_P2_AIGEN", ""));
+            Playlist p = new Playlist("AI Gen Course", "PL_P2_AIGEN", "");
+            p.setPublished(true);
+            p = playlistRepository.save(p);
             return episodeRepository.save(new Episode(p, 1, "Transcript Episode", "VIDAIGEN01", 1800));
         });
 
@@ -647,7 +650,9 @@ class Phase2QuestionBankAndSessionTest {
 
     private long[] createCourseWithLargeQuestionBank(String playlistYtId, int approvedMcqs, int draftMcqs, int retiredMcqs, int approvedOpens) {
         return transactionTemplate.execute(st -> {
-            Playlist p = playlistRepository.save(new Playlist("Course " + playlistYtId, playlistYtId, "Bank test"));
+            Playlist p = new Playlist("Course " + playlistYtId, playlistYtId, "Bank test");
+            p.setPublished(true);
+            p = playlistRepository.save(p);
             Episode ep = episodeRepository.save(new Episode(p, 1, "Episode 1 " + playlistYtId, "VID" + Math.abs(playlistYtId.hashCode() % 100000), 1800));
             seedQuestionsAndOpens(ep, approvedMcqs, draftMcqs, retiredMcqs, approvedOpens);
             return new long[]{p.getId(), ep.getId()};

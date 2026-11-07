@@ -329,6 +329,7 @@ class Phase3LockingStatesAndModeTest {
             BigDecimal rateEn) {
         return transactionTemplate.execute(status -> {
             Playlist p = new Playlist(title, ytId, "Phase 3 test course");
+            p.setPublished(true);
             p.setArabicRewardRate(rateAr);
             p.setEnglishRewardRate(rateEn);
             p.setCompletionBonus(new BigDecimal("100.00"));

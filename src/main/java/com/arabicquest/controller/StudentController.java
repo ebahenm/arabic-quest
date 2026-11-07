@@ -1,6 +1,5 @@
 package com.arabicquest.controller;
 
-import com.arabicquest.config.BrandConstants;
 import com.arabicquest.dto.*;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
@@ -12,7 +11,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.util.*;
 
 @RestController
@@ -20,14 +18,9 @@ import java.util.*;
 public class StudentController {
 
     private final EpisodeRepository episodeRepository;
+    private final CourseService courseService;
     private final QuizService quizService;
     private final PayoutService payoutService;
-    private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
-    private final QuizAttemptRepository quizAttemptRepository;
-    private final OpenAnswerSubmissionRepository openAnswerSubmissionRepository;
-    private final QuestionRepository questionRepository;
-    private final OpenQuestionRepository openQuestionRepository;
-    private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
     private final UserRepository userRepository;
     private final AiQuizService aiQuizService;
     private final PayoutRepository payoutRepository;
@@ -37,14 +30,9 @@ public class StudentController {
 
     public StudentController(
             EpisodeRepository episodeRepository,
+            CourseService courseService,
             QuizService quizService,
             PayoutService payoutService,
-            EpisodeRewardClaimRepository episodeRewardClaimRepository,
-            QuizAttemptRepository quizAttemptRepository,
-            OpenAnswerSubmissionRepository openAnswerSubmissionRepository,
-            QuestionRepository questionRepository,
-            OpenQuestionRepository openQuestionRepository,
-            StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
             UserRepository userRepository,
             AiQuizService aiQuizService,
             PayoutRepository payoutRepository,
@@ -52,14 +40,9 @@ public class StudentController {
             OpenAnswerReviewService openAnswerReviewService,
             QuestionBankService questionBankService) {
         this.episodeRepository = episodeRepository;
+        this.courseService = courseService;
         this.quizService = quizService;
         this.payoutService = payoutService;
-        this.episodeRewardClaimRepository = episodeRewardClaimRepository;
-        this.quizAttemptRepository = quizAttemptRepository;
-        this.openAnswerSubmissionRepository = openAnswerSubmissionRepository;
-        this.questionRepository = questionRepository;
-        this.openQuestionRepository = openQuestionRepository;
-        this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
         this.userRepository = userRepository;
         this.aiQuizService = aiQuizService;
         this.payoutRepository = payoutRepository;
@@ -68,97 +51,26 @@ public class StudentController {
         this.questionBankService = questionBankService;
     }
 
-    @Transactional(readOnly = true)
+    @GetMapping("/courses")
+    public ResponseEntity<List<CourseCatalogItemResponse>> getCourseCatalog(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(courseService.getPublishedCourseCatalog(userDetails.getUsername()));
+    }
+
+    @GetMapping("/courses/{courseId}")
+    public ResponseEntity<CourseDetailStudentResponse> getCourseDetail(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long courseId,
+            @RequestParam(defaultValue = "false") boolean betaUnlock) {
+        return ResponseEntity.ok(courseService.getStudentCourseDetail(userDetails.getUsername(), courseId, betaUnlock));
+    }
+
     @GetMapping("/episodes")
     public ResponseEntity<List<EpisodeStudentResponse>> getEpisodes(
             @AuthenticationPrincipal UserDetails userDetails,
             @RequestParam(required = false) Long courseId,
             @RequestParam(defaultValue = "false") boolean betaUnlock) {
-        User student = userRepository.findByUsername(userDetails.getUsername())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
-        List<Episode> episodes = (courseId != null)
-                ? episodeRepository.findActiveByPlaylistIdOrderByEpisodeNumberAsc(courseId)
-                : episodeRepository.findAllActiveOrderByEpisodeNumberAsc();
-
-        Map<Long, List<Episode>> courseEpisodesByPlaylistId = new LinkedHashMap<>();
-        for (Episode ep : episodes) {
-            courseEpisodesByPlaylistId
-                    .computeIfAbsent(ep.getPlaylist().getId(), k -> new ArrayList<>())
-                    .add(ep);
-        }
-
-        Set<Long> passedIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(student.getId());
-        Set<Long> mcqPassedIds = quizAttemptRepository.findPassedEpisodeIdsByStudentId(student.getId());
-
-        Set<Long> pendingReviewEpisodeIds = new HashSet<>();
-        for (OpenAnswerSubmission sub : openAnswerSubmissionRepository.findByStudentIdWithEpisodeAndPlaylist(student.getId())) {
-            if (sub.getStatus() == OpenAnswerStatus.PENDING) {
-                pendingReviewEpisodeIds.add(sub.getEpisode().getId());
-            }
-        }
-
-        Map<Long, Long> approvedMcqCounts = new HashMap<>();
-        for (Object[] row : questionRepository.countActiveByStatusGroupedByEpisode(QuestionStatus.APPROVED)) {
-            approvedMcqCounts.put((Long) row[0], ((Number) row[1]).longValue());
-        }
-        Map<Long, Long> approvedOpenCounts = new HashMap<>();
-        for (Object[] row : openQuestionRepository.countActiveByStatusGroupedByEpisode(QuestionStatus.APPROVED)) {
-            approvedOpenCounts.put((Long) row[0], ((Number) row[1]).longValue());
-        }
-
-        Map<Long, StudentEpisodeOverride.OverrideState> overridesByEp = new HashMap<>();
-        for (StudentEpisodeOverride ov : studentEpisodeOverrideRepository.findByStudentIdWithEpisode(student.getId())) {
-            if (ov.getOverrideState() != null) {
-                overridesByEp.put(ov.getEpisode().getId(), ov.getOverrideState());
-            }
-        }
-        boolean allowBetaBypass = betaUnlock && student.hasBetaAccess();
-
-        List<EpisodeStudentResponse> result = episodes.stream().map(ep -> {
-            Playlist course = ep.getPlaylist();
-            List<Episode> sameCourseEpisodes = courseEpisodesByPlaylistId.getOrDefault(course.getId(), List.of(ep));
-            boolean passed = passedIds.contains(ep.getId());
-            boolean pendingReview = pendingReviewEpisodeIds.contains(ep.getId());
-            boolean mcqPassed = mcqPassedIds.contains(ep.getId());
-            boolean quizBankReady = approvedMcqCounts.getOrDefault(ep.getId(), 0L) >= QuizService.SESSION_QUESTION_COUNT
-                    && approvedOpenCounts.getOrDefault(ep.getId(), 0L) >= 1L;
-
-            WatchProgressService.EpisodeLockState lockState =
-                    watchProgressService.evaluateSequentialLock(
-                            ep, sameCourseEpisodes, passedIds, overridesByEp.get(ep.getId()), allowBetaBypass);
-            WatchStatusResponse watchStatus = watchProgressService.getWatchStatus(student, ep, passed);
-            EpisodeProgressState progressState = watchProgressService.computeEpisodeProgressState(
-                    lockState, passed, pendingReview, mcqPassed, watchStatus, quizBankReady);
-
-            BigDecimal rateAr = course.getArabicRewardRate() != null
-                    ? course.getArabicRewardRate()
-                    : BrandConstants.DEFAULT_RATE_ARABIC_SUB;
-            BigDecimal rateEn = course.getEnglishRewardRate() != null
-                    ? course.getEnglishRewardRate()
-                    : BrandConstants.DEFAULT_RATE_ENGLISH_DUB;
-
-            return new EpisodeStudentResponse(
-                ep.getId(),
-                course.getId(),
-                course.getTitle(),
-                ep.getEpisodeNumber(),
-                ep.getTitle(),
-                ep.getYoutubeVideoId(),
-                ep.getDurationSeconds(),
-                passed && !lockState.locked(),
-                lockState.locked(),
-                lockState.unlockAfterEpisodeNumber(),
-                progressState.name(),
-                progressState.getLabel(),
-                quizBankReady,
-                rateAr,
-                rateEn,
-                watchStatus
-            );
-        }).toList();
-
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(courseService.getStudentEpisodes(userDetails.getUsername(), courseId, betaUnlock));
     }
 
     @GetMapping("/quizzes/{episodeId}")
@@ -190,8 +102,24 @@ public class StudentController {
         return ResponseEntity.ok(status);
     }
 
+    @Transactional(readOnly = true)
     @GetMapping("/episodes/{episodeId}/vocab-guide")
-    public ResponseEntity<List<Map<String, String>>> getVocabularyGuide(@PathVariable Long episodeId) {
+    public ResponseEntity<List<Map<String, String>>> getVocabularyGuide(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long episodeId,
+            @RequestParam(defaultValue = "false") boolean betaUnlock) {
+        User student = userRepository.findByUsername(userDetails.getUsername())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+        boolean allowBetaBypass = betaUnlock && student.hasBetaAccess();
+        if (episode.isArchived()
+                || !episode.isEnabled()
+                || episode.getPlaylist() == null
+                || episode.getPlaylist().isArchived()
+                || (!episode.getPlaylist().isPublished() && !allowBetaBypass)) {
+            throw new SecurityException("Course is not available.");
+        }
         List<Map<String, String>> guide = aiQuizService.getVocabularyGuide(episodeId);
         return ResponseEntity.ok(guide);
     }

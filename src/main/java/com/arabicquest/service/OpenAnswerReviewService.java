@@ -111,6 +111,12 @@ public class OpenAnswerReviewService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+        if (episode.isArchived() || !episode.isEnabled()
+                || episode.getPlaylist() == null
+                || episode.getPlaylist().isArchived()
+                || !episode.getPlaylist().isPublished()) {
+            throw new SecurityException("Course is not available.");
+        }
 
         boolean passedMcq = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episodeId)
                 || episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episodeId);
@@ -129,8 +135,11 @@ public class OpenAnswerReviewService {
         Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
 
-        if (episode.isArchived()) {
-            throw new IllegalArgumentException("Episode is archived and no longer accepting submissions.");
+        if (episode.isArchived() || !episode.isEnabled()
+                || episode.getPlaylist() == null
+                || episode.getPlaylist().isArchived()
+                || !episode.getPlaylist().isPublished()) {
+            throw new SecurityException("Course is not available.");
         }
 
         boolean passedMcq = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episodeId);

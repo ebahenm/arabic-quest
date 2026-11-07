@@ -189,11 +189,11 @@
 <body>
 
     <header>
-        <div class="brand">
+        <div class="brand" style="cursor: pointer;" onclick="showCourseCatalogView()">
             <div class="brand-icon">⚔️</div>
             <div>
                 <div class="brand-title">تراثُنا • Turathtona</div>
-                <div class="brand-subtitle">100 سؤال في التاريخ • turathtona.site</div>
+                <div class="brand-subtitle">Know your history. Stand tall. • turathtona.site</div>
             </div>
         </div>
 
@@ -231,24 +231,90 @@
         </div>
     </div>
 
-    <div class="app-layout">
+    <!-- ================================================================== -->
+    <!-- VIEW 1: PUBLISHED COURSE CATALOG (Default after login)             -->
+    <!-- ================================================================== -->
+    <section id="catalog-view" class="portal-container" style="display: none;">
+        <div class="catalog-header">
+            <div>
+                <h1>📚 Course Catalog</h1>
+                <p>Choose a course below to study Arabic history, pass 10-question quizzes + written reflections, and earn rewards.</p>
+            </div>
+        </div>
+        <div id="course-catalog-grid" class="course-catalog-grid"></div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- VIEW 2: COURSE PAGE (SYLLABUS)                                     -->
+    <!-- ================================================================== -->
+    <section id="course-syllabus-view" class="portal-container" style="display: none;">
+        <div style="margin-bottom: 1rem;">
+            <button type="button" class="btn-signout" style="color: #e2e8f0;" onclick="showCourseCatalogView()">
+                ← Back to Course Catalog
+            </button>
+        </div>
+
+        <div id="syllabus-lock-toast" class="episode-lock-toast"></div>
+
+        <div class="syllabus-hero-card">
+            <div id="syllabus-cover-box" class="course-cover-wrap" style="border-radius: var(--radius-md);"></div>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap;">
+                    <h1 id="syllabus-course-title" style="font-size: 1.5rem; font-weight: 800; font-family: 'Cairo', 'Plus Jakarta Sans', sans-serif;">Course Title</h1>
+                    <span id="syllabus-bonus-badge" class="quiz-pass-badge">🏆 +$100.00 Completion Bonus</span>
+                </div>
+                <p id="syllabus-course-desc" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.55;"></p>
+
+                <div>
+                    <div class="progress-header">
+                        <span id="syllabus-progress-text">0 / 0 episodes passed</span>
+                        <strong id="syllabus-progress-pct">0%</strong>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div id="syllabus-progress-fill" class="progress-bar-fill"></div>
+                    </div>
+                </div>
+
+                <div class="course-earned-box">
+                    <div>
+                        Earned: <strong id="syllabus-earned-val" style="color: #6ee7b7;">$0.00</strong>
+                        <span style="color: var(--text-muted);"> / </span>
+                        <strong id="syllabus-possible-val" style="color: #fde68a;">$0.00 possible</strong>
+                    </div>
+                    <div id="syllabus-rates-summary" style="color: var(--text-muted); font-weight: 600;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="syllabus-filter-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.9rem; flex-wrap: wrap; gap: 0.65rem;">
+            <h2 style="font-size: 1.15rem; font-weight: 800;">Course Syllabus</h2>
+            <span id="syllabus-episode-count-label" style="font-size: 0.84rem; color: var(--text-muted);"></span>
+        </div>
+
+        <div id="syllabus-episode-list" class="syllabus-episode-list"></div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!-- VIEW 3: EPISODE PLAYER, MODE PICKER, & QUIZ                        -->
+    <!-- ================================================================== -->
+    <div id="episode-player-view" class="app-layout" style="display: none;">
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="sidebar-title">
-                    <span>Course Episodes</span>
+                    <span id="sidebar-course-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Course Episodes</span>
                     <span id="badge-course-count" style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">0/0</span>
                 </div>
 
                 <div class="course-progress-card">
                     <div class="progress-header">
-                        <span>Sequential Progression</span>
+                        <span>Course Progression</span>
                         <strong id="progress-percent-label">0%</strong>
                     </div>
                     <div class="progress-bar-bg">
                         <div id="progress-bar-fill" class="progress-bar-fill"></div>
                     </div>
                     <div class="bonus-milestone">
-                        <span>🏆 Score 100% (10/10) + pass the written reflection on each episode in order to earn the $100.00 Bonus!</span>
+                        <span id="sidebar-bonus-note">🏆 Score 100% (10/10) + pass the written reflection on each episode in order to earn the Course Bonus!</span>
                     </div>
                 </div>
             </div>
@@ -257,6 +323,16 @@
         </aside>
 
         <main class="content-area">
+            <div class="breadcrumb-nav-bar">
+                <button type="button" class="btn-signout" style="color: #e2e8f0;" onclick="showCourseSyllabusFromEpisode()">
+                    ← Course Syllabus
+                </button>
+                <button type="button" class="btn-signout" onclick="showCourseCatalogView()">
+                    📚 All Courses
+                </button>
+                <span id="episode-course-breadcrumb" style="font-size: 0.84rem; font-weight: 700; color: var(--text-muted);"></span>
+            </div>
+
             <div id="episode-lock-toast" class="episode-lock-toast"></div>
 
             <div class="mode-card-stacked">

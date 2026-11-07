@@ -21,6 +21,12 @@ public interface EpisodeRewardClaimRepository extends JpaRepository<EpisodeRewar
     @Query("SELECT COALESCE(SUM(erc.rewardAmount), 0) FROM EpisodeRewardClaim erc WHERE erc.student.id = :studentId")
     BigDecimal calculateTotalEpisodeRewardsByStudent(@Param("studentId") Long studentId);
 
+    @Query("SELECT COALESCE(SUM(erc.rewardAmount), 0) FROM EpisodeRewardClaim erc " +
+           "WHERE erc.student.id = :studentId AND erc.episode.playlist.id = :playlistId")
+    BigDecimal calculateEpisodeRewardsByStudentAndPlaylist(
+            @Param("studentId") Long studentId,
+            @Param("playlistId") Long playlistId);
+
     @Query("SELECT COUNT(DISTINCT erc.episode.id) FROM EpisodeRewardClaim erc " +
            "WHERE erc.student.id = :studentId " +
            "AND erc.episode.playlist.id = :playlistId " +

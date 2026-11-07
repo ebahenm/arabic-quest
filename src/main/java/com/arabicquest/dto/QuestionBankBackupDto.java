@@ -43,6 +43,10 @@ public class QuestionBankBackupDto {
         private String title;
         private String youtubePlaylistId;
         private String description;
+        private String coverImageUrl;
+        private Boolean published;
+        private Boolean archived;
+        private Integer sortOrder;
         private BigDecimal rateArabicSub;
         private BigDecimal rateEnglishDub;
         private BigDecimal completionBonus;
@@ -71,6 +75,38 @@ public class QuestionBankBackupDto {
 
         public void setDescription(String description) {
             this.description = description;
+        }
+
+        public String getCoverImageUrl() {
+            return coverImageUrl;
+        }
+
+        public void setCoverImageUrl(String coverImageUrl) {
+            this.coverImageUrl = coverImageUrl;
+        }
+
+        public Boolean getPublished() {
+            return published;
+        }
+
+        public void setPublished(Boolean published) {
+            this.published = published;
+        }
+
+        public Boolean getArchived() {
+            return archived;
+        }
+
+        public void setArchived(Boolean archived) {
+            this.archived = archived;
+        }
+
+        public Integer getSortOrder() {
+            return sortOrder;
+        }
+
+        public void setSortOrder(Integer sortOrder) {
+            this.sortOrder = sortOrder;
         }
 
         public BigDecimal getRateArabicSub() {

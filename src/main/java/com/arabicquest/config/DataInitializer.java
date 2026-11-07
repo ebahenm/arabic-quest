@@ -5,6 +5,7 @@ import com.arabicquest.model.QuestionType;
 import com.arabicquest.model.Role;
 import com.arabicquest.model.User;
 import com.arabicquest.repository.EpisodeRepository;
+import com.arabicquest.repository.PlaylistRepository;
 import com.arabicquest.repository.QuestionRepository;
 import com.arabicquest.repository.UserRepository;
 import org.slf4j.Logger;
@@ -33,6 +34,7 @@ public class DataInitializer {
     @Bean
     public CommandLineRunner initData(
             UserRepository userRepository,
+            PlaylistRepository playlistRepository,
             QuestionRepository questionRepository,
             EpisodeRepository episodeRepository,
             PasswordEncoder passwordEncoder,
@@ -47,6 +49,7 @@ public class DataInitializer {
                 try {
                     tx.executeWithoutResult(status -> {
                         syncAdminAccount(userRepository, passwordEncoder, adminUsername, adminPassword, forceAdminEnvSync);
+                        backfillExistingDatabaseCourses(playlistRepository);
                         backfillExistingDatabaseQuestions(questionRepository);
                         episodeRepository.backfillNullEnabledToTrue();
                         episodeRepository.backfillNullSortOrder();
@@ -69,6 +72,17 @@ public class DataInitializer {
                 }
             }
         };
+    }
+
+    public static void backfillExistingDatabaseCourses(PlaylistRepository playlistRepository) {
+        int pub = playlistRepository.backfillNullPublishedToTrue();
+        int arch = playlistRepository.backfillNullArchivedToFalse();
+        int sort = playlistRepository.backfillNullSortOrder();
+        int rates = playlistRepository.backfillNullRatesAndBonus();
+        if (pub > 0 || arch > 0 || sort > 0 || rates > 0) {
+            log.info("Backfilled existing database courses safely (published={}, archived={}, sortOrder={}, rates={}).",
+                    pub, arch, sort, rates);
+        }
     }
 
     private void backfillExistingDatabaseQuestions(QuestionRepository questionRepository) {

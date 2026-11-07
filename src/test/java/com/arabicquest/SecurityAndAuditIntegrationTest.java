@@ -128,6 +128,7 @@ class SecurityAndAuditIntegrationTest {
                 return;
             }
             Playlist course = new Playlist("Synthetic Test Course", "PL_SYNTHETIC_TEST_01", "Test-only fixture course");
+            course.setPublished(true);
             course.setArabicRewardRate(new BigDecimal("15.00"));
             course.setEnglishRewardRate(new BigDecimal("10.00"));
             course.setCompletionBonus(new BigDecimal("100.00"));

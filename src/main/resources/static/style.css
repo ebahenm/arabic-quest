@@ -1168,3 +1168,214 @@ header {
         font-size: 16px !important; /* Prevents auto-zoom on iOS Safari */
     }
 }
+
+/* ============================================================================
+   PHASE 4: MULTI-COURSE CATALOG & SYLLABUS VIEWS
+   ============================================================================ */
+
+.portal-container {
+    max-width: 1360px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 1.75rem 2rem 3rem;
+    flex: 1;
+}
+
+.catalog-header {
+    margin-bottom: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.catalog-header h1 {
+    font-size: 1.65rem;
+    font-weight: 800;
+    color: var(--text-white);
+}
+
+.catalog-header p {
+    font-size: 0.92rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.course-catalog-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 1.5rem;
+}
+
+.course-catalog-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.course-catalog-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(201, 162, 77, 0.65);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.38);
+}
+
+.course-cover-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: linear-gradient(135deg, #0b1f33 0%, #045b62 100%);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.course-cover-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.course-cover-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    color: #c9a24d;
+    font-weight: 800;
+    font-size: 1.35rem;
+    text-align: center;
+    padding: 1rem;
+}
+
+.course-card-body {
+    padding: 1.25rem 1.35rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    flex: 1;
+}
+
+.course-card-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--text-white);
+    font-family: 'Cairo', 'Plus Jakarta Sans', sans-serif;
+    line-height: 1.35;
+}
+
+.course-card-desc {
+    font-size: 0.84rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.course-card-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.course-earned-box {
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.7rem 0.9rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+}
+
+.syllabus-hero-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 1.5rem;
+    align-items: center;
+}
+
+.syllabus-episode-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.syllabus-ep-row {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-wrap: wrap;
+}
+
+.syllabus-ep-row:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--primary);
+}
+
+.syllabus-ep-row.locked {
+    opacity: 0.68;
+    border-style: dashed;
+}
+
+.syllabus-ep-rates {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.78rem;
+}
+
+.rate-chip {
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    padding: 0.22rem 0.65rem;
+    color: #f8fafc;
+    font-weight: 700;
+}
+
+.breadcrumb-nav-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+    .portal-container {
+        padding: 1.1rem 1rem 2.5rem;
+    }
+    .syllabus-hero-card {
+        grid-template-columns: 1fr;
+    }
+}

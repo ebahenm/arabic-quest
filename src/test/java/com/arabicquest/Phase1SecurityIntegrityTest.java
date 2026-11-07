@@ -81,7 +81,11 @@ class Phase1SecurityIntegrityTest {
                 userRepository.save(new User("p1watchstudent", passwordEncoder.encode("StudentPass!123"), "Watch Student", Role.ROLE_STUDENT)));
 
         Playlist course = playlistRepository.findByYoutubePlaylistId("PL_PHASE1_WATCH")
-                .orElseGet(() -> playlistRepository.save(new Playlist("Watch Test Course", "PL_PHASE1_WATCH", "")));
+                .orElseGet(() -> {
+                    Playlist p = new Playlist("Watch Test Course", "PL_PHASE1_WATCH", "");
+                    p.setPublished(true);
+                    return playlistRepository.save(p);
+                });
 
         Episode longEp = episodeRepository.findByPlaylistIdAndEpisodeNumber(course.getId(), 1)
                 .orElseGet(() -> episodeRepository.save(new Episode(course, 1, "45-Min Episode", "VIDLONG0001", 2700)));

@@ -154,6 +154,11 @@ public class WatchProgressService {
             throw new SecurityException("Episode is currently unavailable.");
         }
         boolean allowBetaBypass = betaUnlockRequested && user.hasBetaAccess();
+        if (episode.getPlaylist() == null
+                || episode.getPlaylist().isArchived()
+                || (!episode.getPlaylist().isPublished() && !allowBetaBypass)) {
+            throw new SecurityException("Course is not available.");
+        }
         if (allowBetaBypass) {
             return;
         }

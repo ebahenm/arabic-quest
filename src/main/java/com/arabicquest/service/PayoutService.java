@@ -70,14 +70,23 @@ public class PayoutService {
         BigDecimal totalPaid = payoutRepository.calculateTotalPaidToStudent(student.getId());
         BigDecimal balanceOwed = totalEarned.subtract(totalPaid);
 
-        Playlist playlist = playlistRepository.findFirstByOrderByIdAsc().orElse(null);
-        long totalEpisodes = playlist != null ? episodeRepository.countActiveByPlaylistId(playlist.getId()) : 0;
-        long passedEpisodes = playlist != null
-                ? episodeRewardClaimRepository.countClaimedActiveEpisodesByStudentAndPlaylist(student.getId(), playlist.getId())
-                : 0;
-        boolean bonusUnlocked = playlist != null
-                && playlistBonusClaimRepository.existsByStudentIdAndPlaylistId(student.getId(), playlist.getId());
-        BigDecimal bonusAmount = playlist != null ? playlist.getCompletionBonus() : BrandConstants.DEFAULT_COMPLETION_BONUS;
+        List<Playlist> publishedCourses = playlistRepository.findPublishedActiveOrderBySortOrderAsc();
+        long totalEpisodes = 0;
+        long passedEpisodes = 0;
+        boolean bonusUnlocked = false;
+        BigDecimal bonusAmount = BrandConstants.DEFAULT_COMPLETION_BONUS;
+        for (int i = 0; i < publishedCourses.size(); i++) {
+            Playlist c = publishedCourses.get(i);
+            totalEpisodes += episodeRepository.countActiveByPlaylistId(c.getId());
+            passedEpisodes += episodeRewardClaimRepository
+                    .countClaimedActiveEpisodesByStudentAndPlaylist(student.getId(), c.getId());
+            if (playlistBonusClaimRepository.existsByStudentIdAndPlaylistId(student.getId(), c.getId())) {
+                bonusUnlocked = true;
+            }
+            if (i == 0 && c.getCompletionBonus() != null) {
+                bonusAmount = c.getCompletionBonus();
+            }
+        }
 
         return new EarningsSummaryResponse(
                 student.getUsername(),

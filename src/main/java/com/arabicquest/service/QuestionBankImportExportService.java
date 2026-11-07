@@ -51,6 +51,10 @@ public class QuestionBankImportExportService {
             courseDto.setTitle(playlist.getTitle());
             courseDto.setYoutubePlaylistId(playlist.getYoutubePlaylistId());
             courseDto.setDescription(playlist.getDescription());
+            courseDto.setCoverImageUrl(playlist.getCoverImageUrl());
+            courseDto.setPublished(playlist.isPublished());
+            courseDto.setArchived(playlist.isArchived());
+            courseDto.setSortOrder(playlist.getSortOrder());
             courseDto.setRateArabicSub(playlist.getArabicRewardRate());
             courseDto.setRateEnglishDub(playlist.getEnglishRewardRate());
             courseDto.setCompletionBonus(playlist.getCompletionBonus());
@@ -143,6 +147,16 @@ public class QuestionBankImportExportService {
             playlist.setTitle(courseTitle);
             if (courseDto.getDescription() != null) {
                 playlist.setDescription(courseDto.getDescription());
+            }
+            if (courseDto.getCoverImageUrl() != null) {
+                playlist.setCoverImageUrl(courseDto.getCoverImageUrl());
+            }
+            playlist.setPublished(courseDto.getPublished() != null ? courseDto.getPublished() : true);
+            if (courseDto.getArchived() != null) {
+                playlist.setArchived(courseDto.getArchived());
+            }
+            if (courseDto.getSortOrder() != null) {
+                playlist.setSortOrder(courseDto.getSortOrder());
             }
             playlist.setArabicRewardRate(courseDto.getRateArabicSub() != null
                     ? courseDto.getRateArabicSub()

@@ -15,4 +15,10 @@ public interface PlaylistBonusClaimRepository extends JpaRepository<PlaylistBonu
 
     @Query("SELECT COALESCE(SUM(pbc.bonusAmount), 0) FROM PlaylistBonusClaim pbc WHERE pbc.student.id = :studentId")
     BigDecimal calculateTotalBonusesByStudent(@Param("studentId") Long studentId);
+
+    @Query("SELECT COALESCE(SUM(pbc.bonusAmount), 0) FROM PlaylistBonusClaim pbc " +
+           "WHERE pbc.student.id = :studentId AND pbc.playlist.id = :playlistId")
+    BigDecimal calculateBonusesByStudentAndPlaylist(
+            @Param("studentId") Long studentId,
+            @Param("playlistId") Long playlistId);
 }

@@ -24,6 +24,18 @@ public class Playlist {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "cover_image_url", length = 1000)
+    private String coverImageUrl;
+
+    @Column(name = "published")
+    private Boolean published = false;
+
+    @Column(name = "archived")
+    private Boolean archived = false;
+
+    @Column(name = "sort_order")
+    private Integer sortOrder = 0;
+
     @Column(name = "arabic_reward_rate", nullable = false, precision = 10, scale = 2)
     private BigDecimal arabicRewardRate = new BigDecimal("15.00");
 
@@ -34,7 +46,7 @@ public class Playlist {
     private BigDecimal completionBonus = new BigDecimal("100.00");
 
     @Column(name = "min_episodes_for_bonus")
-    private Integer minEpisodesForBonus = 12;
+    private Integer minEpisodesForBonus = 1;
 
     @JsonIgnore
     @OneToMany(mappedBy = "playlist", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -51,13 +63,34 @@ public class Playlist {
         this.title = title;
         this.youtubePlaylistId = youtubePlaylistId;
         this.description = description;
+        this.published = false;
+        this.archived = false;
+        this.sortOrder = 0;
     }
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (this.published == null) {
+            this.published = false;
+        }
+        if (this.archived == null) {
+            this.archived = false;
+        }
+        if (this.sortOrder == null) {
+            this.sortOrder = 0;
+        }
+        if (this.arabicRewardRate == null) {
+            this.arabicRewardRate = new BigDecimal("15.00");
+        }
+        if (this.englishRewardRate == null) {
+            this.englishRewardRate = new BigDecimal("10.00");
+        }
+        if (this.completionBonus == null) {
+            this.completionBonus = new BigDecimal("100.00");
+        }
         if (this.minEpisodesForBonus == null) {
-            this.minEpisodesForBonus = 12;
+            this.minEpisodesForBonus = 1;
         }
     }
 
@@ -93,6 +126,38 @@ public class Playlist {
         this.description = description;
     }
 
+    public String getCoverImageUrl() {
+        return coverImageUrl;
+    }
+
+    public void setCoverImageUrl(String coverImageUrl) {
+        this.coverImageUrl = coverImageUrl;
+    }
+
+    public boolean isPublished() {
+        return Boolean.TRUE.equals(published);
+    }
+
+    public void setPublished(Boolean published) {
+        this.published = published != null ? published : false;
+    }
+
+    public boolean isArchived() {
+        return Boolean.TRUE.equals(archived);
+    }
+
+    public void setArchived(Boolean archived) {
+        this.archived = archived != null ? archived : false;
+    }
+
+    public int getSortOrder() {
+        return sortOrder != null ? sortOrder : 0;
+    }
+
+    public void setSortOrder(Integer sortOrder) {
+        this.sortOrder = sortOrder != null ? sortOrder : 0;
+    }
+
     public BigDecimal getArabicRewardRate() {
         return arabicRewardRate;
     }
@@ -101,12 +166,28 @@ public class Playlist {
         this.arabicRewardRate = arabicRewardRate;
     }
 
+    public BigDecimal getRateArabicSub() {
+        return arabicRewardRate;
+    }
+
+    public void setRateArabicSub(BigDecimal rateArabicSub) {
+        this.arabicRewardRate = rateArabicSub;
+    }
+
     public BigDecimal getEnglishRewardRate() {
         return englishRewardRate;
     }
 
     public void setEnglishRewardRate(BigDecimal englishRewardRate) {
         this.englishRewardRate = englishRewardRate;
+    }
+
+    public BigDecimal getRateEnglishDub() {
+        return englishRewardRate;
+    }
+
+    public void setRateEnglishDub(BigDecimal rateEnglishDub) {
+        this.englishRewardRate = rateEnglishDub;
     }
 
     public BigDecimal getCompletionBonus() {
@@ -118,7 +199,7 @@ public class Playlist {
     }
 
     public int getMinEpisodesForBonus() {
-        return minEpisodesForBonus != null && minEpisodesForBonus > 0 ? minEpisodesForBonus : 12;
+        return minEpisodesForBonus != null && minEpisodesForBonus > 0 ? minEpisodesForBonus : 1;
     }
 
     public void setMinEpisodesForBonus(Integer minEpisodesForBonus) {

@@ -5,7 +5,6 @@
     try { localStorage.removeItem(k); } catch (_) {}
 });
 
-const PLAYLIST_ID = 'PLVVfonyXVJI3BXB9Wd2C5yXMr63w3SGXB';
 let selectedWatchMode = 'ARABIC_SUB';
 const DEFAULT_REQUIRED_WATCH_SECONDS = 1800; // 30 minutes cap
 const isBetaRoute = window.location.pathname === '/beta' || window.location.pathname.startsWith('/beta/');
@@ -14,6 +13,9 @@ let currentUser = null;
 let hasBetaAccess = false;
 let betaUnlockAllEpisodes = false;
 
+let coursesCatalog = [];
+let currentCourse = null;
+let currentView = 'CATALOG'; // 'CATALOG' | 'SYLLABUS' | 'EPISODE'
 let currentEpisode = null;
 let episodes = [];
 let currentQuiz = null;
@@ -95,10 +97,409 @@ async function initApp() {
             if (shortcut) shortcut.style.display = 'inline-flex';
         }
 
-        await Promise.all([fetchEarnings(), fetchEpisodes()]);
+        await Promise.all([fetchEarnings(), fetchCourseCatalog()]);
+        showCourseCatalogView(false);
     } catch (e) {
         window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
     }
+}
+
+function pausePlayerSafely() {
+    if (ytReady && ytPlayer && typeof ytPlayer.pauseVideo === 'function') {
+        try { ytPlayer.pauseVideo(); } catch (_) {}
+    }
+    isPlayerCurrentlyPlaying = false;
+}
+
+function setActivePortalView(viewName) {
+    currentView = viewName;
+    const catEl = document.getElementById('catalog-view');
+    const sylEl = document.getElementById('course-syllabus-view');
+    const epEl = document.getElementById('episode-player-view');
+    if (catEl) catEl.style.display = (viewName === 'CATALOG') ? 'block' : 'none';
+    if (sylEl) sylEl.style.display = (viewName === 'SYLLABUS') ? 'block' : 'none';
+    if (epEl) epEl.style.display = (viewName === 'EPISODE') ? 'grid' : 'none';
+}
+
+async function showCourseCatalogView(reload = true) {
+    pausePlayerSafely();
+    setActivePortalView('CATALOG');
+    if (reload) {
+        await Promise.all([fetchEarnings(), fetchCourseCatalog()]);
+    }
+}
+
+async function showCourseSyllabusFromEpisode() {
+    pausePlayerSafely();
+    if (currentCourse) {
+        await openCourseSyllabus(currentCourse.id);
+    } else {
+        await showCourseCatalogView(true);
+    }
+}
+
+function populateCoverBox(containerEl, coverImageUrl, titleText) {
+    if (!containerEl) return;
+    containerEl.textContent = '';
+
+    const fallback = document.createElement('div');
+    fallback.className = 'course-cover-fallback';
+    const arSpan = document.createElement('span');
+    arSpan.lang = 'ar';
+    arSpan.dir = 'rtl';
+    arSpan.textContent = 'تراثُنا';
+    const subSpan = document.createElement('span');
+    subSpan.style.fontSize = '0.82rem';
+    subSpan.style.color = '#f5ecd6';
+    subSpan.style.fontWeight = '600';
+    subSpan.textContent = titleText || 'Turathtona Course';
+    fallback.appendChild(arSpan);
+    fallback.appendChild(subSpan);
+
+    if (coverImageUrl && String(coverImageUrl).trim()) {
+        fallback.style.display = 'none';
+        const img = document.createElement('img');
+        img.src = String(coverImageUrl).trim();
+        img.alt = (titleText || 'Course') + ' cover image';
+        img.loading = 'lazy';
+        img.addEventListener('error', () => {
+            img.style.display = 'none';
+            fallback.style.display = 'flex';
+        });
+        containerEl.appendChild(img);
+    }
+    containerEl.appendChild(fallback);
+}
+
+async function fetchCourseCatalog() {
+    try {
+        const res = await fetch('/api/student/courses', {
+            credentials: 'same-origin',
+            headers: apiHeaders()
+        });
+        if (res.ok) {
+            coursesCatalog = await res.json();
+            renderCourseCatalog();
+        } else if (res.status === 401) {
+            window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
+        }
+    } catch (e) {
+        console.warn('Course catalog fetch failed:', e);
+    }
+}
+
+function renderCourseCatalog() {
+    const grid = document.getElementById('course-catalog-grid');
+    if (!grid) return;
+    grid.textContent = '';
+
+    if (!coursesCatalog || coursesCatalog.length === 0) {
+        const emptyCard = document.createElement('div');
+        emptyCard.style.background = 'var(--bg-card)';
+        emptyCard.style.border = '1px solid var(--border)';
+        emptyCard.style.borderRadius = 'var(--radius-lg)';
+        emptyCard.style.padding = '2.5rem';
+        emptyCard.style.gridColumn = '1 / -1';
+        emptyCard.style.textAlign = 'center';
+
+        const h3 = document.createElement('h3');
+        h3.textContent = 'No published courses yet';
+        h3.style.marginBottom = '0.4rem';
+
+        const p = document.createElement('p');
+        p.style.color = 'var(--text-muted)';
+        p.style.fontSize = '0.9rem';
+        p.textContent = 'New courses will appear here as soon as the administrator publishes them.';
+
+        emptyCard.appendChild(h3);
+        emptyCard.appendChild(p);
+        grid.appendChild(emptyCard);
+        return;
+    }
+
+    coursesCatalog.forEach((course) => {
+        const card = document.createElement('article');
+        card.className = 'course-catalog-card';
+
+        const coverWrap = document.createElement('div');
+        coverWrap.className = 'course-cover-wrap';
+        populateCoverBox(coverWrap, course.coverImageUrl, course.title);
+        card.appendChild(coverWrap);
+
+        const body = document.createElement('div');
+        body.className = 'course-card-body';
+
+        const titleEl = document.createElement('h3');
+        titleEl.className = 'course-card-title';
+        titleEl.textContent = course.title;
+        body.appendChild(titleEl);
+
+        if (course.description) {
+            const descEl = document.createElement('p');
+            descEl.className = 'course-card-desc';
+            descEl.textContent = course.description;
+            body.appendChild(descEl);
+        }
+
+        const metaRow = document.createElement('div');
+        metaRow.className = 'course-card-meta-row';
+        const epCountSpan = document.createElement('span');
+        epCountSpan.textContent = `${course.totalEpisodes} Episode${course.totalEpisodes === 1 ? '' : 's'}`;
+        const ratesSpan = document.createElement('span');
+        ratesSpan.textContent = `🎧 $${Number(course.rateArabicSub).toFixed(2)} • 🔊 $${Number(course.rateEnglishDub).toFixed(2)}`;
+        metaRow.appendChild(epCountSpan);
+        metaRow.appendChild(ratesSpan);
+        body.appendChild(metaRow);
+
+        const progWrap = document.createElement('div');
+        const progHeader = document.createElement('div');
+        progHeader.className = 'progress-header';
+        const progLeft = document.createElement('span');
+        progLeft.textContent = `${course.passedEpisodes} / ${course.totalEpisodes} passed`;
+        const progRight = document.createElement('strong');
+        progRight.textContent = `${course.progressPercentage}%`;
+        progHeader.appendChild(progLeft);
+        progHeader.appendChild(progRight);
+
+        const progBg = document.createElement('div');
+        progBg.className = 'progress-bar-bg';
+        const progFill = document.createElement('div');
+        progFill.className = 'progress-bar-fill';
+        progFill.style.width = `${Math.min(100, Math.max(0, course.progressPercentage || 0))}%`;
+        progBg.appendChild(progFill);
+
+        progWrap.appendChild(progHeader);
+        progWrap.appendChild(progBg);
+        body.appendChild(progWrap);
+
+        const earnedBox = document.createElement('div');
+        earnedBox.className = 'course-earned-box';
+        const earnedLeft = document.createElement('span');
+        earnedLeft.textContent = `Earned: $${Number(course.earnedAmount || 0).toFixed(2)}`;
+        earnedLeft.style.fontWeight = '700';
+        earnedLeft.style.color = '#6ee7b7';
+
+        const possibleRight = document.createElement('span');
+        possibleRight.textContent = `of $${Number(course.possibleAmount || 0).toFixed(2)} possible`;
+        possibleRight.style.color = '#fde68a';
+        possibleRight.style.fontWeight = '700';
+
+        earnedBox.appendChild(earnedLeft);
+        earnedBox.appendChild(possibleRight);
+        body.appendChild(earnedBox);
+
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.className = 'btn-primary';
+        openBtn.style.marginTop = 'auto';
+        openBtn.style.justifyContent = 'center';
+        openBtn.textContent = 'Open Course Syllabus ➔';
+        openBtn.addEventListener('click', () => openCourseSyllabus(course.id));
+        body.appendChild(openBtn);
+
+        card.appendChild(body);
+        grid.appendChild(card);
+    });
+}
+
+async function openCourseSyllabus(courseId) {
+    try {
+        const res = await fetch(`/api/student/courses/${courseId}` + betaQuerySuffix('?'), {
+            credentials: 'same-origin',
+            headers: apiHeaders()
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            alert(err.error || 'Unable to load course.');
+            return;
+        }
+        const detail = await res.json();
+        currentCourse = detail.course;
+        episodes = detail.episodes || [];
+        applyCourseSidebarSummary(currentCourse);
+        renderCourseSyllabus();
+        renderEpisodeList();
+        setActivePortalView('SYLLABUS');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) {
+        console.warn('Course detail load error:', e);
+    }
+}
+
+function applyCourseSidebarSummary(course) {
+    if (!course) return;
+    const sbTitle = document.getElementById('sidebar-course-title');
+    if (sbTitle) sbTitle.textContent = course.title;
+
+    const crumb = document.getElementById('episode-course-breadcrumb');
+    if (crumb) crumb.textContent = course.title;
+
+    const countEl = document.getElementById('badge-course-count');
+    if (countEl) countEl.textContent = `${course.passedEpisodes}/${course.totalEpisodes}`;
+
+    const pctEl = document.getElementById('progress-percent-label');
+    if (pctEl) pctEl.textContent = `${course.progressPercentage}%`;
+
+    const fillEl = document.getElementById('progress-bar-fill');
+    if (fillEl) fillEl.style.width = `${Math.min(100, Math.max(0, course.progressPercentage || 0))}%`;
+
+    const bonusNote = document.getElementById('sidebar-bonus-note');
+    if (bonusNote) {
+        const bonusVal = Number(course.completionBonus != null ? course.completionBonus : 100).toFixed(2);
+        bonusNote.textContent = course.bonusEarned
+            ? `🏆 $${bonusVal} Course Completion Bonus Earned!`
+            : `🏆 Pass every episode in this course to earn the $${bonusVal} Completion Bonus!`;
+    }
+}
+
+function renderCourseSyllabus() {
+    if (!currentCourse) return;
+
+    populateCoverBox(
+        document.getElementById('syllabus-cover-box'),
+        currentCourse.coverImageUrl,
+        currentCourse.title
+    );
+
+    const titleEl = document.getElementById('syllabus-course-title');
+    if (titleEl) titleEl.textContent = currentCourse.title;
+
+    const descEl = document.getElementById('syllabus-course-desc');
+    if (descEl) {
+        descEl.textContent = currentCourse.description || 'Watch each episode in sequence, pass the 10-question quiz (100%), and submit your written reflection.';
+    }
+
+    const bonusBadge = document.getElementById('syllabus-bonus-badge');
+    if (bonusBadge) {
+        const bonusVal = Number(currentCourse.completionBonus != null ? currentCourse.completionBonus : 100).toFixed(2);
+        bonusBadge.textContent = currentCourse.bonusEarned
+            ? `✓ $${bonusVal} Course Bonus Earned`
+            : `🏆 +$${bonusVal} Completion Bonus`;
+    }
+
+    const progText = document.getElementById('syllabus-progress-text');
+    if (progText) progText.textContent = `${currentCourse.passedEpisodes} / ${currentCourse.totalEpisodes} episodes passed`;
+
+    const progPct = document.getElementById('syllabus-progress-pct');
+    if (progPct) progPct.textContent = `${currentCourse.progressPercentage}%`;
+
+    const progFill = document.getElementById('syllabus-progress-fill');
+    if (progFill) progFill.style.width = `${Math.min(100, Math.max(0, currentCourse.progressPercentage || 0))}%`;
+
+    const earnedEl = document.getElementById('syllabus-earned-val');
+    if (earnedEl) earnedEl.textContent = `$${Number(currentCourse.earnedAmount || 0).toFixed(2)}`;
+
+    const possEl = document.getElementById('syllabus-possible-val');
+    if (possEl) possEl.textContent = `$${Number(currentCourse.possibleAmount || 0).toFixed(2)} possible`;
+
+    const ratesSummary = document.getElementById('syllabus-rates-summary');
+    if (ratesSummary) {
+        ratesSummary.textContent = `🎧 Arabic + Subs: +$${Number(currentCourse.rateArabicSub).toFixed(2)} • 🔊 English Dub: +$${Number(currentCourse.rateEnglishDub).toFixed(2)}`;
+    }
+
+    const epCountLbl = document.getElementById('syllabus-episode-count-label');
+    if (epCountLbl) {
+        epCountLbl.textContent = `${episodes.length} episode${episodes.length === 1 ? '' : 's'} in course`;
+    }
+
+    const listEl = document.getElementById('syllabus-episode-list');
+    if (!listEl) return;
+    listEl.textContent = '';
+
+    if (episodes.length === 0) {
+        const emptyP = document.createElement('p');
+        emptyP.style.color = 'var(--text-muted)';
+        emptyP.style.padding = '1.25rem';
+        emptyP.textContent = 'No active episodes in this course yet.';
+        listEl.appendChild(emptyP);
+        return;
+    }
+
+    episodes.forEach((ep) => {
+        const row = document.createElement('div');
+        row.className = 'syllabus-ep-row' + (ep.locked ? ' locked' : '');
+        row.addEventListener('click', () => {
+            if (ep.locked) {
+                showSyllabusLockedToast(ep);
+                return;
+            }
+            openEpisodeFromSyllabus(ep);
+        });
+
+        const leftWrap = document.createElement('div');
+        leftWrap.style.display = 'flex';
+        leftWrap.style.alignItems = 'center';
+        leftWrap.style.gap = '0.9rem';
+        leftWrap.style.flex = '1';
+        leftWrap.style.minWidth = '220px';
+
+        const pill = document.createElement('div');
+        pill.className = 'ep-num-pill';
+        pill.textContent = ep.locked ? '🔒' : String(ep.episodeNumber);
+        leftWrap.appendChild(pill);
+
+        const textWrap = document.createElement('div');
+        const t = document.createElement('div');
+        t.style.fontWeight = '700';
+        t.style.fontSize = '0.96rem';
+        t.textContent = ep.title;
+
+        const sub = document.createElement('div');
+        sub.style.fontSize = '0.78rem';
+        sub.style.color = 'var(--text-muted)';
+        sub.style.marginTop = '0.18rem';
+        const mins = Math.max(1, Math.round((ep.durationSeconds || 1200) / 60));
+        sub.textContent = ep.locked && ep.unlockAfterEpisodeNumber
+            ? `~${mins} min • Pass Episode ${ep.unlockAfterEpisodeNumber} first`
+            : `~${mins} min`;
+
+        textWrap.appendChild(t);
+        textWrap.appendChild(sub);
+        leftWrap.appendChild(textWrap);
+
+        const rightWrap = document.createElement('div');
+        rightWrap.className = 'syllabus-ep-rates';
+
+        const chipAr = document.createElement('span');
+        chipAr.className = 'rate-chip';
+        chipAr.textContent = `🎧 Arabic + Subs: +$${Number(ep.rateArabicSub != null ? ep.rateArabicSub : 15).toFixed(2)}`;
+
+        const chipEn = document.createElement('span');
+        chipEn.className = 'rate-chip';
+        chipEn.textContent = `🔊 English Dub: +$${Number(ep.rateEnglishDub != null ? ep.rateEnglishDub : 10).toFixed(2)}`;
+
+        const stateBadge = document.createElement('span');
+        const stateCode = ep.state || (ep.locked ? 'LOCKED' : (ep.passed ? 'PASSED' : 'AVAILABLE'));
+        applyEpisodeStateBadgeStyle(stateBadge, stateCode);
+        stateBadge.textContent = ep.stateLabel || stateCode;
+
+        rightWrap.appendChild(chipAr);
+        rightWrap.appendChild(chipEn);
+        rightWrap.appendChild(stateBadge);
+
+        row.appendChild(leftWrap);
+        row.appendChild(rightWrap);
+        listEl.appendChild(row);
+    });
+}
+
+function showSyllabusLockedToast(ep) {
+    const toast = document.getElementById('syllabus-lock-toast');
+    if (!toast) return;
+    toast.textContent = ep.unlockAfterEpisodeNumber
+        ? `🔒 Episode ${ep.episodeNumber} is locked! Complete Episode ${ep.unlockAfterEpisodeNumber} in this course first.`
+        : `🔒 Episode ${ep.episodeNumber} is currently locked by the administrator.`;
+    toast.style.display = 'block';
+    if (lockToastTimer) clearTimeout(lockToastTimer);
+    lockToastTimer = setTimeout(() => {
+        toast.style.display = 'none';
+    }, 6000);
+}
+
+function openEpisodeFromSyllabus(ep) {
+    setActivePortalView('EPISODE');
+    selectEpisode(ep);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function handleStudentLogout() {
@@ -128,12 +529,13 @@ async function fetchEarnings() {
             document.getElementById('val-paid').textContent = '$' + Number(data.totalPaid).toFixed(2);
             document.getElementById('val-owed').textContent = '$' + Number(data.balanceOwed).toFixed(2);
 
-            const total = data.totalEpisodesCount > 0 ? data.totalEpisodesCount : 1;
-            const percent = Math.min(100, Math.round((data.passedEpisodesCount / total) * 100));
-
-            document.getElementById('badge-course-count').textContent = `${data.passedEpisodesCount}/${data.totalEpisodesCount}`;
-            document.getElementById('progress-percent-label').textContent = `${percent}%`;
-            document.getElementById('progress-bar-fill').style.width = `${percent}%`;
+            if (!currentCourse) {
+                const total = data.totalEpisodesCount > 0 ? data.totalEpisodesCount : 1;
+                const percent = Math.min(100, Math.round((data.passedEpisodesCount / total) * 100));
+                document.getElementById('badge-course-count').textContent = `${data.passedEpisodesCount}/${data.totalEpisodesCount}`;
+                document.getElementById('progress-percent-label').textContent = `${percent}%`;
+                document.getElementById('progress-bar-fill').style.width = `${percent}%`;
+            }
         } else if (res.status === 401) {
             window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
         }
@@ -144,29 +546,42 @@ async function fetchEarnings() {
 
 async function fetchEpisodes() {
     try {
+        if (currentCourse) {
+            const res = await fetch(`/api/student/courses/${currentCourse.id}` + betaQuerySuffix('?'), {
+                credentials: 'same-origin',
+                headers: apiHeaders()
+            });
+            if (res.ok) {
+                const detail = await res.json();
+                currentCourse = detail.course;
+                episodes = detail.episodes || [];
+                applyCourseSidebarSummary(currentCourse);
+                renderCourseSyllabus();
+                if (currentEpisode) {
+                    const refreshed = episodes.find((e) => e.id === currentEpisode.id);
+                    if (refreshed && !refreshed.locked) {
+                        currentEpisode = refreshed;
+                        applyWatchStatus(refreshed.watchStatus, refreshed.passed);
+                    } else if (refreshed && refreshed.locked) {
+                        const fallbackUnlocked = episodes.find((e) => !e.locked) || episodes[0];
+                        if (fallbackUnlocked && currentView === 'EPISODE') selectEpisode(fallbackUnlocked);
+                    }
+                }
+                renderEpisodeList();
+                return;
+            } else if (res.status === 401) {
+                window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
+                return;
+            }
+        }
+
         const res = await fetch('/api/student/episodes' + betaQuerySuffix('?'), {
             credentials: 'same-origin',
             headers: apiHeaders()
         });
         if (res.ok) {
             episodes = await res.json();
-            if (currentEpisode) {
-                const refreshed = episodes.find((e) => e.id === currentEpisode.id);
-                if (refreshed && !refreshed.locked) {
-                    currentEpisode = refreshed;
-                    applyWatchStatus(refreshed.watchStatus, refreshed.passed);
-                } else if (refreshed && refreshed.locked) {
-                    const fallbackUnlocked = episodes.find((e) => !e.locked) || episodes[0];
-                    if (fallbackUnlocked) selectEpisode(fallbackUnlocked);
-                }
-            }
             renderEpisodeList();
-            if (episodes.length > 0 && !currentEpisode) {
-                const firstActive = episodes.find((e) => !e.passed && !e.locked)
-                    || episodes.find((e) => !e.locked)
-                    || episodes[0];
-                selectEpisode(firstActive);
-            }
         } else if (res.status === 401) {
             window.location.href = isBetaRoute ? '/login?next=/beta' : '/login';
         }
