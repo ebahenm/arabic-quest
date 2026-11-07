@@ -202,6 +202,7 @@
 
             <div id="student-earnings-pill" class="earnings-strip">
                 <div class="earnings-metric">Earned: <strong id="val-earned">$0.00</strong></div>
+                <div class="earnings-metric">Pending Review: <strong id="val-pending-review" style="color: #fbbf24;">$0.00</strong></div>
                 <div class="earnings-metric">Paid: <strong id="val-paid">$0.00</strong></div>
                 <div class="earnings-metric owed">Owed: <strong id="val-owed">$0.00</strong></div>
             </div>
@@ -218,7 +219,7 @@
         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
             <span class="beta-pill">🧪 BETA SANDBOX</span>
             <span id="beta-status-msg" style="font-size: 0.8rem; color: #e2e8f0;">
-                Test 10m watch timer, sequential locks, 20-question (100% pass) quizzes &amp; rewards safely.
+                Test 30m watch cap, sequential locks, 10-question (100% pass) session quizzes &amp; written answers safely.
             </span>
         </div>
         <div class="beta-actions">
@@ -247,7 +248,7 @@
                         <div id="progress-bar-fill" class="progress-bar-fill"></div>
                     </div>
                     <div class="bonus-milestone">
-                        <span>🏆 Score 100% (20/20) on each episode in order to unlock the next &amp; earn the $100.00 Bonus!</span>
+                        <span>🏆 Score 100% (10/10) + pass the written reflection on each episode in order to earn the $100.00 Bonus!</span>
                     </div>
                 </div>
             </div>
@@ -304,11 +305,11 @@
             </div>
 
             <!-- Episode-Specific Vocabulary & Translation Study Guide -->
-            <div class="vocab-drawer">
+            <div id="vocab-drawer-box" class="vocab-drawer" style="display: none;">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                     <div>
                         <h3 style="font-size: 1.05rem; font-weight: 800;">📚 Episode Vocabulary &amp; Translation Guide</h3>
-                        <p style="font-size: 0.82rem; color: var(--text-muted);">Review these key Arabic terms carefully — they are tested alongside the lecture in the 20-question quiz!</p>
+                        <p style="font-size: 0.82rem; color: var(--text-muted);">Review these key Arabic terms carefully alongside the episode.</p>
                     </div>
                     <span class="btn-ai-auto-badge">⚡ Episode Study Lexicon</span>
                 </div>
@@ -316,30 +317,77 @@
                 <div id="vocab-grid" class="vocab-grid"></div>
             </div>
 
-            <!-- Interactive 20-Question Quiz Box (Unlocked only after 10m verified watch time) -->
+            <!-- Interactive 10-Question Session Quiz Box (Unlocked after verified watch requirement) -->
             <section id="quiz-section" class="quiz-box" style="display: none;">
                 <div class="quiz-header">
                     <div>
                         <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                            <h3 id="quiz-heading-title">Comprehension Quiz (20 Questions)</h3>
-                            <span id="quiz-pass-badge" class="quiz-pass-badge">Pass Mark: 100% (20/20)</span>
-                            <span id="quiz-answered-badge" class="btn-ai-auto-badge">Answered: 0 / 20</span>
+                            <h3 id="quiz-heading-title">Comprehension Quiz (10 Questions)</h3>
+                            <span id="quiz-pass-badge" class="quiz-pass-badge">Pass Mark: 100% (10/10)</span>
+                            <span id="quiz-answered-badge" class="btn-ai-auto-badge">Answered: 0 / 10</span>
                         </div>
                         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                            Score 100% (all 20 questions correct) to claim your +$15.00 episode reward and unlock the next episode! Failed attempts trigger a 10-minute review cooldown.
+                            Score 100% (10/10) on this session to unlock the written reflection question. Failed attempts trigger a review cooldown; if a question seems unfair, you can report it below.
                         </p>
                     </div>
                 </div>
 
                 <div id="cooldown-banner" class="cooldown-banner"></div>
 
+                <div id="failed-report-panel" style="display: none; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.25rem;">
+                    <div style="font-weight: 800; color: #fca5a5; margin-bottom: 0.35rem;">🚩 Spot an unfair or unclear question in your last attempt?</div>
+                    <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                        Report a question below with an optional note. If the admin edits or retires a reported question, your retry cooldown resets immediately.
+                    </p>
+                    <div id="failed-report-list" style="display: flex; flex-direction: column; gap: 0.55rem;"></div>
+                </div>
+
                 <form id="quiz-form" onsubmit="handleQuizSubmit(event)">
                     <div id="questions-container"></div>
 
                     <button type="submit" id="btn-submit-quiz" class="btn-primary" style="margin-top: 1.25rem;">
-                        <span>Submit for Grading &amp; Reward</span>
+                        <span>Submit 10 Answers</span>
                         <span>➔</span>
                     </button>
+                </form>
+            </section>
+
+            <!-- Written Open Reflection Section (Unlocked after 10/10 MCQ pass) -->
+            <section id="open-question-section" class="quiz-box" style="display: none; border-color: rgba(201, 162, 77, 0.55);">
+                <div class="quiz-header">
+                    <div style="width: 100%;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                            <h3 style="color: #fde68a;">✍️ Part 2: Written Historical Reflection</h3>
+                            <span id="open-q-status-badge" class="quiz-pass-badge">Awaiting Submission</span>
+                        </div>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                            Answer in English (40 to 2,000 characters). Your episode reward is credited once your written reflection is reviewed and approved.
+                        </p>
+                    </div>
+                </div>
+
+                <div id="open-q-feedback-box" style="display: none; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); border-radius: var(--radius-md); padding: 0.9rem 1.15rem; margin-bottom: 1rem;">
+                    <div style="font-size: 0.78rem; font-weight: 800; text-transform: uppercase; color: #fcd34d; margin-bottom: 0.25rem;">Reviewer Feedback</div>
+                    <div id="open-q-feedback-text" style="font-size: 0.9rem; color: #fef3c7; line-height: 1.5;"></div>
+                </div>
+
+                <div style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1rem;">
+                    <div style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.3rem;">Reflection Prompt</div>
+                    <div id="open-q-prompt-text" style="font-size: 1rem; font-weight: 700; color: #f8fafc; line-height: 1.55;"></div>
+                </div>
+
+                <form id="open-answer-form" onsubmit="handleOpenAnswerSubmit(event)">
+                    <textarea id="open-answer-textarea" rows="5" minlength="40" maxlength="2000"
+                        placeholder="Write your explanation in English (40 to 2,000 characters)..."
+                        style="width: 100%; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--bg-subtle); color: #f8fafc; font-family: inherit; font-size: 0.95rem; line-height: 1.55; resize: vertical;"></textarea>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <span id="open-answer-char-count" style="font-size: 0.8rem; color: var(--text-muted);">0 / 2,000 characters (minimum 40)</span>
+                        <button type="submit" id="btn-submit-open-answer" class="btn-primary">
+                            <span>Submit Written Answer for Approval</span>
+                            <span>➔</span>
+                        </button>
+                    </div>
+                    <div id="open-answer-msg" style="display: none; margin-top: 0.75rem; font-size: 0.86rem; font-weight: 600;"></div>
                 </form>
             </section>
         </main>

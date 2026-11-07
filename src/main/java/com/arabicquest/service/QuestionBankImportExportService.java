@@ -4,6 +4,7 @@ import com.arabicquest.config.BrandConstants;
 import com.arabicquest.dto.QuestionBankBackupDto;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.EpisodeRepository;
+import com.arabicquest.repository.OpenQuestionRepository;
 import com.arabicquest.repository.PlaylistRepository;
 import com.arabicquest.repository.QuizRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -20,23 +21,26 @@ public class QuestionBankImportExportService {
     private final PlaylistRepository playlistRepository;
     private final EpisodeRepository episodeRepository;
     private final QuizRepository quizRepository;
+    private final OpenQuestionRepository openQuestionRepository;
     private final ObjectMapper objectMapper;
 
     public QuestionBankImportExportService(
             PlaylistRepository playlistRepository,
             EpisodeRepository episodeRepository,
             QuizRepository quizRepository,
+            OpenQuestionRepository openQuestionRepository,
             ObjectMapper objectMapper) {
         this.playlistRepository = playlistRepository;
         this.episodeRepository = episodeRepository;
         this.quizRepository = quizRepository;
+        this.openQuestionRepository = openQuestionRepository;
         this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
     public QuestionBankBackupDto exportQuestionBank() {
         QuestionBankBackupDto backup = new QuestionBankBackupDto();
-        backup.setSchemaVersion(1);
+        backup.setSchemaVersion(2);
         backup.setExportedAt(Instant.now());
 
         List<Playlist> playlists = playlistRepository.findAll();
@@ -83,6 +87,8 @@ public class QuestionBankImportExportService {
                         qDto.setQuestionOrder(q.getQuestionOrder());
                         qDto.setActive(q.isActive());
                         qDto.setStatus(q.getStatus().name());
+                        qDto.setType(q.getType().name());
+                        qDto.setEvidence(q.getEvidence());
                         for (QuestionOption opt : q.getOptions()) {
                             qDto.getOptions().add(new QuestionBankBackupDto.OptionBackup(
                                     opt.getOptionText(),
@@ -92,6 +98,17 @@ public class QuestionBankImportExportService {
                         epDto.getQuestions().add(qDto);
                     }
                 }
+
+                List<OpenQuestion> opens = openQuestionRepository.findByEpisodeIdOrderByIdAsc(episode.getId());
+                for (OpenQuestion oq : opens) {
+                    QuestionBankBackupDto.OpenQuestionBackup oqDto = new QuestionBankBackupDto.OpenQuestionBackup();
+                    oqDto.setPromptText(oq.getPromptText());
+                    oqDto.setEvidence(oq.getEvidence());
+                    oqDto.setActive(oq.isActive());
+                    oqDto.setStatus(oq.getStatus().name());
+                    epDto.getOpenQuestions().add(oqDto);
+                }
+
                 courseDto.getEpisodes().add(epDto);
             }
             backup.getCourses().add(courseDto);
@@ -109,6 +126,7 @@ public class QuestionBankImportExportService {
         int coursesImported = 0;
         int episodesImported = 0;
         int questionsImported = 0;
+        int openQuestionsImported = 0;
 
         for (QuestionBankBackupDto.CourseBackup courseDto : backup.getCourses()) {
             if (courseDto.getYoutubePlaylistId() == null || courseDto.getYoutubePlaylistId().isBlank()) {
@@ -212,6 +230,8 @@ public class QuestionBankImportExportService {
 
                         targetQ.setActive(qDto.getActive() == null || qDto.getActive());
                         targetQ.setStatus(parseStatus(qDto.getStatus()));
+                        targetQ.setType(parseType(qDto.getType()));
+                        targetQ.setEvidence(qDto.getEvidence());
                         targetQ.getOptions().clear();
                         for (QuestionBankBackupDto.OptionBackup optDto : qDto.getOptions()) {
                             if (optDto.getOptionText() == null || optDto.getOptionText().isBlank()) {
@@ -227,13 +247,45 @@ public class QuestionBankImportExportService {
                     }
                     quizRepository.save(quiz);
                 }
+
+                if (epDto.getOpenQuestions() != null && !epDto.getOpenQuestions().isEmpty()) {
+                    Map<String, OpenQuestion> existingOpenByPrompt = new HashMap<>();
+                    for (OpenQuestion existingOq : openQuestionRepository.findByEpisodeIdOrderByIdAsc(episode.getId())) {
+                        if (existingOq.getPromptText() != null) {
+                            existingOpenByPrompt.put(existingOq.getPromptText().trim(), existingOq);
+                        }
+                    }
+                    for (QuestionBankBackupDto.OpenQuestionBackup oqDto : epDto.getOpenQuestions()) {
+                        if (oqDto.getPromptText() == null || oqDto.getPromptText().isBlank()) {
+                            continue;
+                        }
+                        String cleanPrompt = oqDto.getPromptText().trim();
+                        OpenQuestion targetOq = existingOpenByPrompt.get(cleanPrompt);
+                        if (targetOq == null) {
+                            targetOq = new OpenQuestion(
+                                    episode,
+                                    cleanPrompt,
+                                    oqDto.getEvidence(),
+                                    parseStatus(oqDto.getStatus())
+                            );
+                        } else {
+                            targetOq.setEvidence(oqDto.getEvidence());
+                            targetOq.setStatus(parseStatus(oqDto.getStatus()));
+                        }
+                        targetOq.setActive(oqDto.getActive() == null || oqDto.getActive());
+                        openQuestionRepository.save(targetOq);
+                        existingOpenByPrompt.put(cleanPrompt, targetOq);
+                        openQuestionsImported++;
+                    }
+                }
             }
         }
 
         return Map.of(
                 "coursesImported", coursesImported,
                 "episodesImported", episodesImported,
-                "questionsImported", questionsImported
+                "questionsImported", questionsImported,
+                "openQuestionsImported", openQuestionsImported
         );
     }
 
@@ -245,6 +297,17 @@ public class QuestionBankImportExportService {
             return QuestionStatus.valueOf(raw.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
             return QuestionStatus.APPROVED;
+        }
+    }
+
+    private QuestionType parseType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return QuestionType.RECALL;
+        }
+        try {
+            return QuestionType.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return QuestionType.RECALL;
         }
     }
 }

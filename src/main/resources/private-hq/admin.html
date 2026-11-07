@@ -246,17 +246,21 @@
                 </button>
             </div>
 
-            <!-- Organized 5-Tab Navigation Bar -->
+            <!-- Organized 6-Tab Navigation Bar -->
             <nav class="admin-tabs-nav" aria-label="Admin Sections">
                 <button type="button" class="admin-tab-btn active" data-tab="overview">
                     <span>📊 Overview &amp; Payouts</span>
+                </button>
+                <button type="button" class="admin-tab-btn" data-tab="reviews">
+                    <span>✍️ Review Queue</span>
+                    <span id="tab-badge-reviews" class="tab-count-pill">0</span>
                 </button>
                 <button type="button" class="admin-tab-btn" data-tab="students">
                     <span>👨‍🎓 Students</span>
                     <span id="tab-badge-students" class="tab-count-pill">0</span>
                 </button>
                 <button type="button" class="admin-tab-btn" data-tab="course">
-                    <span>🎬 Course &amp; AI Quizzes</span>
+                    <span>🎬 Courses &amp; Question Bank</span>
                     <span id="tab-badge-episodes" class="tab-count-pill">0</span>
                 </button>
                 <button type="button" class="admin-tab-btn" data-tab="audit">
@@ -287,6 +291,10 @@
                     <div class="metric-card">
                         <div class="metric-label">Student Total Earned</div>
                         <div id="admin-metric-earned" class="metric-value green">$0.00</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Pending Written Review</div>
+                        <div id="admin-metric-pending" class="metric-value gold">$0.00</div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-label">Total Paid Out</div>
@@ -339,6 +347,33 @@
                         </thead>
                         <tbody id="admin-payouts-tbody"></tbody>
                     </table>
+                </div>
+            </section>
+
+            <!-- ========================================================== -->
+            <!-- TAB 1B: WRITTEN ANSWERS REVIEW QUEUE                       -->
+            <!-- ========================================================== -->
+            <section id="tab-panel-reviews" class="admin-tab-panel">
+                <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.5);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: var(--gold);">✍️ Written Reflections Review Queue</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Episode rewards and course completion bonuses are created only when you approve a student's written answer here. AI grade suggestions never approve anything automatically.
+                            </p>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                            <select id="review-status-filter" class="select-input" style="width: 190px; padding: 0.5rem 0.75rem; font-size: 0.84rem;">
+                                <option value="PENDING">Pending Review</option>
+                                <option value="REVISION_REQUESTED">Revision Requested</option>
+                                <option value="APPROVED">Approved</option>
+                                <option value="ALL">All Submissions</option>
+                            </select>
+                            <button type="button" id="btn-refresh-reviews" class="btn-ghost">↻ Refresh Queue</button>
+                        </div>
+                    </div>
+                    <div id="review-queue-msg" class="feedback-msg"></div>
+                    <div id="open-answers-review-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
                 </div>
             </section>
 
@@ -461,29 +496,186 @@
                 <div class="admin-card-section">
                     <div class="card-header-bar">
                         <div>
-                            <h3>🤖 AI Quiz &amp; Vocabulary Generator (Gemini 2.5 Flash)</h3>
+                            <h3>🤖 Transcript Question Bank Generator (2-Pass Gemini Verification)</h3>
                             <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Generate a fresh 20-question (100% pass mark) comprehension quiz with randomized answer positions for any episode.
+                                Paste an episode transcript (up to 60,000 chars). Pass 1 generates 30 MCQs + 3 open questions; Pass 2 verifies every item against the transcript and deduplicates. Everything saves as <strong>DRAFT</strong> until you approve it below.
                             </p>
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
-                        <div style="flex: 1; min-width: 260px;">
-                            <label for="ai-episode-select" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Select Episode:</label>
-                            <select id="ai-episode-select" class="select-input"></select>
+                    <div style="margin-bottom: 0.85rem;">
+                        <label for="ai-episode-select" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Select Episode (controls both Generator &amp; Question Bank Manager below):</label>
+                        <select id="ai-episode-select" class="select-input"></select>
+                    </div>
+
+                    <div style="margin-bottom: 0.85rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                            <label for="ai-transcript-input" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted);">Episode Transcript (Required for AI Generation):</label>
+                            <span id="ai-transcript-char-count" style="font-size: 0.78rem; color: var(--text-muted);">0 / 60,000 chars</span>
                         </div>
+                        <textarea id="ai-transcript-input" class="text-input" rows="6" maxlength="65000" placeholder="Paste the episode transcript here (up to ~60,000 characters)..." style="resize: vertical; line-height: 1.5;"></textarea>
+                    </div>
+
+                    <div>
+                        <button type="button" id="btn-run-ai" class="btn-ai-generate">
+                            ✨ Generate Draft Bank from Transcript (2-Pass)
+                        </button>
+                    </div>
+
+                    <div id="ai-result-box" class="ai-result-box">
+                        <h4 style="color: #c4b5fd; font-weight: 800; margin-bottom: 0.5rem;" id="ai-result-title">Draft Bank Generated!</h4>
+                        <div id="ai-result-content" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6;"></div>
+                    </div>
+                </div>
+
+                <!-- Question Bank Manager for Selected Episode -->
+                <div class="admin-card-section" style="border-color: rgba(16, 185, 129, 0.35);">
+                    <div class="card-header-bar">
                         <div>
-                            <button type="button" id="btn-run-ai" class="btn-ai-generate">
-                                ✨ Generate AI Quiz Now
+                            <h3 style="color: #6ee7b7;">🗂️ Episode Question Bank Manager</h3>
+                            <p id="qbank-summary-bar" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Select an episode above to inspect, filter, edit, approve, or retire MCQs and open questions.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                            <button type="button" id="btn-qbank-bulk-approve" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 0.82rem;">
+                                ✓ Bulk Approve All Drafts
+                            </button>
+                            <button type="button" id="btn-qbank-refresh" class="btn-ghost" style="padding: 0.5rem 0.9rem; font-size: 0.82rem;">
+                                ↻ Refresh Bank
                             </button>
                         </div>
                     </div>
 
-                    <div id="ai-result-box" class="ai-result-box">
-                        <h4 style="color: #c4b5fd; font-weight: 800; margin-bottom: 0.5rem;" id="ai-result-title">Quiz Generated Successfully!</h4>
-                        <div id="ai-result-content" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.6;"></div>
+                    <div id="qbank-manager-msg" class="feedback-msg"></div>
+
+                    <!-- Filters -->
+                    <div style="display: flex; gap: 0.85rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; background: var(--bg-subtle); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+                        <div>
+                            <label for="qbank-filter-status" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.2rem;">Status</label>
+                            <select id="qbank-filter-status" class="select-input" style="width: 155px; padding: 0.45rem 0.65rem; font-size: 0.82rem;">
+                                <option value="ALL">All Statuses</option>
+                                <option value="DRAFT">Draft Only</option>
+                                <option value="APPROVED">Approved Only</option>
+                                <option value="RETIRED">Retired Only</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="qbank-filter-type" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.2rem;">MCQ Type</label>
+                            <select id="qbank-filter-type" class="select-input" style="width: 165px; padding: 0.45rem 0.65rem; font-size: 0.82rem;">
+                                <option value="ALL">All Types</option>
+                                <option value="RECALL">Recall</option>
+                                <option value="REASONING">Reasoning</option>
+                                <option value="VOCABULARY">Vocabulary</option>
+                                <option value="LISTENING">Listening</option>
+                            </select>
+                        </div>
+                        <label style="display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.84rem; font-weight: 700; color: #fca5a5; cursor: pointer; margin-top: 1rem;">
+                            <input type="checkbox" id="qbank-filter-reported" style="width: 16px; height: 16px;">
+                            <span>🚩 Reported Questions Only</span>
+                        </label>
                     </div>
+
+                    <!-- Add / Edit MCQ Form -->
+                    <details id="mcq-editor-details" style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1.15rem; margin-bottom: 1.25rem;">
+                        <summary id="mcq-editor-summary" style="cursor: pointer; font-weight: 800; color: #a7f3d0; font-size: 0.92rem;">➕ Add / Edit Multiple-Choice Question</summary>
+                        <form id="form-upsert-mcq" style="margin-top: 0.9rem;">
+                            <input type="hidden" id="mcq-edit-id" value="">
+                            <div class="form-row">
+                                <div style="grid-column: span 2;">
+                                    <label for="mcq-text" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Question Stem (English; Arabic terms in parentheses)</label>
+                                    <input type="text" id="mcq-text" class="text-input" maxlength="2000" required>
+                                </div>
+                                <div>
+                                    <label for="mcq-type" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Type</label>
+                                    <select id="mcq-type" class="select-input">
+                                        <option value="RECALL">RECALL</option>
+                                        <option value="REASONING">REASONING</option>
+                                        <option value="VOCABULARY">VOCABULARY</option>
+                                        <option value="LISTENING">LISTENING</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="mcq-status" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Status</label>
+                                    <select id="mcq-status" class="select-input">
+                                        <option value="APPROVED">APPROVED</option>
+                                        <option value="DRAFT">DRAFT</option>
+                                        <option value="RETIRED">RETIRED</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 0.85rem;">
+                                <label for="mcq-evidence" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Admin Evidence / Transcript Quote</label>
+                                <input type="text" id="mcq-evidence" class="text-input" maxlength="3000" placeholder="Short quote or note from the transcript">
+                            </div>
+                            <div class="form-row">
+                                <div>
+                                    <label style="font-size: 0.75rem; font-weight: 700; color: #6ee7b7; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                        <input type="radio" name="mcq_correct_idx" value="0" checked> Option 1 (Select radio if correct)
+                                    </label>
+                                    <input type="text" id="mcq-opt-0" class="text-input" maxlength="1000" required>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                        <input type="radio" name="mcq_correct_idx" value="1"> Option 2
+                                    </label>
+                                    <input type="text" id="mcq-opt-1" class="text-input" maxlength="1000" required>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                        <input type="radio" name="mcq_correct_idx" value="2"> Option 3
+                                    </label>
+                                    <input type="text" id="mcq-opt-2" class="text-input" maxlength="1000" required>
+                                </div>
+                                <div>
+                                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                                        <input type="radio" name="mcq_correct_idx" value="3"> Option 4
+                                    </label>
+                                    <input type="text" id="mcq-opt-3" class="text-input" maxlength="1000" required>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.65rem;">
+                                <button type="submit" class="btn-primary" style="padding: 0.55rem 1.2rem;">Save MCQ</button>
+                                <button type="button" id="btn-cancel-mcq-edit" class="btn-ghost">Clear / Cancel Edit</button>
+                            </div>
+                        </form>
+                    </details>
+
+                    <!-- Add / Edit Open Question Form -->
+                    <details id="openq-editor-details" style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1.15rem; margin-bottom: 1.25rem;">
+                        <summary id="openq-editor-summary" style="cursor: pointer; font-weight: 800; color: #fde68a; font-size: 0.92rem;">➕ Add / Edit Open Written Question (Target: 3+ per episode)</summary>
+                        <form id="form-upsert-openq" style="margin-top: 0.9rem;">
+                            <input type="hidden" id="openq-edit-id" value="">
+                            <div class="form-row">
+                                <div style="grid-column: span 2;">
+                                    <label for="openq-prompt" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Open Reflection Prompt (English)</label>
+                                    <input type="text" id="openq-prompt" class="text-input" maxlength="2000" required>
+                                </div>
+                                <div>
+                                    <label for="openq-status" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Status</label>
+                                    <select id="openq-status" class="select-input">
+                                        <option value="APPROVED">APPROVED</option>
+                                        <option value="DRAFT">DRAFT</option>
+                                        <option value="RETIRED">RETIRED</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 0.85rem;">
+                                <label for="openq-evidence" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Admin Evidence / Rubric Note</label>
+                                <input type="text" id="openq-evidence" class="text-input" maxlength="3000" placeholder="Expected points from transcript">
+                            </div>
+                            <div style="display: flex; gap: 0.65rem;">
+                                <button type="submit" class="btn-primary" style="padding: 0.55rem 1.2rem;">Save Open Question</button>
+                                <button type="button" id="btn-cancel-openq-edit" class="btn-ghost">Clear / Cancel Edit</button>
+                            </div>
+                        </form>
+                    </details>
+
+                    <h4 style="font-size: 0.95rem; font-weight: 800; margin-bottom: 0.65rem; color: #e2e8f0;">Multiple-Choice Questions</h4>
+                    <div id="qbank-mcq-list" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;"></div>
+
+                    <h4 style="font-size: 0.95rem; font-weight: 800; margin-bottom: 0.65rem; color: #fde68a;">Open Written Questions</h4>
+                    <div id="qbank-open-list" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
                 </div>
 
                 <div class="admin-card-section">
@@ -540,7 +732,7 @@
                     <div style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                         <div>
                             <h3 style="font-size: 1.05rem;">📋 Student Quiz Attempts Audit Log</h3>
-                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">Every passed (100% • 20/20) and failed quiz submission with score and reward.</p>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">Every passed (100% • 10/10) and failed quiz session submission with score.</p>
                         </div>
                         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
                             <select id="audit-student-filter" class="select-input" style="width: 220px; padding: 0.5rem 0.75rem; font-size: 0.82rem;">
@@ -585,7 +777,7 @@
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem; font-size: 0.84rem; color: var(--text-muted);">
                         <div style="background: var(--bg-subtle); padding: 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
                             <strong style="color: #e9d5ff; display: block; margin-bottom: 0.25rem;">⏩ Instant Watch Unlock</strong>
-                            Simulate completing the 10-minute video watch requirement in 1 click to immediately test the 20-question (100% pass) quiz.
+                            Simulate completing the video watch requirement in 1 click to immediately test the 10-question (100% pass) session quiz &amp; written reflection.
                         </div>
                         <div style="background: var(--bg-subtle); padding: 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
                             <strong style="color: #e9d5ff; display: block; margin-bottom: 0.25rem;">🔓 Toggle Episode Locks</strong>

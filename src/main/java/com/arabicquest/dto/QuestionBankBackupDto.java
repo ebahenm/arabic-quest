@@ -8,7 +8,7 @@ import java.util.Map;
 
 public class QuestionBankBackupDto {
 
-    private int schemaVersion = 1;
+    private int schemaVersion = 2;
     private Instant exportedAt = Instant.now();
     private List<CourseBackup> courses = new ArrayList<>();
 
@@ -123,6 +123,7 @@ public class QuestionBankBackupDto {
         private Double passingScorePercentage;
         private List<Map<String, String>> vocabulary = new ArrayList<>();
         private List<QuestionBackup> questions = new ArrayList<>();
+        private List<OpenQuestionBackup> openQuestions = new ArrayList<>();
 
         public Integer getEpisodeNumber() {
             return episodeNumber;
@@ -187,6 +188,14 @@ public class QuestionBankBackupDto {
         public void setQuestions(List<QuestionBackup> questions) {
             this.questions = questions;
         }
+
+        public List<OpenQuestionBackup> getOpenQuestions() {
+            return openQuestions;
+        }
+
+        public void setOpenQuestions(List<OpenQuestionBackup> openQuestions) {
+            this.openQuestions = openQuestions;
+        }
     }
 
     public static class QuestionBackup {
@@ -194,6 +203,8 @@ public class QuestionBankBackupDto {
         private Integer questionOrder;
         private Boolean active = true;
         private String status = "APPROVED";
+        private String type = "RECALL";
+        private String evidence;
         private List<OptionBackup> options = new ArrayList<>();
 
         public String getQuestionText() {
@@ -228,12 +239,67 @@ public class QuestionBankBackupDto {
             this.status = status;
         }
 
+        public String getType() {
+            return type;
+        }
+
+        public void setType(String type) {
+            this.type = type;
+        }
+
+        public String getEvidence() {
+            return evidence;
+        }
+
+        public void setEvidence(String evidence) {
+            this.evidence = evidence;
+        }
+
         public List<OptionBackup> getOptions() {
             return options;
         }
 
         public void setOptions(List<OptionBackup> options) {
             this.options = options;
+        }
+    }
+
+    public static class OpenQuestionBackup {
+        private String promptText;
+        private String evidence;
+        private Boolean active = true;
+        private String status = "APPROVED";
+
+        public String getPromptText() {
+            return promptText;
+        }
+
+        public void setPromptText(String promptText) {
+            this.promptText = promptText;
+        }
+
+        public String getEvidence() {
+            return evidence;
+        }
+
+        public void setEvidence(String evidence) {
+            this.evidence = evidence;
+        }
+
+        public Boolean getActive() {
+            return active;
+        }
+
+        public void setActive(Boolean active) {
+            this.active = active;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
         }
     }
 

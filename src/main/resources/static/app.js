@@ -17,6 +17,7 @@ let betaUnlockAllEpisodes = false;
 let currentEpisode = null;
 let episodes = [];
 let currentQuiz = null;
+const failedQuestionsByEpisodeId = {};
 
 // YouTube IFrame API & Live Playback State
 let ytPlayer = null;
@@ -53,6 +54,10 @@ function betaQuerySuffix(prefix = '?') {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    const openTextarea = document.getElementById('open-answer-textarea');
+    if (openTextarea) {
+        openTextarea.addEventListener('input', updateOpenAnswerCharCount);
+    }
     startLocalPlaybackMonitor();
     initApp();
 });
@@ -116,6 +121,10 @@ async function fetchEarnings() {
         if (res.ok) {
             const data = await res.json();
             document.getElementById('val-earned').textContent = '$' + Number(data.totalEarned).toFixed(2);
+            const pendingEl = document.getElementById('val-pending-review');
+            if (pendingEl) {
+                pendingEl.textContent = '$' + Number(data.pendingReviewAmount || 0).toFixed(2);
+            }
             document.getElementById('val-paid').textContent = '$' + Number(data.totalPaid).toFixed(2);
             document.getElementById('val-owed').textContent = '$' + Number(data.balanceOwed).toFixed(2);
 
@@ -265,6 +274,8 @@ function selectEpisode(ep) {
         requiredWatchSeconds = Math.min(DEFAULT_REQUIRED_WATCH_SECONDS, Math.max(60, ep.durationSeconds || DEFAULT_REQUIRED_WATCH_SECONDS));
         document.getElementById('quiz-section').style.display = 'none';
     }
+    const openSec = document.getElementById('open-question-section');
+    if (openSec) openSec.style.display = 'none';
 
     renderEpisodeList();
     updateExternalYoutubeLink();
@@ -327,9 +338,9 @@ function renderLiveWatchBar(statusOverride = null, episodePassedOverride = null)
     if (!statusLabel) return;
 
     if (episodePassed) {
-        statusLabel.textContent = '✓ Episode Passed — 100% Comprehension Quiz Completed';
+        statusLabel.textContent = '✓ Episode Passed — Comprehension Quiz & Written Reflection Approved';
     } else if (status.quizUnlocked || liveWatched >= required) {
-        statusLabel.textContent = `✓ Watch Target Reached (${formatClock(liveWatched)} / ${formatClock(required)}) — 20-Question Quiz Unlocked Below!`;
+        statusLabel.textContent = `✓ Watch Target Reached (${formatClock(liveWatched)} / ${formatClock(required)}) — 10-Question Quiz Unlocked Below!`;
     } else {
         const statePrefix = isPlayerCurrentlyPlaying ? '▶️ Watching Live:' : '⏸️ Watch Progress (Paused):';
         statusLabel.textContent = `${statePrefix} ${formatClock(liveWatched)} / ${formatClock(required)} (${pct}%)`;
@@ -736,9 +747,10 @@ function renderCooldownBanner() {
 }
 
 async function fetchVocabGuide(episodeId) {
+    const drawer = document.getElementById('vocab-drawer-box');
     const container = document.getElementById('vocab-grid');
     if (!container) return;
-    container.textContent = 'Loading vocabulary study guide...';
+    container.textContent = '';
 
     try {
         const res = await fetch(`/api/student/episodes/${episodeId}/vocab-guide`, {
@@ -747,7 +759,11 @@ async function fetchVocabGuide(episodeId) {
         });
         if (res.ok) {
             const words = await res.json();
-            container.textContent = '';
+            if (!words || words.length === 0) {
+                if (drawer) drawer.style.display = 'none';
+                return;
+            }
+            if (drawer) drawer.style.display = 'block';
             words.forEach((w) => {
                 const card = document.createElement('div');
                 card.className = 'vocab-card';
@@ -774,8 +790,11 @@ async function fetchVocabGuide(episodeId) {
                 card.appendChild(note);
                 container.appendChild(card);
             });
+        } else if (drawer) {
+            drawer.style.display = 'none';
         }
     } catch (e) {
+        if (drawer) drawer.style.display = 'none';
         console.warn('Vocab fetch failed:', e);
     }
 }
@@ -789,8 +808,11 @@ async function fetchQuiz(episodeId) {
         if (res.ok) {
             currentQuiz = await res.json();
             renderQuizQuestions();
+            renderFailedReportPanel(episodeId);
+            renderOpenQuestionSection(currentQuiz.openQuestion || null);
         } else {
             currentQuiz = null;
+            renderOpenQuestionSection(null);
         }
     } catch (e) {
         console.warn('Quiz fetch failed:', e);
@@ -808,6 +830,88 @@ function updateQuizAnsweredCounter() {
         }
     });
     answeredBadge.textContent = `Answered: ${answered} / ${total}`;
+}
+
+function renderFailedReportPanel(episodeId) {
+    const panel = document.getElementById('failed-report-panel');
+    const listEl = document.getElementById('failed-report-list');
+    if (!panel || !listEl) return;
+    listEl.textContent = '';
+
+    const failedList = failedQuestionsByEpisodeId[episodeId];
+    if (!failedList || failedList.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    failedList.forEach((q, idx) => {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+        row.style.gap = '0.75rem';
+        row.style.flexWrap = 'wrap';
+        row.style.padding = '0.55rem 0.75rem';
+        row.style.background = 'var(--bg-subtle)';
+        row.style.border = '1px solid var(--border)';
+        row.style.borderRadius = 'var(--radius-sm)';
+
+        const qText = document.createElement('span');
+        qText.style.fontSize = '0.84rem';
+        qText.style.color = '#e2e8f0';
+        qText.style.flex = '1';
+        qText.textContent = `Q${idx + 1}: ${q.questionText}`;
+
+        const actionsWrap = document.createElement('div');
+        actionsWrap.style.display = 'flex';
+        actionsWrap.style.alignItems = 'center';
+        actionsWrap.style.gap = '0.45rem';
+
+        const reasonInput = document.createElement('input');
+        reasonInput.type = 'text';
+        reasonInput.maxLength = 500;
+        reasonInput.placeholder = 'Optional reason...';
+        reasonInput.style.padding = '0.3rem 0.55rem';
+        reasonInput.style.fontSize = '0.78rem';
+        reasonInput.style.borderRadius = '6px';
+        reasonInput.style.border = '1px solid var(--border)';
+        reasonInput.style.background = 'var(--bg-card)';
+        reasonInput.style.color = '#f8fafc';
+
+        const reportBtn = document.createElement('button');
+        reportBtn.type = 'button';
+        reportBtn.className = 'btn-reset-mode';
+        reportBtn.textContent = '🚩 Report this question';
+        reportBtn.addEventListener('click', async () => {
+            reportBtn.disabled = true;
+            try {
+                const res = await fetch(`/api/student/questions/${q.id}/report`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: apiHeaders(true),
+                    body: JSON.stringify({ reason: reasonInput.value.trim() || null })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    reportBtn.textContent = '✓ Reported';
+                    reasonInput.disabled = true;
+                } else {
+                    reportBtn.disabled = false;
+                    alert(data.error || 'Could not report question.');
+                }
+            } catch (err) {
+                reportBtn.disabled = false;
+                alert('Error reporting question: ' + err.message);
+            }
+        });
+
+        actionsWrap.appendChild(reasonInput);
+        actionsWrap.appendChild(reportBtn);
+        row.appendChild(qText);
+        row.appendChild(actionsWrap);
+        listEl.appendChild(row);
+    });
 }
 
 function renderQuizQuestions() {
@@ -850,7 +954,7 @@ function renderQuizQuestions() {
 
         const heading = document.createElement('div');
         heading.className = 'question-heading';
-        heading.textContent = `السؤال ${idx + 1} (${idx + 1}/${totalQ}): ${q.questionText}`;
+        heading.textContent = `Question ${idx + 1} (${idx + 1}/${totalQ}): ${q.questionText}`;
         block.appendChild(heading);
 
         const grid = document.createElement('div');
@@ -882,12 +986,153 @@ function renderQuizQuestions() {
     updateQuizAnsweredCounter();
 }
 
+function updateOpenAnswerCharCount() {
+    const textarea = document.getElementById('open-answer-textarea');
+    const counter = document.getElementById('open-answer-char-count');
+    if (!textarea || !counter) return;
+    const len = textarea.value.trim().length;
+    counter.textContent = `${len} / 2,000 characters (minimum 40)`;
+    counter.style.color = (len >= 40 && len <= 2000) ? '#6ee7b7' : 'var(--text-muted)';
+}
+
+function renderOpenQuestionSection(openQuestion) {
+    const section = document.getElementById('open-question-section');
+    if (!section) return;
+
+    if (!openQuestion) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = 'block';
+
+    const promptEl = document.getElementById('open-q-prompt-text');
+    if (promptEl) promptEl.textContent = openQuestion.promptText || '';
+
+    const statusBadge = document.getElementById('open-q-status-badge');
+    const feedbackBox = document.getElementById('open-q-feedback-box');
+    const feedbackText = document.getElementById('open-q-feedback-text');
+    const textarea = document.getElementById('open-answer-textarea');
+    const submitBtn = document.getElementById('btn-submit-open-answer');
+    const msgEl = document.getElementById('open-answer-msg');
+    if (msgEl) {
+        msgEl.style.display = 'none';
+        msgEl.textContent = '';
+    }
+
+    const st = openQuestion.submissionStatus || 'AWAITING_SUBMISSION';
+    const rewardStr = openQuestion.potentialRewardAmount != null
+        ? `+$${Number(openQuestion.potentialRewardAmount).toFixed(2)}`
+        : '+$15.00';
+
+    if (statusBadge) {
+        if (st === 'APPROVED') {
+            statusBadge.textContent = `✓ Approved (${rewardStr} Earned)`;
+        } else if (st === 'PENDING') {
+            statusBadge.textContent = `⏳ Pending Admin Review (${rewardStr})`;
+        } else if (st === 'REVISION_REQUESTED') {
+            statusBadge.textContent = `↩ Revision Requested (${rewardStr})`;
+        } else {
+            statusBadge.textContent = `✍️ Awaiting Written Answer (${rewardStr})`;
+        }
+    }
+
+    if (feedbackBox && feedbackText) {
+        if (openQuestion.adminFeedback) {
+            feedbackBox.style.display = 'block';
+            feedbackText.textContent = openQuestion.adminFeedback;
+        } else {
+            feedbackBox.style.display = 'none';
+            feedbackText.textContent = '';
+        }
+    }
+
+    if (textarea) {
+        if (openQuestion.submittedAnswerText && (!textarea.value || st === 'APPROVED' || st === 'PENDING')) {
+            textarea.value = openQuestion.submittedAnswerText;
+        }
+        textarea.disabled = (st === 'APPROVED');
+        updateOpenAnswerCharCount();
+    }
+
+    if (submitBtn) {
+        submitBtn.style.display = (st === 'APPROVED') ? 'none' : 'inline-flex';
+        const labelSpan = submitBtn.querySelector('span');
+        if (labelSpan) {
+            if (st === 'REVISION_REQUESTED') {
+                labelSpan.textContent = 'Resubmit Revised Answer';
+            } else if (st === 'PENDING') {
+                labelSpan.textContent = 'Update Submitted Answer';
+            } else {
+                labelSpan.textContent = 'Submit Written Answer for Approval';
+            }
+        }
+    }
+}
+
+async function handleOpenAnswerSubmit(event) {
+    event.preventDefault();
+    if (!currentEpisode) return;
+
+    const textarea = document.getElementById('open-answer-textarea');
+    const submitBtn = document.getElementById('btn-submit-open-answer');
+    const msgEl = document.getElementById('open-answer-msg');
+    if (!textarea || !submitBtn) return;
+
+    const answerText = textarea.value.trim();
+    if (answerText.length < 40 || answerText.length > 2000) {
+        if (msgEl) {
+            msgEl.style.display = 'block';
+            msgEl.style.color = '#fca5a5';
+            msgEl.textContent = 'Please write between 40 and 2,000 characters in English.';
+        }
+        return;
+    }
+
+    submitBtn.disabled = true;
+    try {
+        const res = await fetch(`/api/student/episodes/${currentEpisode.id}/open-answer`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: apiHeaders(true),
+            body: JSON.stringify({ answerText })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            renderOpenQuestionSection(data);
+            if (msgEl) {
+                msgEl.style.display = 'block';
+                msgEl.style.color = '#6ee7b7';
+                msgEl.textContent = '✓ Written answer submitted! Your reward now appears under Pending Review until approved.';
+            }
+            await fetchEarnings();
+        } else if (msgEl) {
+            msgEl.style.display = 'block';
+            msgEl.style.color = '#fca5a5';
+            msgEl.textContent = data.error || 'Could not submit written answer.';
+        }
+    } catch (err) {
+        if (msgEl) {
+            msgEl.style.display = 'block';
+            msgEl.style.color = '#fca5a5';
+            msgEl.textContent = 'Connection error: ' + err.message;
+        }
+    } finally {
+        submitBtn.disabled = false;
+    }
+}
+
 async function handleQuizSubmit(event) {
     event.preventDefault();
-    if (!currentQuiz || !currentEpisode) return;
+    if (!currentQuiz || !currentEpisode || !currentQuiz.sessionId) return;
 
     const submitBtn = document.getElementById('btn-submit-quiz');
     submitBtn.disabled = true;
+
+    const attemptedQuestionsSnapshot = (currentQuiz.questions || []).map((q) => ({
+        id: q.id,
+        questionText: q.questionText
+    }));
 
     const answers = {};
     currentQuiz.questions.forEach((q) => {
@@ -898,6 +1143,7 @@ async function handleQuizSubmit(event) {
     });
 
     const payload = {
+        sessionId: currentQuiz.sessionId,
         episodeId: currentEpisode.id,
         watchMode: STANDARD_WATCH_MODE,
         answers: answers
@@ -913,12 +1159,23 @@ async function handleQuizSubmit(event) {
 
         if (res.ok) {
             const result = await res.json();
+            if (result.passed) {
+                delete failedQuestionsByEpisodeId[currentEpisode.id];
+            } else {
+                failedQuestionsByEpisodeId[currentEpisode.id] = attemptedQuestionsSnapshot;
+            }
             await Promise.all([fetchEarnings(), fetchEpisodes(), fetchQuiz(currentEpisode.id)]);
+            if (result.openQuestion) {
+                renderOpenQuestionSection(result.openQuestion);
+            }
             showResultModal(result);
         } else {
             const err = await res.json().catch(() => ({}));
             if (res.status === 429 && err.retryAfterSeconds) {
                 startCooldownTicker(err.retryAfterSeconds);
+            }
+            if (res.status === 400 && currentEpisode) {
+                await fetchQuiz(currentEpisode.id);
             }
             alert(err.error || 'Unable to submit quiz.');
         }

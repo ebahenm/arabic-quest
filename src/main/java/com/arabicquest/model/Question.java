@@ -32,6 +32,17 @@ public class Question {
     @Column(name = "status", length = 20)
     private QuestionStatus status = QuestionStatus.APPROVED;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "type", length = 20)
+    private QuestionType type = QuestionType.RECALL;
+
+    @JsonIgnore
+    @Column(name = "evidence", columnDefinition = "TEXT")
+    private String evidence;
+
+    @Column(name = "report_count")
+    private Integer reportCount = 0;
+
     @OneToMany(mappedBy = "question", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<QuestionOption> options = new ArrayList<>();
 
@@ -57,6 +68,12 @@ public class Question {
         }
         if (this.status == null) {
             this.status = QuestionStatus.APPROVED;
+        }
+        if (this.type == null) {
+            this.type = QuestionType.RECALL;
+        }
+        if (this.reportCount == null) {
+            this.reportCount = 0;
         }
     }
 
@@ -110,6 +127,30 @@ public class Question {
 
     public void setStatus(QuestionStatus status) {
         this.status = status;
+    }
+
+    public QuestionType getType() {
+        return type == null ? QuestionType.RECALL : type;
+    }
+
+    public void setType(QuestionType type) {
+        this.type = type;
+    }
+
+    public String getEvidence() {
+        return evidence;
+    }
+
+    public void setEvidence(String evidence) {
+        this.evidence = evidence;
+    }
+
+    public int getReportCount() {
+        return reportCount == null ? 0 : reportCount;
+    }
+
+    public void setReportCount(Integer reportCount) {
+        this.reportCount = reportCount;
     }
 
     public List<QuestionOption> getOptions() {

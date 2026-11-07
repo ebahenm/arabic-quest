@@ -3,14 +3,14 @@ package com.arabicquest.controller;
 import com.arabicquest.dto.*;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
-import com.arabicquest.service.AiQuizService;
-import com.arabicquest.service.PayoutService;
-import com.arabicquest.service.QuestionBankImportExportService;
+import com.arabicquest.service.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -35,9 +35,18 @@ public class AdminController {
     private final PlaylistRepository playlistRepository;
     private final EpisodeRepository episodeRepository;
     private final QuizRepository quizRepository;
+    private final OpenQuestionRepository openQuestionRepository;
+    private final OpenAnswerSubmissionRepository openAnswerSubmissionRepository;
+    private final StudentOpenQuestionAssignmentRepository assignmentRepository;
+    private final QuizAttemptSessionRepository quizAttemptSessionRepository;
+    private final StudentQuestionExposureRepository exposureRepository;
+    private final QuestionReportRepository questionReportRepository;
+    private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
     private final WatchSessionRepository watchSessionRepository;
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
     private final AiQuizService aiQuizService;
+    private final QuestionBankService questionBankService;
+    private final OpenAnswerReviewService openAnswerReviewService;
     private final QuestionBankImportExportService questionBankImportExportService;
     private final PasswordEncoder passwordEncoder;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -50,9 +59,18 @@ public class AdminController {
             PlaylistRepository playlistRepository,
             EpisodeRepository episodeRepository,
             QuizRepository quizRepository,
+            OpenQuestionRepository openQuestionRepository,
+            OpenAnswerSubmissionRepository openAnswerSubmissionRepository,
+            StudentOpenQuestionAssignmentRepository assignmentRepository,
+            QuizAttemptSessionRepository quizAttemptSessionRepository,
+            StudentQuestionExposureRepository exposureRepository,
+            QuestionReportRepository questionReportRepository,
+            StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
             WatchSessionRepository watchSessionRepository,
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
             AiQuizService aiQuizService,
+            QuestionBankService questionBankService,
+            OpenAnswerReviewService openAnswerReviewService,
             QuestionBankImportExportService questionBankImportExportService,
             PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
@@ -62,9 +80,18 @@ public class AdminController {
         this.playlistRepository = playlistRepository;
         this.episodeRepository = episodeRepository;
         this.quizRepository = quizRepository;
+        this.openQuestionRepository = openQuestionRepository;
+        this.openAnswerSubmissionRepository = openAnswerSubmissionRepository;
+        this.assignmentRepository = assignmentRepository;
+        this.quizAttemptSessionRepository = quizAttemptSessionRepository;
+        this.exposureRepository = exposureRepository;
+        this.questionReportRepository = questionReportRepository;
+        this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
         this.watchSessionRepository = watchSessionRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
         this.aiQuizService = aiQuizService;
+        this.questionBankService = questionBankService;
+        this.openAnswerReviewService = openAnswerReviewService;
         this.questionBankImportExportService = questionBankImportExportService;
         this.passwordEncoder = passwordEncoder;
     }
@@ -253,8 +280,6 @@ public class AdminController {
         }
 
         String cleanVideoId = extractYoutubeVideoId(request.getYoutubeVideoId());
-
-        // Check if an archived episode with the same number exists; if so, restore and update it
         Episode existing = episodeRepository.findByPlaylistIdAndEpisodeNumber(playlist.getId(), request.getEpisodeNumber())
                 .orElse(null);
 
@@ -262,7 +287,7 @@ public class AdminController {
         if (existing != null) {
             if (!existing.isArchived()) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("error", "Episode " + request.getEpisodeNumber() + " already exists in this playlist"));
+                        .body(Map.of("error", "Episode " + request.getEpisodeNumber() + " already exists in this course"));
             }
             existing.setTitle(request.getTitle().trim());
             existing.setYoutubeVideoId(cleanVideoId);
@@ -291,11 +316,111 @@ public class AdminController {
         ));
     }
 
-    @Transactional
-    @PostMapping("/episodes/{episodeId}/generate-quiz")
-    public ResponseEntity<QuizAdminViewResponse> generateQuizWithAi(@PathVariable Long episodeId) {
-        Quiz quiz = aiQuizService.generateQuizForEpisode(episodeId);
-        return ResponseEntity.ok(QuizAdminViewResponse.from(quiz, episodeId));
+    // --- Written Answer Review Queue ---
+
+    @GetMapping("/open-answers")
+    public ResponseEntity<List<OpenAnswerAdminViewResponse>> listOpenAnswers(
+            @RequestParam(required = false, defaultValue = "ALL") String status) {
+        return ResponseEntity.ok(openAnswerReviewService.listSubmissionsForAdmin(status));
+    }
+
+    @PostMapping("/open-answers/{submissionId}/approve")
+    public ResponseEntity<Map<String, Object>> approveOpenAnswer(
+            @PathVariable Long submissionId,
+            @Valid @RequestBody(required = false) AdminReviewDecisionRequest request) {
+        String feedback = request != null ? request.feedback() : null;
+        return ResponseEntity.ok(openAnswerReviewService.approveSubmission(submissionId, feedback));
+    }
+
+    @PostMapping("/open-answers/{submissionId}/request-revision")
+    public ResponseEntity<OpenAnswerAdminViewResponse> requestOpenAnswerRevision(
+            @PathVariable Long submissionId,
+            @Valid @RequestBody(required = false) AdminReviewDecisionRequest request) {
+        String feedback = request != null ? request.feedback() : null;
+        return ResponseEntity.ok(openAnswerReviewService.requestRevision(submissionId, feedback));
+    }
+
+    @PostMapping("/open-answers/{submissionId}/suggest-grade")
+    public ResponseEntity<GradeSuggestionResponse> suggestOpenAnswerGrade(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long submissionId) {
+        return ResponseEntity.ok(openAnswerReviewService.suggestGrade(userDetails.getUsername(), submissionId));
+    }
+
+    // --- Question Bank Manager & Transcript 2-Pass AI Generator ---
+
+    @GetMapping("/episodes/{episodeId}/question-bank")
+    public ResponseEntity<QuestionBankAdminResponse> getEpisodeQuestionBank(
+            @PathVariable Long episodeId,
+            @RequestParam(required = false, defaultValue = "ALL") String status,
+            @RequestParam(required = false, defaultValue = "ALL") String type,
+            @RequestParam(required = false, defaultValue = "false") boolean reportedOnly) {
+        return ResponseEntity.ok(questionBankService.getEpisodeQuestionBank(episodeId, status, type, reportedOnly));
+    }
+
+    @PostMapping("/episodes/{episodeId}/generate-bank")
+    public ResponseEntity<AiQuizService.GeneratedBankSummary> generateBankFromTranscript(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long episodeId,
+            @RequestBody(required = false) GenerateBankFromTranscriptRequest request) {
+        String transcript = request != null ? request.transcript() : null;
+        return ResponseEntity.ok(aiQuizService.generateQuestionBankFromTranscript(
+                userDetails.getUsername(), episodeId, transcript));
+    }
+
+    @PostMapping("/episodes/{episodeId}/questions")
+    public ResponseEntity<QuestionBankAdminResponse.McqAdminItem> createQuestion(
+            @PathVariable Long episodeId,
+            @Valid @RequestBody UpsertQuestionRequest request) {
+        return ResponseEntity.ok(questionBankService.createMcq(episodeId, request));
+    }
+
+    @PutMapping("/questions/{questionId}")
+    public ResponseEntity<QuestionBankAdminResponse.McqAdminItem> updateQuestion(
+            @PathVariable Long questionId,
+            @Valid @RequestBody UpsertQuestionRequest request) {
+        return ResponseEntity.ok(questionBankService.updateMcq(questionId, request));
+    }
+
+    @PostMapping("/questions/{questionId}/approve")
+    public ResponseEntity<QuestionBankAdminResponse.McqAdminItem> approveQuestion(@PathVariable Long questionId) {
+        return ResponseEntity.ok(questionBankService.approveMcq(questionId));
+    }
+
+    @PostMapping("/questions/{questionId}/retire")
+    public ResponseEntity<QuestionBankAdminResponse.McqAdminItem> retireQuestion(@PathVariable Long questionId) {
+        return ResponseEntity.ok(questionBankService.retireMcq(questionId));
+    }
+
+    @PostMapping("/episodes/{episodeId}/questions/bulk-approve")
+    public ResponseEntity<Map<String, Integer>> bulkApproveEpisodeDrafts(@PathVariable Long episodeId) {
+        return ResponseEntity.ok(questionBankService.bulkApproveDrafts(episodeId));
+    }
+
+    @PostMapping("/episodes/{episodeId}/open-questions")
+    public ResponseEntity<QuestionBankAdminResponse.OpenQuestionAdminItem> createOpenQuestion(
+            @PathVariable Long episodeId,
+            @Valid @RequestBody UpsertOpenQuestionRequest request) {
+        return ResponseEntity.ok(questionBankService.createOpenQuestion(episodeId, request));
+    }
+
+    @PutMapping("/open-questions/{openQuestionId}")
+    public ResponseEntity<QuestionBankAdminResponse.OpenQuestionAdminItem> updateOpenQuestion(
+            @PathVariable Long openQuestionId,
+            @Valid @RequestBody UpsertOpenQuestionRequest request) {
+        return ResponseEntity.ok(questionBankService.updateOpenQuestion(openQuestionId, request));
+    }
+
+    @PostMapping("/open-questions/{openQuestionId}/approve")
+    public ResponseEntity<QuestionBankAdminResponse.OpenQuestionAdminItem> approveOpenQuestion(
+            @PathVariable Long openQuestionId) {
+        return ResponseEntity.ok(questionBankService.approveOpenQuestion(openQuestionId));
+    }
+
+    @PostMapping("/open-questions/{openQuestionId}/retire")
+    public ResponseEntity<QuestionBankAdminResponse.OpenQuestionAdminItem> retireOpenQuestion(
+            @PathVariable Long openQuestionId) {
+        return ResponseEntity.ok(questionBankService.retireOpenQuestion(openQuestionId));
     }
 
     @Transactional
@@ -309,13 +434,15 @@ public class AdminController {
         Quiz quiz = quizRepository.findByEpisodeId(episodeId)
                 .orElse(new Quiz(episode));
 
-        quiz.setPassingScorePercentage(request.getPassingScorePercentage() != null ? request.getPassingScorePercentage() : 80.0);
+        quiz.setPassingScorePercentage(100.0);
         quiz.getQuestions().clear();
 
         if (request.getQuestions() != null) {
             int order = 1;
             for (CreateQuizRequest.CreateQuestionRequest qReq : request.getQuestions()) {
                 Question question = new Question(quiz, qReq.getQuestionText(), order++);
+                question.setStatus(QuestionStatus.APPROVED);
+                question.setActive(true);
                 if (qReq.getOptions() != null) {
                     List<CreateQuizRequest.CreateOptionRequest> shuffled = new ArrayList<>(qReq.getOptions());
                     Collections.shuffle(shuffled, secureRandom);
@@ -357,13 +484,19 @@ public class AdminController {
         watchSessionRepository.deleteByEpisodeId(episodeId);
 
         boolean hasHistory = quizAttemptRepository.existsByEpisodeId(episodeId)
-                || episodeRewardClaimRepository.existsByEpisodeId(episodeId);
+                || episodeRewardClaimRepository.existsByEpisodeId(episodeId)
+                || openAnswerSubmissionRepository.existsByEpisodeId(episodeId)
+                || assignmentRepository.existsByEpisodeId(episodeId);
 
         if (hasHistory) {
-            // Soft-archive to preserve student earnings & audit history without FK violation
             episode.setArchived(true);
             episodeRepository.save(episode);
         } else {
+            questionReportRepository.deleteByEpisodeId(episodeId);
+            exposureRepository.deleteByEpisodeId(episodeId);
+            quizAttemptSessionRepository.deleteByEpisodeId(episodeId);
+            studentEpisodeOverrideRepository.deleteByEpisodeId(episodeId);
+            openQuestionRepository.deleteByEpisodeId(episodeId);
             episodeRepository.delete(episode);
         }
         return ResponseEntity.noContent().build();

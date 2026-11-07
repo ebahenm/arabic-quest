@@ -68,6 +68,15 @@ class SecurityAndAuditIntegrationTest {
     private QuizRepository quizRepository;
 
     @Autowired
+    private QuestionRepository questionRepository;
+
+    @Autowired
+    private OpenQuestionRepository openQuestionRepository;
+
+    @Autowired
+    private QuizAttemptSessionRepository quizAttemptSessionRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -128,7 +137,7 @@ class SecurityAndAuditIntegrationTest {
             for (int epNum = 1; epNum <= 3; epNum++) {
                 Episode ep = new Episode(course, epNum, "Synthetic Episode " + epNum, "SYNTHVIDEO" + epNum, 2400);
                 ep = episodeRepository.save(ep);
-                seedSyntheticQuizForEpisode(ep, 10);
+                seedSyntheticQuizForEpisode(ep, 15);
             }
         });
     }
@@ -140,6 +149,8 @@ class SecurityAndAuditIntegrationTest {
             Question q = new Question(quiz, "Synthetic Ep" + ep.getEpisodeNumber() + " Question " + qIdx + "?", qIdx);
             q.setStatus(QuestionStatus.APPROVED);
             q.setActive(true);
+            q.setType(QuestionType.values()[qIdx % QuestionType.values().length]);
+            q.setEvidence("Admin-only transcript quote for Q" + qIdx);
             List<QuestionOption> opts = new ArrayList<>();
             opts.add(new QuestionOption(q, "Correct synthetic answer " + qIdx, true));
             opts.add(new QuestionOption(q, "Distractor A " + qIdx, false));
@@ -150,6 +161,15 @@ class SecurityAndAuditIntegrationTest {
             quiz.getQuestions().add(q);
         }
         quizRepository.save(quiz);
+
+        for (int oIdx = 1; oIdx <= 3; oIdx++) {
+            openQuestionRepository.save(new OpenQuestion(
+                    ep,
+                    "Explain the historical reasoning in Episode " + ep.getEpisodeNumber() + " (Prompt " + oIdx + ").",
+                    "Admin-only rubric evidence " + oIdx,
+                    QuestionStatus.APPROVED
+            ));
+        }
     }
 
     @Test
@@ -375,7 +395,7 @@ class SecurityAndAuditIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        assertThat(studentQuizJson).doesNotContain("isCorrect");
+        assertThat(studentQuizJson).doesNotContain("isCorrect").doesNotContain("evidence");
     }
 
     @Test
@@ -411,11 +431,11 @@ class SecurityAndAuditIntegrationTest {
         ws1.setVerifiedWatchSeconds(1799);
         watchSessionRepository.save(ws1);
 
-        Map<String, Object> perfectEp1Payload = buildWinningSubmission(ep1.getId(), "ARABIC_SUB");
+        Map<String, Object> earlyEp1Payload = buildSessionSubmission(studentBearer, ep1.getId(), "ARABIC_SUB", 10);
         mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(perfectEp1Payload)))
+                        .content(objectMapper.writeValueAsString(earlyEp1Payload)))
                 .andExpect(status().isForbidden());
 
         // Reach exact 30-minute (1800s) watch requirement
@@ -423,7 +443,7 @@ class SecurityAndAuditIntegrationTest {
         watchSessionRepository.save(ws1);
 
         // Answering 9 out of 10 (90%) MUST FAIL because pass requirement is strictly 100%
-        Map<String, Object> nineOfTenPayload = buildAlmostWinningSubmission(ep1.getId(), "ARABIC_SUB");
+        Map<String, Object> nineOfTenPayload = buildSessionSubmission(studentBearer, ep1.getId(), "ARABIC_SUB", 9);
         MvcResult ep1AlmostRes = mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -440,6 +460,8 @@ class SecurityAndAuditIntegrationTest {
                 .orElseThrow();
         quizAttemptRepository.delete(ep1Fail);
 
+        // Pass 10/10 on new session -> passed=true, rewardAmount=0.00 until written answer is approved!
+        Map<String, Object> perfectEp1Payload = buildSessionSubmission(studentBearer, ep1.getId(), "ARABIC_SUB", 10);
         MvcResult ep1PassRes = mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -448,37 +470,40 @@ class SecurityAndAuditIntegrationTest {
                 .andReturn();
         JsonNode ep1Result = objectMapper.readTree(ep1PassRes.getResponse().getContentAsString());
         assertThat(ep1Result.get("passed").asBoolean()).isTrue();
-        assertThat(new BigDecimal(ep1Result.get("rewardAmount").asText())).isEqualByComparingTo("10.00");
+        assertThat(new BigDecimal(ep1Result.get("rewardAmount").asText())).isEqualByComparingTo("0.00");
+        assertThat(ep1Result.get("openQuestion")).isNotNull();
 
-        MvcResult ep1DupRes = mockMvc.perform(post("/api/student/quizzes/submit")
+        // Re-submitting the SAME session ID is rejected with 400 Bad Request
+        mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(perfectEp1Payload)))
-                .andExpect(status().isOk())
-                .andReturn();
-        assertThat(new BigDecimal(objectMapper.readTree(ep1DupRes.getResponse().getContentAsString())
-                .get("rewardAmount").asText())).isEqualByComparingTo("0.00");
+                .andExpect(status().isBadRequest());
+
+        // Submit written answer and approve -> awards $10.00 (locked ENGLISH_DUB mode on ws1)
+        JsonNode ep1Approval = submitAndApproveWrittenAnswer(studentBearer, ep1.getId(),
+                "The lecturer explained the key historical turning points and primary sources in detail.");
+        assertThat(new BigDecimal(ep1Approval.get("episodeRewardAmount").asText())).isEqualByComparingTo("10.00");
 
         WatchSession ws2 = new WatchSession(earner, ep2, WatchMode.ARABIC_SUB);
         ws2.setModeLocked(true);
         ws2.setVerifiedWatchSeconds(1800);
         watchSessionRepository.save(ws2);
 
-        Map<String, Object> failingEp2Payload = Map.of(
-                "episodeId", ep2.getId(),
-                "watchMode", "ARABIC_SUB",
-                "answers", Map.of()
-        );
+        Map<String, Object> failingEp2Payload = buildSessionSubmission(studentBearer, ep2.getId(), "ARABIC_SUB", 0);
         mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(failingEp2Payload)))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passed").value(false));
 
+        // Immediate retry with a fresh session is blocked by the 300s retry cooldown -> 429
+        Map<String, Object> cooldownBlockedPayload = buildSessionSubmission(studentBearer, ep2.getId(), "ARABIC_SUB", 10);
         mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(buildWinningSubmission(ep2.getId(), "ARABIC_SUB"))))
+                        .content(objectMapper.writeValueAsString(cooldownBlockedPayload)))
                 .andExpect(status().isTooManyRequests());
 
         QuizAttempt failedAttempt = quizAttemptRepository
@@ -495,19 +520,23 @@ class SecurityAndAuditIntegrationTest {
             ws.setVerifiedWatchSeconds(1800);
             watchSessionRepository.save(ws);
 
-            MvcResult passRes = mockMvc.perform(post("/api/student/quizzes/submit")
+            mockMvc.perform(post("/api/student/quizzes/submit")
                             .header(HttpHeaders.AUTHORIZATION, studentBearer)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(buildWinningSubmission(ep.getId(), "ARABIC_SUB"))))
+                            .content(objectMapper.writeValueAsString(buildSessionSubmission(studentBearer, ep.getId(), "ARABIC_SUB", 10))))
                     .andExpect(status().isOk())
-                    .andReturn();
-            BigDecimal earned = new BigDecimal(objectMapper.readTree(passRes.getResponse().getContentAsString())
-                    .get("rewardAmount").asText());
+                    .andExpect(jsonPath("$.passed").value(true));
+
+            JsonNode approval = submitAndApproveWrittenAnswer(studentBearer, ep.getId(),
+                    "In this episode, the historian analyzes the primary causes, consequences, and lessons for understanding this era.");
+            BigDecimal epEarned = new BigDecimal(approval.get("episodeRewardAmount").asText());
+            assertThat(epEarned).isEqualByComparingTo("15.00");
 
             if (i < episodes.size() - 1) {
-                assertThat(earned).isEqualByComparingTo("15.00");
+                assertThat(approval.get("bonusAwarded").asBoolean()).isFalse();
             } else {
-                assertThat(earned).isEqualByComparingTo("115.00");
+                assertThat(approval.get("bonusAwarded").asBoolean()).isTrue();
+                assertThat(new BigDecimal(approval.get("bonusAmount").asText())).isEqualByComparingTo("100.00");
             }
         }
 
@@ -527,21 +556,24 @@ class SecurityAndAuditIntegrationTest {
                 .andExpect(jsonPath("$.message").value("Quiz not ready yet"));
 
         Episode ep4 = episodeRepository.findById(ep4Id).orElseThrow();
-        transactionTemplate.executeWithoutResult(st -> seedSyntheticQuizForEpisode(ep4, 10));
+        transactionTemplate.executeWithoutResult(st -> seedSyntheticQuizForEpisode(ep4, 15));
 
         WatchSession ws4 = new WatchSession(earner, ep4, WatchMode.ARABIC_SUB);
         ws4.setModeLocked(true);
         ws4.setVerifiedWatchSeconds(1800);
         watchSessionRepository.save(ws4);
 
-        MvcResult ep4PassRes = mockMvc.perform(post("/api/student/quizzes/submit")
+        mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(buildWinningSubmission(ep4Id, "ARABIC_SUB"))))
+                        .content(objectMapper.writeValueAsString(buildSessionSubmission(studentBearer, ep4Id, "ARABIC_SUB", 10))))
                 .andExpect(status().isOk())
-                .andReturn();
-        assertThat(new BigDecimal(objectMapper.readTree(ep4PassRes.getResponse().getContentAsString())
-                .get("rewardAmount").asText())).isEqualByComparingTo("15.00");
+                .andExpect(jsonPath("$.passed").value(true));
+
+        JsonNode ep4Approval = submitAndApproveWrittenAnswer(studentBearer, ep4Id,
+                "Episode 4 deepens the historical narrative and connects the institutional reforms to long-term outcomes.");
+        assertThat(new BigDecimal(ep4Approval.get("episodeRewardAmount").asText())).isEqualByComparingTo("15.00");
+        assertThat(ep4Approval.get("bonusAwarded").asBoolean()).isFalse();
 
         mockMvc.perform(post("/api/admin/payouts")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer)
@@ -700,10 +732,25 @@ class SecurityAndAuditIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().isForbidden());
 
+        // Even if a session existed for locked ep2, submitQuiz enforces sequential locking -> 403 Forbidden
+        UUID lockedSessionId = transactionTemplate.execute(st -> {
+            User stu = userRepository.findById(studentId).orElseThrow();
+            Episode e2 = episodeRepository.findById(ep2Id).orElseThrow();
+            List<Long> first10 = questionRepository.findByEpisodeIdWithOptions(ep2Id)
+                    .stream().limit(10).map(Question::getId).toList();
+            return quizAttemptSessionRepository.save(new QuizAttemptSession(
+                    stu, e2, first10, java.time.LocalDateTime.now(), java.time.LocalDateTime.now().plusMinutes(60)
+            )).getId();
+        });
         mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(buildWinningSubmission(ep2Id, "ARABIC_SUB"))))
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "sessionId", lockedSessionId.toString(),
+                                "episodeId", ep2Id,
+                                "watchMode", "ARABIC_SUB",
+                                "answers", Map.of("1", 1L)
+                        ))))
                 .andExpect(status().isForbidden());
 
         mockMvc.perform(post("/api/beta/episodes/" + ep1Id + "/unlock-watch")
@@ -739,9 +786,20 @@ class SecurityAndAuditIntegrationTest {
         mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(buildWinningSubmission(ep1Id, "ARABIC_SUB"))))
+                        .content(objectMapper.writeValueAsString(buildSessionSubmission(studentBearer, ep1Id, "ARABIC_SUB", 10))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.passed").value(true));
+
+        // Before written answer approval, ep2 remains locked!
+        String beforeApprovalList = mockMvc.perform(get("/api/student/episodes")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(beforeApprovalList).get(1).get("locked").asBoolean()).isTrue();
+
+        // Submit written answer and approve -> ep1 passed & ep2 unlocks!
+        submitAndApproveWrittenAnswer(studentBearer, ep1Id,
+                "Sequential learner explains the core historical argument and key takeaways from Episode 1.");
 
         String afterEp1List = mockMvc.perform(get("/api/student/episodes")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
@@ -766,40 +824,68 @@ class SecurityAndAuditIntegrationTest {
                 .andExpect(jsonPath("$.totalEarned").value(0.0));
     }
 
-    private Map<String, Object> buildAlmostWinningSubmission(Long episodeId, String watchMode) {
-        return transactionTemplate.execute(status -> {
-            Quiz quiz = quizRepository.findByEpisodeId(episodeId).orElseThrow();
-            Map<String, Long> answers = new HashMap<>();
-            List<Question> questions = quiz.getQuestions();
-            for (int i = 0; i < questions.size(); i++) {
-                Question q = questions.get(i);
-                final boolean pickCorrect = (i > 0);
-                QuestionOption chosen = q.getOptions().stream()
-                        .filter(opt -> Boolean.TRUE.equals(opt.getIsCorrect()) == pickCorrect)
-                        .findFirst()
-                        .orElseThrow();
-                answers.put(String.valueOf(q.getId()), chosen.getId());
+    private JsonNode submitAndApproveWrittenAnswer(String studentBearer, Long episodeId, String englishAnswer) throws Exception {
+        mockMvc.perform(post("/api/student/episodes/" + episodeId + "/open-answer")
+                        .header(HttpHeaders.AUTHORIZATION, studentBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("answerText", englishAnswer))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.submissionStatus").value("PENDING"));
+
+        String queueJson = mockMvc.perform(get("/api/admin/open-answers?status=PENDING")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode queue = objectMapper.readTree(queueJson);
+        long subId = -1L;
+        for (JsonNode item : queue) {
+            if (item.get("episodeId").asLong() == episodeId) {
+                subId = item.get("id").asLong();
+                break;
             }
-            return Map.of(
-                    "episodeId", episodeId,
-                    "watchMode", watchMode,
-                    "answers", answers
-            );
-        });
+        }
+        assertThat(subId).isPositive();
+
+        String approveJson = mockMvc.perform(post("/api/admin/open-answers/" + subId + "/approve")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"feedback\":\"Well explained!\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(approveJson);
     }
 
-    private Map<String, Object> buildWinningSubmission(Long episodeId, String watchMode) {
+    private Map<String, Object> buildSessionSubmission(String bearer, Long episodeId, String watchMode, int targetCorrectCount) throws Exception {
+        String quizViewJson = mockMvc.perform(get("/api/student/quizzes/" + episodeId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode viewNode = objectMapper.readTree(quizViewJson);
+        assertThat(viewNode.get("ready").asBoolean()).isTrue();
+        String sessionId = viewNode.get("sessionId").asText();
+        JsonNode sessionQuestions = viewNode.get("questions");
+        assertThat(sessionQuestions).hasSize(10);
+
         return transactionTemplate.execute(status -> {
-            Quiz quiz = quizRepository.findByEpisodeId(episodeId).orElseThrow();
+            List<Question> allQuestions = questionRepository.findByEpisodeIdWithOptions(episodeId);
+            Map<Long, Question> qMap = new HashMap<>();
+            for (Question q : allQuestions) {
+                qMap.put(q.getId(), q);
+            }
+
             Map<String, Long> answers = new HashMap<>();
-            for (Question q : quiz.getQuestions()) {
-                QuestionOption correct = q.getOptions().stream()
-                        .filter(opt -> Boolean.TRUE.equals(opt.getIsCorrect()))
+            for (int i = 0; i < sessionQuestions.size(); i++) {
+                long qId = sessionQuestions.get(i).get("id").asLong();
+                Question dbQ = qMap.get(qId);
+                boolean wantCorrect = i < targetCorrectCount;
+                QuestionOption chosen = dbQ.getOptions().stream()
+                        .filter(opt -> Boolean.TRUE.equals(opt.getIsCorrect()) == wantCorrect)
                         .findFirst()
                         .orElseThrow();
-                answers.put(String.valueOf(q.getId()), correct.getId());
+                answers.put(String.valueOf(qId), chosen.getId());
             }
             return Map.of(
+                    "sessionId", sessionId,
                     "episodeId", episodeId,
                     "watchMode", watchMode,
                     "answers", answers

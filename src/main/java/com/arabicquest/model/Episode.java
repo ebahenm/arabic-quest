@@ -35,6 +35,10 @@ public class Episode {
     @Column(name = "vocabulary_json", columnDefinition = "TEXT")
     private String vocabularyJson;
 
+    @JsonIgnore
+    @Column(name = "transcript_text", columnDefinition = "TEXT")
+    private String transcriptText;
+
     @Column(name = "archived")
     private Boolean archived = false;
 
@@ -126,6 +130,14 @@ public class Episode {
 
     public void setVocabularyJson(String vocabularyJson) {
         this.vocabularyJson = vocabularyJson;
+    }
+
+    public String getTranscriptText() {
+        return transcriptText;
+    }
+
+    public void setTranscriptText(String transcriptText) {
+        this.transcriptText = transcriptText;
     }
 
     public boolean isArchived() {

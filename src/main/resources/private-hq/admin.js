@@ -106,6 +106,43 @@ function wireEvents() {
     if (exportBtn) exportBtn.addEventListener('click', handleExportQuestionBank);
     const importBtn = document.getElementById('btn-import-qbank');
     if (importBtn) importBtn.addEventListener('click', handleImportQuestionBank);
+
+    // Review Queue events
+    const reviewFilter = document.getElementById('review-status-filter');
+    if (reviewFilter) reviewFilter.addEventListener('change', loadReviewQueue);
+    const refreshReviewsBtn = document.getElementById('btn-refresh-reviews');
+    if (refreshReviewsBtn) refreshReviewsBtn.addEventListener('click', loadReviewQueue);
+
+    // Transcript & Question Bank Manager events
+    const transcriptInput = document.getElementById('ai-transcript-input');
+    if (transcriptInput) {
+        transcriptInput.addEventListener('input', () => {
+            const countEl = document.getElementById('ai-transcript-char-count');
+            if (countEl) countEl.textContent = `${transcriptInput.value.length.toLocaleString()} / 60,000 chars`;
+        });
+    }
+    const aiEpisodeSelect = document.getElementById('ai-episode-select');
+    if (aiEpisodeSelect) aiEpisodeSelect.addEventListener('change', loadEpisodeQuestionBank);
+    const qbankStatus = document.getElementById('qbank-filter-status');
+    if (qbankStatus) qbankStatus.addEventListener('change', loadEpisodeQuestionBank);
+    const qbankType = document.getElementById('qbank-filter-type');
+    if (qbankType) qbankType.addEventListener('change', loadEpisodeQuestionBank);
+    const qbankReported = document.getElementById('qbank-filter-reported');
+    if (qbankReported) qbankReported.addEventListener('change', loadEpisodeQuestionBank);
+    const qbankRefresh = document.getElementById('btn-qbank-refresh');
+    if (qbankRefresh) qbankRefresh.addEventListener('click', loadEpisodeQuestionBank);
+    const qbankBulkApprove = document.getElementById('btn-qbank-bulk-approve');
+    if (qbankBulkApprove) qbankBulkApprove.addEventListener('click', handleBulkApproveDrafts);
+
+    const mcqForm = document.getElementById('form-upsert-mcq');
+    if (mcqForm) mcqForm.addEventListener('submit', handleSaveMcq);
+    const cancelMcqBtn = document.getElementById('btn-cancel-mcq-edit');
+    if (cancelMcqBtn) cancelMcqBtn.addEventListener('click', resetMcqForm);
+
+    const openqForm = document.getElementById('form-upsert-openq');
+    if (openqForm) openqForm.addEventListener('submit', handleSaveOpenQuestion);
+    const cancelOpenqBtn = document.getElementById('btn-cancel-openq-edit');
+    if (cancelOpenqBtn) cancelOpenqBtn.addEventListener('click', resetOpenQuestionForm);
 }
 
 async function initAdmin() {
@@ -178,6 +215,8 @@ async function loadStudents(preferStudentId = null) {
         document.getElementById('current-student-title').textContent = 'No Student Accounts Yet';
         document.getElementById('payout-title-label').textContent = '💸 Issue Payout to Student';
         document.getElementById('admin-metric-earned').textContent = '$0.00';
+        const pendingMetricEl = document.getElementById('admin-metric-pending');
+        if (pendingMetricEl) pendingMetricEl.textContent = '$0.00';
         document.getElementById('admin-metric-paid').textContent = '$0.00';
         document.getElementById('admin-metric-owed').textContent = '$0.00';
         document.getElementById('admin-metric-episodes').textContent = '0 / ' + episodes.length;
@@ -354,6 +393,10 @@ async function loadAdminDashboard() {
                 const data = await earningsRes.json();
                 lastOwedAmount = Number(data.balanceOwed || 0);
                 document.getElementById('admin-metric-earned').textContent = '$' + Number(data.totalEarned || 0).toFixed(2);
+                const pendingMetricEl = document.getElementById('admin-metric-pending');
+                if (pendingMetricEl) {
+                    pendingMetricEl.textContent = '$' + Number(data.pendingReviewAmount || 0).toFixed(2);
+                }
                 document.getElementById('admin-metric-paid').textContent = '$' + Number(data.totalPaid || 0).toFixed(2);
                 document.getElementById('admin-metric-owed').textContent = '$' + lastOwedAmount.toFixed(2);
                 document.getElementById('admin-metric-episodes').textContent = `${data.passedEpisodesCount} / ${data.totalEpisodesCount}`;
@@ -366,7 +409,8 @@ async function loadAdminDashboard() {
 
     await Promise.all([
         loadPayoutsLedger(),
-        loadAttemptsAuditLog()
+        loadAttemptsAuditLog(),
+        loadReviewQueue()
     ]);
 }
 
@@ -512,6 +556,7 @@ async function loadEpisodes() {
 
         // Populate AI dropdown
         const select = document.getElementById('ai-episode-select');
+        const prevSelectedEpId = select ? select.value : '';
         clearElement(select);
         episodes.forEach((ep) => {
             const opt = document.createElement('option');
@@ -519,6 +564,10 @@ async function loadEpisodes() {
             opt.textContent = `Ep. ${ep.episodeNumber}: ${ep.title}`;
             select.appendChild(opt);
         });
+        if (prevSelectedEpId && [...select.options].some((o) => o.value === prevSelectedEpId)) {
+            select.value = prevSelectedEpId;
+        }
+        await loadEpisodeQuestionBank();
 
         // Populate active episodes management table
         const tbody = document.getElementById('admin-episodes-tbody');
@@ -693,58 +742,45 @@ async function handleGenerateAiQuiz() {
     const episodeId = document.getElementById('ai-episode-select').value;
     if (!episodeId) return;
 
+    const transcriptEl = document.getElementById('ai-transcript-input');
+    const transcript = transcriptEl ? transcriptEl.value.trim() : '';
     const btn = document.getElementById('btn-run-ai');
     const resultBox = document.getElementById('ai-result-box');
     const resultTitle = document.getElementById('ai-result-title');
     const resultContent = document.getElementById('ai-result-content');
 
-    btn.disabled = true;
-    btn.textContent = '⏳ Generating Quiz with Gemini AI...';
     resultBox.style.display = 'none';
     clearElement(resultContent);
 
+    if (!transcript) {
+        resultTitle.textContent = 'Transcript Required';
+        resultContent.textContent = 'Paste the episode transcript above first before generating a question bank.';
+        resultBox.style.display = 'block';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Running 2-Pass Gemini Generation & Verification...';
+
     try {
-        const res = await apiFetch(`/api/admin/episodes/${encodeURIComponent(episodeId)}/generate-quiz`, {
-            method: 'POST'
+        const res = await apiFetch(`/api/admin/episodes/${encodeURIComponent(episodeId)}/generate-bank`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript })
         });
 
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
-            const quiz = await res.json();
-            resultTitle.textContent = `✓ Generated ${quiz.questions.length} Shuffled Questions (Passing Score: ${quiz.passingScorePercentage}%)`;
-
-            const ol = document.createElement('ol');
-            ol.style.marginLeft = '1.5rem';
-            ol.style.marginTop = '0.5rem';
-
-            quiz.questions.forEach((q) => {
-                const li = document.createElement('li');
-                li.style.marginBottom = '0.65rem';
-
-                const qStrong = document.createElement('strong');
-                qStrong.style.color = '#f8fafc';
-                qStrong.textContent = q.questionText;
-                li.appendChild(qStrong);
-
-                const ul = document.createElement('ul');
-                ul.style.marginLeft = '1.25rem';
-                ul.style.marginTop = '0.25rem';
-                (q.options || []).forEach((opt) => {
-                    const optLi = document.createElement('li');
-                    optLi.style.fontSize = '0.84rem';
-                    optLi.style.color = opt.isCorrect ? '#6ee7b7' : 'var(--text-muted)';
-                    optLi.textContent = (opt.isCorrect ? '✓ ' : '• ') + opt.optionText;
-                    ul.appendChild(optLi);
-                });
-                li.appendChild(ul);
-                ol.appendChild(li);
-            });
-
-            resultContent.appendChild(ol);
+            resultTitle.textContent = `✓ Saved ${data.savedDraftMcqs || 0} Draft MCQs & ${data.savedDraftOpenQuestions || 0} Draft Open Questions`;
+            resultContent.textContent =
+                `Pass 1 generated ${data.pass1McqCandidates || 0} MCQ candidates and ${data.pass1OpenCandidates || 0} open prompts. `
+                + `Pass 2 verified them against the transcript and dropped ${data.droppedInVerificationOrDedup || 0} unverified/duplicate items. `
+                + 'Review and approve drafts in the Question Bank Manager below before students can take the quiz.';
             resultBox.style.display = 'block';
+            await loadEpisodeQuestionBank();
         } else {
-            const err = await res.json().catch(() => ({}));
-            resultTitle.textContent = 'AI Quiz Generation Failed';
-            resultContent.textContent = err.error || 'Could not generate quiz. Verify GEMINI_API_KEY configuration.';
+            resultTitle.textContent = 'AI Question Bank Generation Failed';
+            resultContent.textContent = data.error || 'Could not generate question bank. Verify GEMINI_API_KEY and quota.';
             resultBox.style.display = 'block';
         }
     } catch (e) {
@@ -753,7 +789,655 @@ async function handleGenerateAiQuiz() {
         resultBox.style.display = 'block';
     } finally {
         btn.disabled = false;
-        btn.textContent = '✨ Generate AI Quiz Now';
+        btn.textContent = '✨ Generate Draft Bank from Transcript (2-Pass)';
+    }
+}
+
+// ============================================================================
+// WRITTEN ANSWERS REVIEW QUEUE & AI GRADE SUGGESTION
+// ============================================================================
+
+async function loadReviewQueue() {
+    const listEl = document.getElementById('open-answers-review-list');
+    const filterEl = document.getElementById('review-status-filter');
+    const badgeEl = document.getElementById('tab-badge-reviews');
+    if (!listEl) return;
+
+    const statusVal = filterEl ? filterEl.value : 'PENDING';
+    try {
+        const [filteredRes, pendingRes] = await Promise.all([
+            apiFetch(`/api/admin/open-answers?status=${encodeURIComponent(statusVal)}`),
+            statusVal === 'PENDING'
+                ? Promise.resolve(null)
+                : apiFetch('/api/admin/open-answers?status=PENDING')
+        ]);
+        if (!filteredRes.ok) return;
+
+        const items = await filteredRes.json();
+        if (badgeEl) {
+            if (statusVal === 'PENDING') {
+                badgeEl.textContent = String(items.length);
+            } else if (pendingRes && pendingRes.ok) {
+                const pendingItems = await pendingRes.json();
+                badgeEl.textContent = String(pendingItems.length);
+            }
+        }
+
+        clearElement(listEl);
+        if (!items || items.length === 0) {
+            const emptyP = document.createElement('p');
+            emptyP.style.color = 'var(--text-muted)';
+            emptyP.style.padding = '1.25rem';
+            emptyP.style.textAlign = 'center';
+            emptyP.textContent = 'No written answer submissions match this filter.';
+            listEl.appendChild(emptyP);
+            return;
+        }
+
+        items.forEach((sub) => {
+            listEl.appendChild(buildReviewSubmissionCard(sub));
+        });
+    } catch (err) {
+        console.warn('Review queue load failed:', err);
+    }
+}
+
+function buildReviewSubmissionCard(sub) {
+    const card = document.createElement('div');
+    card.style.background = 'var(--bg-subtle)';
+    card.style.border = '1px solid var(--border)';
+    card.style.borderRadius = 'var(--radius-md)';
+    card.style.padding = '1.15rem 1.35rem';
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    card.style.gap = '0.75rem';
+
+    const topRow = document.createElement('div');
+    topRow.style.display = 'flex';
+    topRow.style.justifyContent = 'space-between';
+    topRow.style.alignItems = 'center';
+    topRow.style.flexWrap = 'wrap';
+    topRow.style.gap = '0.5rem';
+
+    const who = document.createElement('div');
+    const strongWho = document.createElement('strong');
+    strongWho.style.color = '#a7f3d0';
+    strongWho.textContent = `${sub.studentFullName || sub.studentUsername} (${sub.studentUsername})`;
+    const epSpan = document.createElement('span');
+    epSpan.style.color = 'var(--text-muted)';
+    epSpan.style.fontSize = '0.85rem';
+    epSpan.textContent = ` • ${sub.courseTitle || 'Course'} — Ep. ${sub.episodeNumber}: ${sub.episodeTitle} • Mode: ${sub.watchMode} (+$${Number(sub.potentialRewardAmount || 0).toFixed(2)})`;
+    who.appendChild(strongWho);
+    who.appendChild(epSpan);
+
+    const statusPill = document.createElement('span');
+    statusPill.className = 'tab-count-pill';
+    statusPill.textContent = sub.status;
+    if (sub.status === 'APPROVED') statusPill.style.color = '#6ee7b7';
+    else if (sub.status === 'PENDING') statusPill.style.color = '#fde68a';
+    else statusPill.style.color = '#fca5a5';
+
+    topRow.appendChild(who);
+    topRow.appendChild(statusPill);
+    card.appendChild(topRow);
+
+    const promptBox = document.createElement('div');
+    promptBox.style.fontSize = '0.88rem';
+    const promptLabel = document.createElement('strong');
+    promptLabel.style.color = '#fde68a';
+    promptLabel.textContent = 'Open Question: ';
+    const promptVal = document.createElement('span');
+    promptVal.textContent = sub.promptText || '';
+    promptBox.appendChild(promptLabel);
+    promptBox.appendChild(promptVal);
+    card.appendChild(promptBox);
+
+    if (sub.evidence) {
+        const evBox = document.createElement('div');
+        evBox.style.fontSize = '0.82rem';
+        evBox.style.color = '#c4b5fd';
+        evBox.textContent = `Transcript Evidence / Rubric: ${sub.evidence}`;
+        card.appendChild(evBox);
+    }
+
+    const answerBox = document.createElement('div');
+    answerBox.style.background = 'var(--bg-card)';
+    answerBox.style.border = '1px solid var(--border)';
+    answerBox.style.borderRadius = 'var(--radius-sm)';
+    answerBox.style.padding = '0.85rem 1rem';
+    answerBox.style.whiteSpace = 'pre-wrap';
+    answerBox.style.fontSize = '0.92rem';
+    answerBox.style.color = '#f8fafc';
+    answerBox.textContent = sub.answerText || '';
+    card.appendChild(answerBox);
+
+    const aiSuggestionBox = document.createElement('div');
+    aiSuggestionBox.style.display = 'none';
+    aiSuggestionBox.style.background = 'rgba(139, 92, 246, 0.12)';
+    aiSuggestionBox.style.border = '1px solid rgba(139, 92, 246, 0.4)';
+    aiSuggestionBox.style.borderRadius = 'var(--radius-sm)';
+    aiSuggestionBox.style.padding = '0.75rem 1rem';
+    aiSuggestionBox.style.fontSize = '0.84rem';
+    aiSuggestionBox.style.color = '#ede9fe';
+    card.appendChild(aiSuggestionBox);
+
+    const feedbackInput = document.createElement('textarea');
+    feedbackInput.rows = 2;
+    feedbackInput.maxLength = 2000;
+    feedbackInput.className = 'text-input';
+    feedbackInput.placeholder = 'Optional feedback for student (required/helpful when requesting revision)...';
+    feedbackInput.value = sub.adminFeedback || '';
+    card.appendChild(feedbackInput);
+
+    const actionsRow = document.createElement('div');
+    actionsRow.style.display = 'flex';
+    actionsRow.style.gap = '0.65rem';
+    actionsRow.style.flexWrap = 'wrap';
+
+    if (sub.status !== 'APPROVED') {
+        const approveBtn = document.createElement('button');
+        approveBtn.type = 'button';
+        approveBtn.className = 'btn-primary';
+        approveBtn.style.padding = '0.5rem 1rem';
+        approveBtn.textContent = `✓ Approve & Award +$${Number(sub.potentialRewardAmount || 0).toFixed(2)}`;
+        approveBtn.addEventListener('click', async () => {
+            approveBtn.disabled = true;
+            hideFeedback('review-queue-msg');
+            try {
+                const res = await apiFetch(`/api/admin/open-answers/${sub.id}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ feedback: feedbackInput.value.trim() || null })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    const bonusMsg = data.bonusAwarded ? ` + $${Number(data.bonusAmount || 0).toFixed(2)} Course Bonus!` : '';
+                    showFeedback('review-queue-msg', `✓ Approved written answer! Credited $${Number(data.episodeRewardAmount || 0).toFixed(2)}${bonusMsg}`);
+                    await loadAdminDashboard();
+                } else {
+                    approveBtn.disabled = false;
+                    showFeedback('review-queue-msg', data.error || 'Approval failed.', true);
+                }
+            } catch (err) {
+                approveBtn.disabled = false;
+                showFeedback('review-queue-msg', 'Error: ' + err.message, true);
+            }
+        });
+
+        const reviseBtn = document.createElement('button');
+        reviseBtn.type = 'button';
+        reviseBtn.className = 'btn-danger-outline';
+        reviseBtn.style.padding = '0.5rem 0.95rem';
+        reviseBtn.textContent = '↩ Request Revision';
+        reviseBtn.addEventListener('click', async () => {
+            reviseBtn.disabled = true;
+            hideFeedback('review-queue-msg');
+            try {
+                const res = await apiFetch(`/api/admin/open-answers/${sub.id}/request-revision`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ feedback: feedbackInput.value.trim() || null })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    showFeedback('review-queue-msg', '↩ Revision requested; student can rewrite and resubmit.');
+                    await loadAdminDashboard();
+                } else {
+                    reviseBtn.disabled = false;
+                    showFeedback('review-queue-msg', data.error || 'Could not request revision.', true);
+                }
+            } catch (err) {
+                reviseBtn.disabled = false;
+                showFeedback('review-queue-msg', 'Error: ' + err.message, true);
+            }
+        });
+
+        actionsRow.appendChild(approveBtn);
+        actionsRow.appendChild(reviseBtn);
+    }
+
+    const suggestBtn = document.createElement('button');
+    suggestBtn.type = 'button';
+    suggestBtn.className = 'btn-ghost';
+    suggestBtn.textContent = '🤖 Suggest a Grade';
+    suggestBtn.addEventListener('click', async () => {
+        suggestBtn.disabled = true;
+        suggestBtn.textContent = '⏳ Consulting Gemini...';
+        try {
+            const res = await apiFetch(`/api/admin/open-answers/${sub.id}/suggest-grade`, {
+                method: 'POST'
+            });
+            const data = await res.json().catch(() => ({}));
+            aiSuggestionBox.style.display = 'block';
+            if (res.ok) {
+                aiSuggestionBox.textContent =
+                    `AI Suggestion (advisory only): ${data.recommendedAction} [${data.confidence}] — ${data.reasoning}`
+                    + (data.suggestedFeedback ? ` | Suggested feedback: "${data.suggestedFeedback}"` : '');
+                if (data.suggestedFeedback && !feedbackInput.value.trim()) {
+                    feedbackInput.value = data.suggestedFeedback;
+                }
+            } else {
+                aiSuggestionBox.textContent = data.error || 'Could not generate grade suggestion.';
+            }
+        } catch (err) {
+            aiSuggestionBox.style.display = 'block';
+            aiSuggestionBox.textContent = 'Connection error: ' + err.message;
+        } finally {
+            suggestBtn.disabled = false;
+            suggestBtn.textContent = '🤖 Suggest a Grade';
+        }
+    });
+    actionsRow.appendChild(suggestBtn);
+
+    card.appendChild(actionsRow);
+    return card;
+}
+
+// ============================================================================
+// EPISODE QUESTION BANK MANAGER (MCQs & OPEN QUESTIONS)
+// ============================================================================
+
+async function loadEpisodeQuestionBank() {
+    const episodeSelect = document.getElementById('ai-episode-select');
+    const summaryEl = document.getElementById('qbank-summary-bar');
+    const mcqListEl = document.getElementById('qbank-mcq-list');
+    const openListEl = document.getElementById('qbank-open-list');
+    if (!episodeSelect || !mcqListEl || !openListEl) return;
+
+    const episodeId = episodeSelect.value;
+    if (!episodeId) {
+        clearElement(mcqListEl);
+        clearElement(openListEl);
+        return;
+    }
+
+    const statusFilter = (document.getElementById('qbank-filter-status') || {}).value || 'ALL';
+    const typeFilter = (document.getElementById('qbank-filter-type') || {}).value || 'ALL';
+    const reportedOnly = Boolean((document.getElementById('qbank-filter-reported') || {}).checked);
+
+    try {
+        const res = await apiFetch(
+            `/api/admin/episodes/${encodeURIComponent(episodeId)}/question-bank`
+            + `?status=${encodeURIComponent(statusFilter)}`
+            + `&type=${encodeURIComponent(typeFilter)}`
+            + `&reportedOnly=${reportedOnly}`
+        );
+        if (!res.ok) return;
+        const bank = await res.json();
+
+        if (summaryEl) {
+            const readyText = bank.quizReadyForStudents
+                ? '✓ QUIZ READY FOR STUDENTS'
+                : '⚠️ NOT READY (Needs ≥10 Approved MCQs + ≥1 Approved Open Question)';
+            summaryEl.textContent =
+                `${readyText} • MCQs: ${bank.approvedMcqCount} Approved / ${bank.draftMcqCount} Draft / ${bank.retiredMcqCount} Retired `
+                + `• Open Prompts: ${bank.approvedOpenCount} Approved / ${bank.draftOpenCount} Draft`;
+        }
+
+        renderMcqBankList(bank.questions || []);
+        renderOpenQuestionBankList(bank.openQuestions || []);
+    } catch (err) {
+        console.warn('Question bank load failed:', err);
+    }
+}
+
+function renderMcqBankList(mcqs) {
+    const container = document.getElementById('qbank-mcq-list');
+    clearElement(container);
+
+    if (!mcqs || mcqs.length === 0) {
+        const p = document.createElement('p');
+        p.style.color = 'var(--text-muted)';
+        p.style.fontSize = '0.85rem';
+        p.textContent = 'No multiple-choice questions match the current filter.';
+        container.appendChild(p);
+        return;
+    }
+
+    mcqs.forEach((q) => {
+        const card = document.createElement('div');
+        card.style.background = 'var(--bg-subtle)';
+        card.style.border = '1px solid var(--border)';
+        card.style.borderRadius = 'var(--radius-sm)';
+        card.style.padding = '0.85rem 1rem';
+
+        const header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.flexWrap = 'wrap';
+        header.style.gap = '0.5rem';
+        header.style.marginBottom = '0.45rem';
+
+        const meta = document.createElement('span');
+        meta.style.fontSize = '0.76rem';
+        meta.style.fontWeight = '800';
+        meta.style.color = q.status === 'APPROVED' ? '#6ee7b7' : (q.status === 'DRAFT' ? '#fde68a' : '#94a3b8');
+        meta.textContent = `[${q.status}] • ${q.type}` + (q.reportCount > 0 ? ` • 🚩 ${q.reportCount} report(s)` : '');
+
+        const btnGroup = document.createElement('div');
+        btnGroup.style.display = 'flex';
+        btnGroup.style.gap = '0.4rem';
+
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'btn-ghost';
+        editBtn.style.padding = '0.25rem 0.55rem';
+        editBtn.style.fontSize = '0.75rem';
+        editBtn.textContent = 'Edit';
+        editBtn.addEventListener('click', () => populateMcqEditForm(q));
+        btnGroup.appendChild(editBtn);
+
+        if (q.status !== 'APPROVED') {
+            const appBtn = document.createElement('button');
+            appBtn.type = 'button';
+            appBtn.className = 'btn-ghost';
+            appBtn.style.padding = '0.25rem 0.55rem';
+            appBtn.style.fontSize = '0.75rem';
+            appBtn.style.color = '#6ee7b7';
+            appBtn.textContent = 'Approve';
+            appBtn.addEventListener('click', () => handleQuestionBankAction(`/api/admin/questions/${q.id}/approve`));
+            btnGroup.appendChild(appBtn);
+        }
+
+        if (q.status !== 'RETIRED') {
+            const retBtn = document.createElement('button');
+            retBtn.type = 'button';
+            retBtn.className = 'btn-danger-outline';
+            retBtn.style.padding = '0.25rem 0.55rem';
+            retBtn.style.fontSize = '0.75rem';
+            retBtn.textContent = 'Retire';
+            retBtn.addEventListener('click', () => handleQuestionBankAction(`/api/admin/questions/${q.id}/retire`));
+            btnGroup.appendChild(retBtn);
+        }
+
+        header.appendChild(meta);
+        header.appendChild(btnGroup);
+        card.appendChild(header);
+
+        const stem = document.createElement('div');
+        stem.style.fontWeight = '700';
+        stem.style.color = '#f8fafc';
+        stem.style.fontSize = '0.9rem';
+        stem.textContent = q.questionText;
+        card.appendChild(stem);
+
+        if (q.evidence) {
+            const ev = document.createElement('div');
+            ev.style.fontSize = '0.78rem';
+            ev.style.color = '#c4b5fd';
+            ev.style.marginTop = '0.25rem';
+            ev.textContent = `Evidence: ${q.evidence}`;
+            card.appendChild(ev);
+        }
+
+        const ul = document.createElement('ul');
+        ul.style.marginLeft = '1.2rem';
+        ul.style.marginTop = '0.35rem';
+        (q.options || []).forEach((opt) => {
+            const li = document.createElement('li');
+            li.style.fontSize = '0.82rem';
+            li.style.color = opt.isCorrect ? '#6ee7b7' : 'var(--text-muted)';
+            li.textContent = (opt.isCorrect ? '✓ ' : '• ') + opt.optionText;
+            ul.appendChild(li);
+        });
+        card.appendChild(ul);
+        container.appendChild(card);
+    });
+}
+
+function renderOpenQuestionBankList(opens) {
+    const container = document.getElementById('qbank-open-list');
+    clearElement(container);
+
+    if (!opens || opens.length === 0) {
+        const p = document.createElement('p');
+        p.style.color = 'var(--text-muted)';
+        p.style.fontSize = '0.85rem';
+        p.textContent = 'No open written questions match the current filter.';
+        container.appendChild(p);
+        return;
+    }
+
+    opens.forEach((oq) => {
+        const card = document.createElement('div');
+        card.style.background = 'var(--bg-subtle)';
+        card.style.border = '1px solid var(--border)';
+        card.style.borderRadius = 'var(--radius-sm)';
+        card.style.padding = '0.85rem 1rem';
+
+        const header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.marginBottom = '0.35rem';
+
+        const meta = document.createElement('span');
+        meta.style.fontSize = '0.76rem';
+        meta.style.fontWeight = '800';
+        meta.style.color = oq.status === 'APPROVED' ? '#6ee7b7' : (oq.status === 'DRAFT' ? '#fde68a' : '#94a3b8');
+        meta.textContent = `[${oq.status}] Open Question`;
+
+        const btnGroup = document.createElement('div');
+        btnGroup.style.display = 'flex';
+        btnGroup.style.gap = '0.4rem';
+
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'btn-ghost';
+        editBtn.style.padding = '0.25rem 0.55rem';
+        editBtn.style.fontSize = '0.75rem';
+        editBtn.textContent = 'Edit';
+        editBtn.addEventListener('click', () => populateOpenQuestionEditForm(oq));
+        btnGroup.appendChild(editBtn);
+
+        if (oq.status !== 'APPROVED') {
+            const appBtn = document.createElement('button');
+            appBtn.type = 'button';
+            appBtn.className = 'btn-ghost';
+            appBtn.style.padding = '0.25rem 0.55rem';
+            appBtn.style.fontSize = '0.75rem';
+            appBtn.style.color = '#6ee7b7';
+            appBtn.textContent = 'Approve';
+            appBtn.addEventListener('click', () => handleQuestionBankAction(`/api/admin/open-questions/${oq.id}/approve`));
+            btnGroup.appendChild(appBtn);
+        }
+
+        if (oq.status !== 'RETIRED') {
+            const retBtn = document.createElement('button');
+            retBtn.type = 'button';
+            retBtn.className = 'btn-danger-outline';
+            retBtn.style.padding = '0.25rem 0.55rem';
+            retBtn.style.fontSize = '0.75rem';
+            retBtn.textContent = 'Retire';
+            retBtn.addEventListener('click', () => handleQuestionBankAction(`/api/admin/open-questions/${oq.id}/retire`));
+            btnGroup.appendChild(retBtn);
+        }
+
+        header.appendChild(meta);
+        header.appendChild(btnGroup);
+        card.appendChild(header);
+
+        const promptDiv = document.createElement('div');
+        promptDiv.style.fontWeight = '700';
+        promptDiv.style.color = '#f8fafc';
+        promptDiv.style.fontSize = '0.9rem';
+        promptDiv.textContent = oq.promptText;
+        card.appendChild(promptDiv);
+
+        if (oq.evidence) {
+            const ev = document.createElement('div');
+            ev.style.fontSize = '0.78rem';
+            ev.style.color = '#c4b5fd';
+            ev.style.marginTop = '0.25rem';
+            ev.textContent = `Evidence: ${oq.evidence}`;
+            card.appendChild(ev);
+        }
+
+        container.appendChild(card);
+    });
+}
+
+async function handleQuestionBankAction(url) {
+    hideFeedback('qbank-manager-msg');
+    try {
+        const res = await apiFetch(url, { method: 'POST' });
+        if (res.ok) {
+            await loadEpisodeQuestionBank();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showFeedback('qbank-manager-msg', err.error || 'Action failed.', true);
+        }
+    } catch (err) {
+        showFeedback('qbank-manager-msg', 'Error: ' + err.message, true);
+    }
+}
+
+async function handleBulkApproveDrafts() {
+    hideFeedback('qbank-manager-msg');
+    const episodeId = (document.getElementById('ai-episode-select') || {}).value;
+    if (!episodeId) return;
+    try {
+        const res = await apiFetch(`/api/admin/episodes/${encodeURIComponent(episodeId)}/questions/bulk-approve`, {
+            method: 'POST'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            showFeedback('qbank-manager-msg',
+                `✓ Approved ${data.approvedMcqs || 0} draft MCQ(s) and ${data.approvedOpenQuestions || 0} draft open question(s).`);
+            await loadEpisodeQuestionBank();
+        } else {
+            showFeedback('qbank-manager-msg', data.error || 'Bulk approve failed.', true);
+        }
+    } catch (err) {
+        showFeedback('qbank-manager-msg', 'Error: ' + err.message, true);
+    }
+}
+
+function populateMcqEditForm(q) {
+    const details = document.getElementById('mcq-editor-details');
+    if (details) details.open = true;
+    document.getElementById('mcq-edit-id').value = String(q.id);
+    document.getElementById('mcq-text').value = q.questionText || '';
+    document.getElementById('mcq-type').value = q.type || 'RECALL';
+    document.getElementById('mcq-status').value = q.status || 'APPROVED';
+    document.getElementById('mcq-evidence').value = q.evidence || '';
+    (q.options || []).slice(0, 4).forEach((opt, i) => {
+        const input = document.getElementById(`mcq-opt-${i}`);
+        if (input) input.value = opt.optionText || '';
+        if (opt.isCorrect) {
+            const radio = document.querySelector(`input[name="mcq_correct_idx"][value="${i}"]`);
+            if (radio) radio.checked = true;
+        }
+    });
+    if (details) details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resetMcqForm() {
+    document.getElementById('mcq-edit-id').value = '';
+    const form = document.getElementById('form-upsert-mcq');
+    if (form) form.reset();
+}
+
+async function handleSaveMcq(e) {
+    e.preventDefault();
+    hideFeedback('qbank-manager-msg');
+    const episodeId = (document.getElementById('ai-episode-select') || {}).value;
+    if (!episodeId) return;
+
+    const editId = document.getElementById('mcq-edit-id').value.trim();
+    const correctRadio = document.querySelector('input[name="mcq_correct_idx"]:checked');
+    const correctIdx = correctRadio ? parseInt(correctRadio.value, 10) : 0;
+
+    const options = [0, 1, 2, 3].map((i) => ({
+        optionText: document.getElementById(`mcq-opt-${i}`).value.trim(),
+        isCorrect: i === correctIdx
+    }));
+
+    const payload = {
+        questionText: document.getElementById('mcq-text').value.trim(),
+        type: document.getElementById('mcq-type').value,
+        status: document.getElementById('mcq-status').value,
+        active: document.getElementById('mcq-status').value !== 'RETIRED',
+        evidence: document.getElementById('mcq-evidence').value.trim() || null,
+        options
+    };
+
+    const url = editId
+        ? `/api/admin/questions/${encodeURIComponent(editId)}`
+        : `/api/admin/episodes/${encodeURIComponent(episodeId)}/questions`;
+    const method = editId ? 'PUT' : 'POST';
+
+    try {
+        const res = await apiFetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            resetMcqForm();
+            showFeedback('qbank-manager-msg', editId ? '✓ Updated MCQ (any pending student report cooldowns reset).' : '✓ Added new MCQ.');
+            await loadEpisodeQuestionBank();
+        } else {
+            showFeedback('qbank-manager-msg', data.error || 'Failed to save MCQ.', true);
+        }
+    } catch (err) {
+        showFeedback('qbank-manager-msg', 'Error: ' + err.message, true);
+    }
+}
+
+function populateOpenQuestionEditForm(oq) {
+    const details = document.getElementById('openq-editor-details');
+    if (details) details.open = true;
+    document.getElementById('openq-edit-id').value = String(oq.id);
+    document.getElementById('openq-prompt').value = oq.promptText || '';
+    document.getElementById('openq-status').value = oq.status || 'APPROVED';
+    document.getElementById('openq-evidence').value = oq.evidence || '';
+    if (details) details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resetOpenQuestionForm() {
+    document.getElementById('openq-edit-id').value = '';
+    const form = document.getElementById('form-upsert-openq');
+    if (form) form.reset();
+}
+
+async function handleSaveOpenQuestion(e) {
+    e.preventDefault();
+    hideFeedback('qbank-manager-msg');
+    const episodeId = (document.getElementById('ai-episode-select') || {}).value;
+    if (!episodeId) return;
+
+    const editId = document.getElementById('openq-edit-id').value.trim();
+    const payload = {
+        promptText: document.getElementById('openq-prompt').value.trim(),
+        status: document.getElementById('openq-status').value,
+        active: document.getElementById('openq-status').value !== 'RETIRED',
+        evidence: document.getElementById('openq-evidence').value.trim() || null
+    };
+
+    const url = editId
+        ? `/api/admin/open-questions/${encodeURIComponent(editId)}`
+        : `/api/admin/episodes/${encodeURIComponent(episodeId)}/open-questions`;
+    const method = editId ? 'PUT' : 'POST';
+
+    try {
+        const res = await apiFetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            resetOpenQuestionForm();
+            showFeedback('qbank-manager-msg', editId ? '✓ Updated open question.' : '✓ Added open question.');
+            await loadEpisodeQuestionBank();
+        } else {
+            showFeedback('qbank-manager-msg', data.error || 'Failed to save open question.', true);
+        }
+    } catch (err) {
+        showFeedback('qbank-manager-msg', 'Error: ' + err.message, true);
     }
 }
 

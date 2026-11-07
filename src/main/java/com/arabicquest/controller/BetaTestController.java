@@ -1,6 +1,7 @@
 package com.arabicquest.controller;
 
 import com.arabicquest.dto.WatchStatusResponse;
+import com.arabicquest.model.Episode;
 import com.arabicquest.model.User;
 import com.arabicquest.model.WatchMode;
 import com.arabicquest.repository.*;
@@ -18,28 +19,49 @@ import java.util.Map;
 public class BetaTestController {
 
     private final UserRepository userRepository;
+    private final EpisodeRepository episodeRepository;
     private final WatchProgressService watchProgressService;
     private final WatchSessionRepository watchSessionRepository;
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
     private final PlaylistBonusClaimRepository playlistBonusClaimRepository;
     private final PayoutRepository payoutRepository;
     private final QuizAttemptRepository quizAttemptRepository;
+    private final QuizAttemptSessionRepository quizAttemptSessionRepository;
+    private final StudentQuestionExposureRepository exposureRepository;
+    private final QuestionReportRepository questionReportRepository;
+    private final OpenAnswerSubmissionRepository openAnswerSubmissionRepository;
+    private final StudentOpenQuestionAssignmentRepository assignmentRepository;
+    private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
 
     public BetaTestController(
             UserRepository userRepository,
+            EpisodeRepository episodeRepository,
             WatchProgressService watchProgressService,
             WatchSessionRepository watchSessionRepository,
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
             PlaylistBonusClaimRepository playlistBonusClaimRepository,
             PayoutRepository payoutRepository,
-            QuizAttemptRepository quizAttemptRepository) {
+            QuizAttemptRepository quizAttemptRepository,
+            QuizAttemptSessionRepository quizAttemptSessionRepository,
+            StudentQuestionExposureRepository exposureRepository,
+            QuestionReportRepository questionReportRepository,
+            OpenAnswerSubmissionRepository openAnswerSubmissionRepository,
+            StudentOpenQuestionAssignmentRepository assignmentRepository,
+            StudentEpisodeOverrideRepository studentEpisodeOverrideRepository) {
         this.userRepository = userRepository;
+        this.episodeRepository = episodeRepository;
         this.watchProgressService = watchProgressService;
         this.watchSessionRepository = watchSessionRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
         this.playlistBonusClaimRepository = playlistBonusClaimRepository;
         this.payoutRepository = payoutRepository;
         this.quizAttemptRepository = quizAttemptRepository;
+        this.quizAttemptSessionRepository = quizAttemptSessionRepository;
+        this.exposureRepository = exposureRepository;
+        this.questionReportRepository = questionReportRepository;
+        this.openAnswerSubmissionRepository = openAnswerSubmissionRepository;
+        this.assignmentRepository = assignmentRepository;
+        this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
     }
 
     @Transactional
@@ -59,6 +81,9 @@ public class BetaTestController {
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long episodeId) {
         User user = requireBetaAccess(userDetails);
+        Episode episode = episodeRepository.findById(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+        watchProgressService.resetRetryCooldownForStudent(user, episode);
         quizAttemptRepository.deleteByStudentIdAndEpisodeIdAndPassedFalse(user.getId(), episodeId);
         return ResponseEntity.ok(Map.of("message", "Retry cooldown cleared for episode."));
     }
@@ -69,6 +94,12 @@ public class BetaTestController {
             @AuthenticationPrincipal UserDetails userDetails) {
         User user = requireBetaAccess(userDetails);
         Long uid = user.getId();
+        questionReportRepository.deleteByStudentId(uid);
+        exposureRepository.deleteByStudentId(uid);
+        quizAttemptSessionRepository.deleteByStudentId(uid);
+        openAnswerSubmissionRepository.deleteByStudentId(uid);
+        assignmentRepository.deleteByStudentId(uid);
+        studentEpisodeOverrideRepository.deleteByStudentId(uid);
         watchSessionRepository.deleteByStudentId(uid);
         episodeRewardClaimRepository.deleteByStudentId(uid);
         playlistBonusClaimRepository.deleteByStudentId(uid);

@@ -1,6 +1,7 @@
 package com.arabicquest.config;
 
 import com.arabicquest.model.QuestionStatus;
+import com.arabicquest.model.QuestionType;
 import com.arabicquest.model.Role;
 import com.arabicquest.model.User;
 import com.arabicquest.repository.QuestionRepository;
@@ -69,9 +70,11 @@ public class DataInitializer {
     private void backfillExistingDatabaseQuestions(QuestionRepository questionRepository) {
         int updatedActive = questionRepository.backfillNullActiveToTrue();
         int updatedStatus = questionRepository.backfillNullStatus(QuestionStatus.APPROVED);
-        if (updatedActive > 0 || updatedStatus > 0) {
-            log.info("Backfilled existing database questions as APPROVED and active (activeUpdated={}, statusUpdated={}).",
-                    updatedActive, updatedStatus);
+        int updatedType = questionRepository.backfillNullType(QuestionType.RECALL);
+        int updatedReportCount = questionRepository.backfillNullReportCount();
+        if (updatedActive > 0 || updatedStatus > 0 || updatedType > 0 || updatedReportCount > 0) {
+            log.info("Backfilled existing database questions safely (active={}, status={}, type={}, reportCount={}).",
+                    updatedActive, updatedStatus, updatedType, updatedReportCount);
         }
     }
 

@@ -4,11 +4,14 @@ import com.arabicquest.dto.WatchHeartbeatRequest;
 import com.arabicquest.dto.WatchStatusResponse;
 import com.arabicquest.model.Episode;
 import com.arabicquest.model.QuizAttempt;
+import com.arabicquest.model.StudentEpisodeOverride;
 import com.arabicquest.model.User;
 import com.arabicquest.model.WatchMode;
 import com.arabicquest.model.WatchSession;
 import com.arabicquest.repository.EpisodeRepository;
+import com.arabicquest.repository.EpisodeRewardClaimRepository;
 import com.arabicquest.repository.QuizAttemptRepository;
+import com.arabicquest.repository.StudentEpisodeOverrideRepository;
 import com.arabicquest.repository.UserRepository;
 import com.arabicquest.repository.WatchSessionRepository;
 import org.slf4j.Logger;
@@ -32,6 +35,8 @@ public class WatchProgressService {
 
     private final WatchSessionRepository watchSessionRepository;
     private final QuizAttemptRepository quizAttemptRepository;
+    private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
+    private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
     private final UserRepository userRepository;
     private final EpisodeRepository episodeRepository;
     private final int requiredCapSeconds;
@@ -40,16 +45,24 @@ public class WatchProgressService {
     public WatchProgressService(
             WatchSessionRepository watchSessionRepository,
             QuizAttemptRepository quizAttemptRepository,
+            EpisodeRewardClaimRepository episodeRewardClaimRepository,
+            StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
             UserRepository userRepository,
             EpisodeRepository episodeRepository,
             @Value("${app.watch.required-cap-seconds:1800}") int requiredCapSeconds,
             @Value("${app.quiz.retry-cooldown-seconds:${QUIZ_RETRY_COOLDOWN_SECONDS:600}}") long retryCooldownSeconds) {
         this.watchSessionRepository = watchSessionRepository;
         this.quizAttemptRepository = quizAttemptRepository;
+        this.episodeRewardClaimRepository = episodeRewardClaimRepository;
+        this.studentEpisodeOverrideRepository = studentEpisodeOverrideRepository;
         this.userRepository = userRepository;
         this.episodeRepository = episodeRepository;
         this.requiredCapSeconds = requiredCapSeconds;
         this.retryCooldownSeconds = retryCooldownSeconds;
+    }
+
+    public long getConfiguredRetryCooldownSeconds() {
+        return Math.max(0L, retryCooldownSeconds);
     }
 
     public int computeRequiredWatchSeconds(Episode episode) {
@@ -67,7 +80,25 @@ public class WatchProgressService {
             List<Episode> orderedActiveEpisodes,
             Set<Long> passedEpisodeIds,
             boolean bypassForBeta) {
-        if (bypassForBeta || passedEpisodeIds.contains(target.getId())) {
+        return evaluateSequentialLock(target, orderedActiveEpisodes, passedEpisodeIds, null, bypassForBeta);
+    }
+
+    public EpisodeLockState evaluateSequentialLock(
+            Episode target,
+            List<Episode> orderedActiveEpisodes,
+            Set<Long> passedEpisodeIds,
+            StudentEpisodeOverride.OverrideState adminOverride,
+            boolean bypassForBeta) {
+        if (bypassForBeta) {
+            return new EpisodeLockState(false, null);
+        }
+        if (adminOverride == StudentEpisodeOverride.OverrideState.UNLOCKED) {
+            return new EpisodeLockState(false, null);
+        }
+        if (adminOverride == StudentEpisodeOverride.OverrideState.LOCKED) {
+            return new EpisodeLockState(true, null);
+        }
+        if (passedEpisodeIds.contains(target.getId())) {
             return new EpisodeLockState(false, null);
         }
         for (int i = 0; i < orderedActiveEpisodes.size(); i++) {
@@ -91,12 +122,20 @@ public class WatchProgressService {
         if (allowBetaBypass) {
             return;
         }
+        StudentEpisodeOverride.OverrideState adminOverride = studentEpisodeOverrideRepository
+                .findByStudentIdAndEpisodeId(user.getId(), episode.getId())
+                .map(StudentEpisodeOverride::getOverrideState)
+                .orElse(null);
+
         List<Episode> active = episodeRepository.findAllActiveOrderByEpisodeNumberAsc();
-        Set<Long> passedIds = quizAttemptRepository.findPassedEpisodeIdsByStudentId(user.getId());
-        EpisodeLockState lockState = evaluateSequentialLock(episode, active, passedIds, false);
+        Set<Long> passedIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(user.getId());
+        EpisodeLockState lockState = evaluateSequentialLock(episode, active, passedIds, adminOverride, false);
         if (lockState.locked()) {
-            throw new SecurityException("Episode " + episode.getEpisodeNumber()
-                    + " is locked. Pass Episode " + lockState.unlockAfterEpisodeNumber() + " first.");
+            if (lockState.unlockAfterEpisodeNumber() != null) {
+                throw new SecurityException("Episode " + episode.getEpisodeNumber()
+                        + " is locked. Complete Episode " + lockState.unlockAfterEpisodeNumber() + " first.");
+            }
+            throw new SecurityException("Episode " + episode.getEpisodeNumber() + " has been locked by the administrator.");
         }
     }
 
@@ -109,8 +148,25 @@ public class WatchProgressService {
         if (lastFail.isEmpty() || lastFail.get().getAttemptedAt() == null) {
             return 0L;
         }
-        long elapsed = Duration.between(lastFail.get().getAttemptedAt(), LocalDateTime.now()).getSeconds();
+        LocalDateTime failTime = lastFail.get().getAttemptedAt();
+        LocalDateTime resetAt = studentEpisodeOverrideRepository
+                .findByStudentIdAndEpisodeId(studentId, episodeId)
+                .map(StudentEpisodeOverride::getCooldownResetAt)
+                .orElse(null);
+        if (resetAt != null && !failTime.isAfter(resetAt)) {
+            return 0L;
+        }
+        long elapsed = Duration.between(failTime, LocalDateTime.now()).getSeconds();
         return Math.max(0L, retryCooldownSeconds - elapsed);
+    }
+
+    @Transactional
+    public void resetRetryCooldownForStudent(User student, Episode episode) {
+        StudentEpisodeOverride override = studentEpisodeOverrideRepository
+                .findByStudentIdAndEpisodeId(student.getId(), episode.getId())
+                .orElseGet(() -> new StudentEpisodeOverride(student, episode));
+        override.setCooldownResetAt(LocalDateTime.now().plusSeconds(1));
+        studentEpisodeOverrideRepository.save(override);
     }
 
     @Transactional(readOnly = true)
@@ -164,7 +220,7 @@ public class WatchProgressService {
                     req.videoDurationSeconds(), episodeId, episode.getDurationSeconds());
         }
 
-        boolean alreadyPassed = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episode.getId());
+        boolean alreadyPassed = episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episode.getId());
         int required = computeRequiredWatchSeconds(episode);
 
         // Ignore client-asserted external=true completely; only real player playback counts.
@@ -240,7 +296,7 @@ public class WatchProgressService {
         Episode episode = episodeRepository.findById(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
 
-        boolean alreadyPassed = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episode.getId());
+        boolean alreadyPassed = episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episode.getId());
         int required = computeRequiredWatchSeconds(episode);
         WatchMode targetMode = newMode != null ? newMode : WatchMode.ARABIC_SUB;
 

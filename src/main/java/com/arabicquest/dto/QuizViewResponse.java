@@ -1,32 +1,49 @@
 package com.arabicquest.dto;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 public class QuizViewResponse {
     private Long id;
     private Long episodeId;
+    private UUID sessionId;
+    private LocalDateTime expiresAt;
     private boolean ready = true;
     private String message;
     private Double passingScorePercentage;
     private List<QuestionViewResponse> questions;
+    private OpenQuestionStudentResponse openQuestion;
 
     public QuizViewResponse() {
     }
 
-    public QuizViewResponse(Long id, Long episodeId, Double passingScorePercentage, List<QuestionViewResponse> questions) {
+    public QuizViewResponse(
+            Long id,
+            Long episodeId,
+            UUID sessionId,
+            LocalDateTime expiresAt,
+            Double passingScorePercentage,
+            List<QuestionViewResponse> questions,
+            OpenQuestionStudentResponse openQuestion) {
         this.id = id;
         this.episodeId = episodeId;
+        this.sessionId = sessionId;
+        this.expiresAt = expiresAt;
         this.ready = true;
         this.message = null;
         this.passingScorePercentage = passingScorePercentage;
         this.questions = questions;
+        this.openQuestion = openQuestion;
     }
 
     public static QuizViewResponse notReady(Long episodeId, String message) {
         QuizViewResponse resp = new QuizViewResponse();
         resp.setId(null);
         resp.setEpisodeId(episodeId);
+        resp.setSessionId(null);
+        resp.setExpiresAt(null);
         resp.setReady(false);
         resp.setMessage(message != null ? message : "Quiz not ready yet");
         resp.setPassingScorePercentage(100.0);
@@ -48,6 +65,22 @@ public class QuizViewResponse {
 
     public void setEpisodeId(Long episodeId) {
         this.episodeId = episodeId;
+    }
+
+    public UUID getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(UUID sessionId) {
+        this.sessionId = sessionId;
+    }
+
+    public LocalDateTime getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(LocalDateTime expiresAt) {
+        this.expiresAt = expiresAt;
     }
 
     public boolean isReady() {
@@ -80,5 +113,13 @@ public class QuizViewResponse {
 
     public void setQuestions(List<QuestionViewResponse> questions) {
         this.questions = questions;
+    }
+
+    public OpenQuestionStudentResponse getOpenQuestion() {
+        return openQuestion;
+    }
+
+    public void setOpenQuestion(OpenQuestionStudentResponse openQuestion) {
+        this.openQuestion = openQuestion;
     }
 }

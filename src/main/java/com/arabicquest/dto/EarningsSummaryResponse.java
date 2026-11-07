@@ -6,6 +6,8 @@ public class EarningsSummaryResponse {
 
     private String studentUsername;
     private BigDecimal totalEarned;
+    private BigDecimal pendingReviewAmount;
+    private long pendingReviewCount;
     private BigDecimal totalPaid;
     private BigDecimal balanceOwed;
     private long passedEpisodesCount;
@@ -16,11 +18,21 @@ public class EarningsSummaryResponse {
     public EarningsSummaryResponse() {
     }
 
-    public EarningsSummaryResponse(String studentUsername, BigDecimal totalEarned, BigDecimal totalPaid,
-                                   BigDecimal balanceOwed, long passedEpisodesCount, long totalEpisodesCount,
-                                   boolean bonusUnlocked, BigDecimal completionBonusAmount) {
+    public EarningsSummaryResponse(
+            String studentUsername,
+            BigDecimal totalEarned,
+            BigDecimal pendingReviewAmount,
+            long pendingReviewCount,
+            BigDecimal totalPaid,
+            BigDecimal balanceOwed,
+            long passedEpisodesCount,
+            long totalEpisodesCount,
+            boolean bonusUnlocked,
+            BigDecimal completionBonusAmount) {
         this.studentUsername = studentUsername;
         this.totalEarned = totalEarned;
+        this.pendingReviewAmount = pendingReviewAmount != null ? pendingReviewAmount : BigDecimal.ZERO;
+        this.pendingReviewCount = pendingReviewCount;
         this.totalPaid = totalPaid;
         this.balanceOwed = balanceOwed;
         this.passedEpisodesCount = passedEpisodesCount;
@@ -43,6 +55,22 @@ public class EarningsSummaryResponse {
 
     public void setTotalEarned(BigDecimal totalEarned) {
         this.totalEarned = totalEarned;
+    }
+
+    public BigDecimal getPendingReviewAmount() {
+        return pendingReviewAmount;
+    }
+
+    public void setPendingReviewAmount(BigDecimal pendingReviewAmount) {
+        this.pendingReviewAmount = pendingReviewAmount;
+    }
+
+    public long getPendingReviewCount() {
+        return pendingReviewCount;
+    }
+
+    public void setPendingReviewCount(long pendingReviewCount) {
+        this.pendingReviewCount = pendingReviewCount;
     }
 
     public BigDecimal getTotalPaid() {
