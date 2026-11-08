@@ -14,5 +14,38 @@ public record OpenQuestionStudentResponse(
         String submittedAnswerText,
         String adminFeedback,
         LocalDateTime submittedAt,
-        LocalDateTime reviewedAt
-) {}
+        LocalDateTime reviewedAt,
+        boolean rewardCreated,
+        BigDecimal episodeRewardAmount,
+        boolean bonusAwarded,
+        BigDecimal bonusAmount
+) {
+    public OpenQuestionStudentResponse(
+            Long episodeId,
+            Long openQuestionId,
+            String promptText,
+            WatchMode watchMode,
+            BigDecimal potentialRewardAmount,
+            String submissionStatus,
+            String submittedAnswerText,
+            String adminFeedback,
+            LocalDateTime submittedAt,
+            LocalDateTime reviewedAt) {
+        this(
+                episodeId,
+                openQuestionId,
+                promptText,
+                watchMode,
+                potentialRewardAmount,
+                submissionStatus,
+                submittedAnswerText,
+                adminFeedback,
+                submittedAt,
+                reviewedAt,
+                false,
+                BigDecimal.ZERO,
+                false,
+                BigDecimal.ZERO
+        );
+    }
+}
