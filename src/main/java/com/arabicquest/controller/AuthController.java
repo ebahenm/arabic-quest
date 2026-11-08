@@ -89,6 +89,11 @@ public class AuthController {
                     .body(Map.of("error", "Invalid username or password"));
         }
 
+        if (!user.isEnabled()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Your account has been disabled. Please contact the administrator."));
+        }
+
         loginRateLimiter.resetOnSuccess(clientIp, rawUsername);
         return buildAuthenticatedResponse(user, httpRequest);
     }
@@ -169,6 +174,11 @@ public class AuthController {
                 loginRateLimiter.recordFailure(clientIp, cleanEmail);
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(Map.of("error", "No student account found for " + cleanEmail + ". Please ask the administrator to create your account."));
+            }
+
+            if (!user.isEnabled()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("error", "Your account has been disabled. Please contact the administrator."));
             }
 
             loginRateLimiter.resetOnSuccess(clientIp, cleanEmail);

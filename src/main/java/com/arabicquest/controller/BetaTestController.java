@@ -96,6 +96,9 @@ public class BetaTestController {
     public ResponseEntity<Map<String, String>> resetMyBetaProgress(
             @AuthenticationPrincipal UserDetails userDetails) {
         User user = requireBetaAccess(userDetails);
+        if (user.getRole() != com.arabicquest.model.Role.ROLE_ADMIN) {
+            throw new SecurityException("Progress reset is restricted to administrator accounts.");
+        }
         Long uid = user.getId();
         questionReportRepository.deleteByStudentId(uid);
         exposureRepository.deleteByStudentId(uid);
@@ -107,10 +110,9 @@ public class BetaTestController {
         watchSessionRepository.deleteByStudentId(uid);
         episodeRewardClaimRepository.deleteByStudentId(uid);
         playlistBonusClaimRepository.deleteByStudentId(uid);
-        payoutRepository.deleteByStudentId(uid);
         quizAttemptRepository.deleteByStudentId(uid);
         return ResponseEntity.ok(Map.of(
-                "message", "Your beta test progress, watch timers, and $0.00 test balance have been reset."
+                "message", "Your admin beta test progress and watch timers have been reset. Payouts and adjustments are untouched."
         ));
     }
 

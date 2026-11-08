@@ -290,6 +290,7 @@ public class QuestionBankBackupDto {
 
         public void setEvidence(String evidence) {
             this.evidence = evidence;
+        }
         
 
         public Integer getEvidenceTimestamp() {
@@ -298,7 +299,7 @@ public class QuestionBankBackupDto {
 
         public void setEvidenceTimestamp(Integer evidenceTimestamp) {
             this.evidenceTimestamp = evidenceTimestamp;
-        }}
+        }
 
         public List<OptionBackup> getOptions() {
             return options;
@@ -331,6 +332,7 @@ public class QuestionBankBackupDto {
 
         public void setEvidence(String evidence) {
             this.evidence = evidence;
+        }
         
 
         public Integer getEvidenceTimestamp() {
@@ -339,7 +341,7 @@ public class QuestionBankBackupDto {
 
         public void setEvidenceTimestamp(Integer evidenceTimestamp) {
             this.evidenceTimestamp = evidenceTimestamp;
-        }}
+        }
 
         public Boolean getActive() {
             return active;

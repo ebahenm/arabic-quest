@@ -7,11 +7,13 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Set;
 
 @Repository
 public interface EpisodeRewardClaimRepository extends JpaRepository<EpisodeRewardClaim, Long> {
     boolean existsByStudentIdAndEpisodeId(Long studentId, Long episodeId);
+    List<EpisodeRewardClaim> findByStudentIdOrderByClaimedAtAsc(Long studentId);
     boolean existsByEpisodeId(Long episodeId);
     void deleteByStudentId(Long studentId);
 

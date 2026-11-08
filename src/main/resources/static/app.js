@@ -673,7 +673,15 @@ async function fetchEarnings() {
                 pendingEl.textContent = '$' + Number(data.pendingReviewAmount || 0).toFixed(2);
             }
             document.getElementById('val-paid').textContent = '$' + Number(data.totalPaid).toFixed(2);
-            document.getElementById('val-owed').textContent = '$' + Number(data.balanceOwed).toFixed(2);
+            const owedEl = document.getElementById('val-owed');
+            const owedVal = Number(data.balanceOwed != null ? data.balanceOwed : 0);
+            if (owedVal < 0) {
+                owedEl.textContent = 'Overpaid by $' + Math.abs(owedVal).toFixed(2);
+                owedEl.style.color = '#ef4444';
+            } else {
+                owedEl.textContent = '$' + owedVal.toFixed(2);
+                owedEl.style.color = '';
+            }
 
             if (!currentCourse) {
                 const total = data.totalEpisodesCount > 0 ? data.totalEpisodesCount : 1;
@@ -876,16 +884,9 @@ function renderModePicker(ep, statusOverride = null) {
     }
 
     const banner = document.getElementById('mode-instructions-banner');
-    const instrText = document.getElementById('mode-instructions-text');
     if (banner) {
         banner.classList.toggle('english-mode', selectedWatchMode === 'ENGLISH_DUB');
     }
-    if (instrText) {
-        if (selectedWatchMode === 'ENGLISH_DUB') {
-            instrText.textContent = `🔊 English Dubbed Mode (+$${rateEn}): In the YouTube player, click ⚙️ Settings → Audio track → English, and click [CC] if you also want captions.`;
-        } else {
-            instrText.textContent = `🎧 Original Arabic + English Subtitles (+$${rateAr}): In the YouTube player, click ⚙️ Settings → Audio track → Arabic (Original), and click [CC] / Subtitles to select English.`;
-        }
     }
 
     const lockInd = document.getElementById('mode-lock-indicator');

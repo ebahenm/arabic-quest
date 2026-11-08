@@ -7,20 +7,20 @@
 
 ## Overview
 
-**Turathtona (`تراثُنا`)** is a private family learning and incentive platform built on **Java 21** and **Spring Boot 3.5.16**. Students study multi-course Arabic history playlists, verify real video watch time on the server, pass **10-question comprehension quizzes (`100%`)**, write an open reflection reviewed by the administrator, and earn verified cash rewards tracked in an idempotent ledger.
+**Turathtona (`تراثُنا`)** is a private family learning and incentive platform built on **Java 21** and **Spring Boot 3.5.16**. Students study multi-course Arabic history playlists, verify real video watch time on the server, pass **10-question comprehension quizzes (`100%`)**, submit a written reflection, and earn verified cash rewards tracked in an idempotent ledger.
 
 ---
 
 ## Learning, Assessment, & Reward Rules
 
 1. **Multi-Course Catalog & Sequential Locking**
-   - Students browse published courses in the **Course Catalog**, view per-course syllabi and progress (`LOCKED`, `AVAILABLE`, `WATCHING`, `QUIZ_READY`, `QUIZ_NOT_READY`, `PENDING_REVIEW`, `PASSED`), and mark favourite episodes (`♡ / ♥`).
+   - Students browse published courses in the **Course Catalog**, view per-course syllabi and progress (`LOCKED`, `AVAILABLE`, `WATCHING`, `QUIZ_READY`, `QUIZ_NOT_READY`, `PASSED`), and mark favourite episodes (`♡ / ♥`).
    - Within each course, Episode `N` unlocks sequentially after Episode `N - 1` is `PASSED` (independent across separate courses). Administrators can also apply per-student episode unlock/lock overrides.
 
 2. **Language Modes & Configurable Per-Course Rewards**
-   - **Original Arabic Audio + English Subtitles (`ARABIC_SUB`)**: Default **+\$15.00** per approved episode (editable per course).
-   - **English Dubbed Audio (`ENGLISH_DUB`)**: Default **+\$10.00** per approved episode (editable per course).
-   - **Course Completion Bonus**: Default **+\$100.00** awarded once when all active episodes in the course are `PASSED` (editable per course).
+   - **Original Arabic Audio + English Subtitles (`ARABIC_SUB`)**: Default **+$15.00** per passed episode (editable per course).
+   - **English Dubbed Audio (`ENGLISH_DUB`)**: Default **+$10.00** per passed episode (editable per course).
+   - **Course Completion Bonus**: Default **+$100.00** awarded once when all active episodes in the course are `PASSED` (editable per course).
    - Choosing a mode locks that episode's reward tier once playback starts. Before passing, a student may explicitly reset the episode watch timer to `0` to switch modes.
 
 3. **30-Minute Server-Verified Watch Requirement**
@@ -35,11 +35,18 @@
    - Passing requires **10/10 (`100%`)**. Answer keys and transcript evidence are never returned by any student endpoint.
    - Failed attempts start a server-enforced retry cooldown (`app.quiz.retry-cooldown-seconds`, default 10 minutes). Students can report a flawed question from the failed-attempt screen; if an admin edits or retires that question, the reporting student's cooldown is cleared immediately.
 
-5. **Written Reflection & Admin Approval Gate**
-   - Scoring `10/10` on the MCQ session unlocks **1 fixed `APPROVED` open question** assigned to that student and episode (`40–2,000` characters in English).
-   - Submitting the written answer places the episode in **`PENDING_REVIEW`** (tracked under **Pending Review**, separate from **Earned**).
-   - **No money is earned until the administrator approves the written answer.** Approving creates the unique `EpisodeRewardClaim` (idempotent) and automatically awards the `PlaylistBonusClaim` once every active episode in the course is `PASSED`.
-   - If the administrator requests a revision (`REVISION_REQUESTED`) with feedback, the student revises and resubmits the same prompt without retaking the MCQ quiz.
+5. **Pass Rule: Immediate Reward & Reading List**
+   - Scoring `10/10` on the MCQ session unlocks **1 fixed `APPROVED` open question** assigned to that student and episode.
+   - Submitting a valid written answer (at least **40 words in English**, maximum 2,000 characters; verified against spam, repeated words, and prompt copying) **immediately passes the episode and awards the reward** (`EpisodeRewardClaim`).
+   - If this is the final active episode in the course, the course completion bonus (`PlaylistBonusClaim`) is also awarded automatically and idempotently.
+   - Submissions are automatically placed in the administrator's **Written Reflections Reading List** with an unread badge. Administrators can inspect answers, mark them as read, and leave optional feedback notes for the student.
+
+6. **Money Safety, Append-Only Payouts, & Balance Adjustments**
+   - **Balance Calculation**: `totalEarned = episodeRewards + bonusRewards + balanceAdjustments`. `balanceOwed = totalEarned - totalPaid`.
+   - **Overpaid UI**: If `balanceOwed < 0`, both student and admin interfaces clearly display `Overpaid by $X.XX` with prominent red styling.
+   - **Voiding Payouts**: Payout records are append-only. Administrators can void mistakenly recorded payouts with an audit reason; voided payouts remain in the ledger for auditing but are immediately excluded from `totalPaid`.
+   - **Balance Adjustments**: Administrators can post positive (+) or negative (-) adjustments with a mandatory reason to credit or debit student balances.
+   - **Brother Reconciliation**: An idempotent startup task reconciles historical payouts with a +$30.00 adjustment for the brother account.
 
 ---
 
@@ -69,8 +76,9 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 | `ADMIN_USERNAME` | **Yes** | `admin` | Administrator username synced on startup. |
 | `ADMIN_PASSWORD` | **Yes** | Random logged | Administrator password (**>= 12 characters** in `prod`; BCrypt-hashed on startup). |
 | `ADMIN_SECRET_PATH` | **Yes** | Dev-only slug | Private URL slug for the Admin Command Center (must not be blank or `turath-hq` in `prod`). |
-| `GEMINI_API_KEY` | Recommended | Empty | Google Gemini API key (`gemini-2.5-flash`) for admin 2-pass question bank generation and written-answer grade suggestions. |
-| `YOUTUBE_API_KEY` | Recommended | Empty | YouTube Data API v3 key for admin playlist preview, course import, and re-sync. |
+| `GEMINI_API_KEY` | **Yes** | Empty | Google Gemini API key (`gemini-2.5-flash`) for video-grounded question bank generation. |
+| `GEMINI_MODEL` | **Yes** | `gemini-2.5-flash` | Gemini model name (must not be blank). |
+| `YOUTUBE_API_KEY` | **Yes** | Empty | YouTube Data API v3 key for course playlist preview and import. |
 | `GOOGLE_CLIENT_ID` | Optional | Empty | Google OAuth 2.0 Web Client ID (`...apps.googleusercontent.com`) for Sign in with Google on pre-created student accounts. |
 | `ALLOWED_ORIGINS` | Optional | `https://turathtona.site,https://www.turathtona.site` | Comma-separated allowed CORS origins. |
 | `WATCH_REQUIRED_CAP_SECONDS` (`app.watch.required-cap-seconds`) | Optional | `1800` | Maximum watch time required per episode in seconds (`min(cap, durationSeconds)`). |
@@ -85,25 +93,37 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 1. Sign in to your private Admin Command Center (`/<ADMIN_SECRET_PATH>-login`).
 2. Open the **Courses & YouTube Import** section and paste a YouTube Playlist URL or Playlist ID (`PL...`).
 3. Click **Preview YouTube Playlist** (`POST /api/admin/courses/youtube-preview`). The server fetches playlist metadata, paginates all items (`50` per page), skips private/deleted videos, and parses authoritative ISO-8601 video durations via YouTube Data API v3.
-4. Review or customize the course title, description, cover image URL, `ARABIC_SUB` reward rate (default `\$15.00`), `ENGLISH_DUB` reward rate (default `\$10.00`), and completion bonus (default `\$100.00`), then click **Import Course as Draft** (`POST /api/admin/courses/youtube-import`).
+4. Review or customize the course title, description, cover image URL, `ARABIC_SUB` reward rate (default `$15.00`), `ENGLISH_DUB` reward rate (default `$10.00`), and completion bonus (default `$100.00`), then click **Import Course as Draft** (`POST /api/admin/courses/youtube-import`).
 5. Imported courses start **unpublished (`published = false`)** so students cannot see or access them until question banks are ready.
 6. After approving question banks for the episodes, click **Publish** (`POST /api/admin/courses/{id}/publish`) to make the course live in the Student Catalog.
 7. At any time later, click **Re-sync YouTube** (`POST /api/admin/courses/{id}/resync`) to safely append newly added playlist videos, update changed titles/durations, and mark removed videos inactive (`enabled = false`) **without deleting existing episodes, quizzes, student progress, or earned completion bonuses**.
 
-### 2. Generating, Reviewing, & Backing Up a Question Bank
+### 2. Video-Grounded Question Bank Generation & Jump-to-Moment
 1. In the Admin Command Center, select an episode in the **Question Bank Manager**.
-2. Paste the episode's Arabic or English transcript (`>= 80` characters) into the **Transcript** box and click **Generate Draft Bank (2-Pass Gemini)** (`POST /api/admin/episodes/{episodeId}/generate-bank`, rate-limited per episode):
-   - **Pass 1** generates ~30 multiple-choice questions across `RECALL`, `REASONING`, `VOCABULARY`, and `LISTENING` (each with 4 options, 1 correct answer, and a verbatim transcript `evidence` quote) plus 3 open reflection prompts.
-   - **Pass 2** verifies every generated item strictly against the transcript, rejecting unsupported, ambiguous, duplicate, or multi-answer items.
-   - Surviving items are saved strictly as **`DRAFT`** — AI output is never auto-approved.
-3. Filter the episode's bank by status (`DRAFT`, `APPROVED`, `RETIRED`), question type, or **Reported Only**. Inspect the transcript `evidence` quote, edit wording/options if needed, and click **Approve** individually or **Bulk Approve Drafts** once verified.
-4. Ensure each episode has **>= 10 `APPROVED` active MCQs** and **>= 1 `APPROVED` active open question** (indicated by the green readiness badge in the Course Manager).
-5. Use **Export Question Bank JSON** (`GET /api/admin/question-bank/export`) and **Import Question Bank JSON** (`POST /api/admin/question-bank/import`) to keep private off-repo backups of your curated curriculum (`*.private.json` is git-ignored).
+2. Click **Generate Question Bank from YouTube Video** (`POST /api/admin/episodes/{episodeId}/generate-bank`):
+   - Gemini analyzes the video directly using `file_data` with YouTube URL (videos longer than 35 minutes are split into ~25-30 minute segments with `MEDIA_RESOLUTION_LOW`).
+   - Every question requires an `evidenceTimestamp` (seconds from video start).
+   - **Pass 1** produces candidate MCQs and open questions.
+   - **Pass 2** strictly verifies candidates against the video segment, capping vocabulary questions at 2 per batch.
+   - Surviving questions are saved strictly as **`DRAFT`**.
+3. Draft and approved questions render clickable **⏱️ Jump to Xs** links (`https://www.youtube.com/watch?v={videoId}&t={sec}s`) allowing administrators to jump directly to the exact moment in the video for verification.
+4. Ensure each episode has **>= 10 `APPROVED` active MCQs** and **>= 1 `APPROVED` active open question** for student readiness.
+5. Use **Export Question Bank JSON** (`GET /api/admin/question-bank/export`) and **Import Question Bank JSON** (`POST /api/admin/question-bank/import`) for off-repo curriculum backups.
 
-### 3. Reviewing Student Written Reflections
-1. Open the **Written Answer Review Queue** (`GET /api/admin/open-answers?status=PENDING`).
-2. Read the student's reflection alongside the assigned open prompt and admin-only rubric/evidence. Optionally click **AI Suggest Grade** (`POST /api/admin/open-answers/{id}/suggest-grade`), which treats the student's text strictly as untrusted quoted data.
-3. Click **Approve & Credit Reward** to finalize the episode (`PASSED`) and credit the locked-mode reward (plus the course completion bonus if it is the final active episode in the course), or click **Request Revision** with feedback so the student can improve and resubmit their answer.
+### 3. Written Reflections Reading List
+1. Open the **Written Reflections Reading List** (`GET /api/admin/open-answers?status=UNREAD`). An unread badge displays the count of unread submissions.
+2. Read the student's submission alongside the prompt and rubric evidence.
+3. Click **Mark as Read** (`POST /api/admin/open-answers/{id}/read`) and optionally enter a feedback note for the student.
+
+### 4. Student Account Management
+1. **Enable / Disable Account**: Administrators can toggle account status (`PUT /api/admin/students/{id}/enabled`). Disabling an account immediately revokes all active JWT tokens via `tokenVersion` bump and blocks sign-in.
+2. **Export History**: Export complete JSON history of a student (`GET /api/admin/students/{id}/export`), including attempts, claims, bonuses, payouts, and adjustments.
+3. **Permanent Deletion**: Permanently delete a student account (`DELETE /api/admin/students/{id}`) only if `balanceOwed == 0.00`. Deletes all child records across all 13 database tables and logs an audit entry.
+
+### 5. Payouts Ledger & Balance Adjustments
+1. **Issue Payout**: Record payouts (`POST /api/admin/payouts`) to deduct from balance owed.
+2. **Void Payout**: Click **Void** on any unvoided payout (`POST /api/admin/payouts/{id}/void`) with a required audit reason. The payout is excluded from totals while remaining in the ledger for auditing.
+3. **Post Balance Adjustment**: Credit (+) or debit (-) a student's balance (`POST /api/admin/students/{id}/adjustments`) with a mandatory explanation.
 
 ---
 

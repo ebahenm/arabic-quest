@@ -16,10 +16,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +30,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin")
 public class AdminController {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminController.class);
+    private final PlaylistBonusClaimRepository playlistBonusClaimRepository;
+    private final BalanceAdjustmentRepository balanceAdjustmentRepository;
 
     private final UserRepository userRepository;
     private final QuizAttemptRepository quizAttemptRepository;
@@ -72,6 +79,8 @@ public class AdminController {
             StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository,
             WatchSessionRepository watchSessionRepository,
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
+            PlaylistBonusClaimRepository playlistBonusClaimRepository,
+            BalanceAdjustmentRepository balanceAdjustmentRepository,
             WatchProgressService watchProgressService,
             AiQuizService aiQuizService,
             QuestionBankService questionBankService,
@@ -96,6 +105,8 @@ public class AdminController {
         this.studentFavoriteEpisodeRepository = studentFavoriteEpisodeRepository;
         this.watchSessionRepository = watchSessionRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
+        this.playlistBonusClaimRepository = playlistBonusClaimRepository;
+        this.balanceAdjustmentRepository = balanceAdjustmentRepository;
         this.watchProgressService = watchProgressService;
         this.aiQuizService = aiQuizService;
         this.questionBankService = questionBankService;
@@ -131,7 +142,6 @@ public class AdminController {
         User saved = userRepository.save(newUser);
         return ResponseEntity.ok(UserSummaryResponse.from(saved));
     }
-
     @Transactional
     @PostMapping("/students/{studentId}/reset-password")
     public ResponseEntity<Map<String, String>> resetStudentPassword(
@@ -197,10 +207,7 @@ public class AdminController {
             revokeTokens = true;
         }
 
-        if (request.betaTester() != null && request.betaTester() != student.isBetaTester()) {
-            student.setBetaTester(request.betaTester());
-            changed = true;
-        }
+
 
         if (!changed) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -212,6 +219,146 @@ public class AdminController {
         }
         User saved = userRepository.save(student);
         return ResponseEntity.ok(UserSummaryResponse.from(saved));
+    }
+
+    @PutMapping("/students/{id}/enabled")
+    public ResponseEntity<UserSummaryResponse> setStudentEnabled(
+            @PathVariable Long id,
+            @RequestBody SetUserEnabledRequest request) {
+        User target = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found"));
+        if (target.getRole() == Role.ROLE_ADMIN) {
+            throw new IllegalArgumentException("Cannot modify admin accounts");
+        }
+        boolean enabled = request != null && Boolean.TRUE.equals(request.enabled());
+        target.setEnabled(enabled);
+        target.incrementTokenVersion();
+        User saved = userRepository.save(target);
+        return ResponseEntity.ok(UserSummaryResponse.from(saved));
+    }
+
+    @GetMapping("/students/{id}/export")
+    public ResponseEntity<Map<String, Object>> exportStudent(@PathVariable Long id) {
+        User student = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found"));
+        EarningsSummaryResponse earnings = payoutService.getStudentEarnings(student.getUsername());
+        List<PayoutResponse> payouts = payoutRepository.findByStudentIdOrderByCreatedAtDesc(student.getId()).stream()
+                .map(PayoutResponse::from)
+                .toList();
+        List<BalanceAdjustmentResponse> adjustments = payoutService.getAdjustmentsByStudent(student.getId()).stream()
+                .map(BalanceAdjustmentResponse::from)
+                .toList();
+        List<EpisodeRewardClaim> claims = episodeRewardClaimRepository.findByStudentIdOrderByClaimedAtAsc(student.getId());
+        List<PlaylistBonusClaim> bonuses = playlistBonusClaimRepository.findByStudentIdOrderByClaimedAtAsc(student.getId());
+        List<OpenAnswerSubmission> submissions = openAnswerSubmissionRepository.findByStudentIdWithEpisodeAndPlaylist(student.getId());
+        List<QuizAttempt> attempts = quizAttemptRepository.findByStudentIdOrderByAttemptedAtDesc(student.getId());
+
+        Map<String, Object> export = new LinkedHashMap<>();
+        export.put("exportedAt", java.time.LocalDateTime.now());
+        export.put("student", Map.of(
+                "id", student.getId(),
+                "username", student.getUsername(),
+                "fullName", student.getFullName() != null ? student.getFullName() : "",
+                "role", student.getRole().name(),
+                "enabled", student.isEnabled(),
+                "createdAt", student.getCreatedAt() != null ? student.getCreatedAt() : ""
+        ));
+        export.put("earnings", earnings);
+        export.put("payouts", payouts);
+        export.put("adjustments", adjustments);
+        export.put("episodeRewardClaims", claims.stream().map(c -> Map.of(
+                "id", c.getId(),
+                "episodeId", c.getEpisode().getId(),
+                "watchMode", c.getWatchMode().name(),
+                "rewardAmount", c.getRewardAmount(),
+                "claimedAt", c.getClaimedAt()
+        )).toList());
+        export.put("playlistBonusClaims", bonuses.stream().map(b -> Map.of(
+                "id", b.getId(),
+                "playlistId", b.getPlaylist().getId(),
+                "bonusAmount", b.getBonusAmount(),
+                "claimedAt", b.getClaimedAt()
+        )).toList());
+        export.put("openAnswerSubmissions", submissions.stream().map(s -> Map.of(
+                "id", s.getId(),
+                "episodeId", s.getEpisode().getId(),
+                "openQuestionId", s.getOpenQuestion().getId(),
+                "watchMode", s.getWatchMode().name(),
+                "answerText", s.getAnswerText(),
+                "status", s.getStatus().name(),
+                "adminFeedback", s.getAdminFeedback() != null ? s.getAdminFeedback() : "",
+                "submittedAt", s.getSubmittedAt()
+        )).toList());
+        export.put("quizAttempts", attempts.stream().map(a -> Map.of(
+                "id", a.getId(),
+                "episodeId", a.getEpisode().getId(),
+                "scorePercentage", a.getScorePercentage() != null ? a.getScorePercentage() : 0.0,
+                "passed", Boolean.TRUE.equals(a.getPassed()),
+                "rewardAmount", a.getRewardAmount() != null ? a.getRewardAmount() : BigDecimal.ZERO,
+                "attemptedAt", a.getAttemptedAt()
+        )).toList());
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"student-" + student.getId() + "-" + student.getUsername() + "-export.json\"")
+                .body(export);
+    }
+
+    @Transactional
+    @DeleteMapping("/students/{id}")
+    public ResponseEntity<Map<String, Object>> deleteStudent(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long id,
+            @Valid @RequestBody DeleteStudentConfirmRequest request) {
+        User admin = userRepository.findByUsername(userDetails.getUsername())
+                .orElseThrow(() -> new IllegalArgumentException("Admin user not found"));
+        if (admin.getRole() != Role.ROLE_ADMIN) {
+            throw new SecurityException("Only administrators can delete accounts.");
+        }
+
+        User target = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found"));
+
+        if (target.getRole() == Role.ROLE_ADMIN) {
+            throw new IllegalArgumentException("Admin accounts cannot be deleted.");
+        }
+        if (target.getId().equals(admin.getId()) || target.getUsername().equalsIgnoreCase(admin.getUsername())) {
+            throw new IllegalArgumentException("You cannot delete your own account.");
+        }
+
+        if (request == null || request.confirmUsername() == null || !request.confirmUsername().trim().equalsIgnoreCase(target.getUsername().trim())) {
+            throw new IllegalArgumentException("Confirmation username does not match '" + target.getUsername() + "'.");
+        }
+
+        EarningsSummaryResponse earnings = payoutService.getStudentEarnings(target.getUsername());
+        if (earnings.getBalanceOwed().compareTo(BigDecimal.ZERO) != 0) {
+            throw new IllegalArgumentException("Cannot delete student with non-zero balance owed ($" + earnings.getBalanceOwed() + "). Please settle with a payout or balance adjustment first.");
+        }
+
+        Long studentId = target.getId();
+        questionReportRepository.deleteByStudentId(studentId);
+        exposureRepository.deleteByStudentId(studentId);
+        quizAttemptSessionRepository.deleteByStudentId(studentId);
+        openAnswerSubmissionRepository.deleteByStudentId(studentId);
+        assignmentRepository.deleteByStudentId(studentId);
+        studentEpisodeOverrideRepository.deleteByStudentId(studentId);
+        studentFavoriteEpisodeRepository.deleteByStudentId(studentId);
+        watchSessionRepository.deleteByStudentId(studentId);
+        episodeRewardClaimRepository.deleteByStudentId(studentId);
+        playlistBonusClaimRepository.deleteByStudentId(studentId);
+        payoutRepository.deleteByStudentId(studentId);
+        balanceAdjustmentRepository.deleteByStudentId(studentId);
+        quizAttemptRepository.deleteByStudentId(studentId);
+        userRepository.delete(target);
+
+        log.info("AUDIT: Admin '{}' permanently deleted student '{}' (ID: {}). Totals: Earned=${}, Paid=${}, Owed=${}",
+                admin.getUsername(), target.getUsername(), studentId, earnings.getTotalEarned(), earnings.getTotalPaid(), earnings.getBalanceOwed());
+
+        return ResponseEntity.ok(Map.of(
+                "deleted", true,
+                "studentId", studentId,
+                "username", target.getUsername(),
+                "message", "Student '" + target.getUsername() + "' and all associated records permanently deleted."
+        ));
     }
 
     @GetMapping("/students/{username}/earnings")
@@ -300,6 +447,37 @@ public class AdminController {
             @RequestParam(required = false, defaultValue = "Cash/Transfer Payout") String note) {
         Payout payout = payoutService.markAsPaid(studentId, amount, note);
         return ResponseEntity.ok(PayoutResponse.from(payout));
+    }
+
+    @Transactional
+    @PostMapping("/payouts/{id}/void")
+    public ResponseEntity<PayoutResponse> voidPayout(
+            @PathVariable Long id,
+            @Valid @RequestBody VoidPayoutRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String adminUser = userDetails != null ? userDetails.getUsername() : "admin";
+        Payout voided = payoutService.voidPayout(id, request.reason(), adminUser);
+        return ResponseEntity.ok(PayoutResponse.from(voided));
+    }
+
+    @Transactional
+    @PostMapping("/students/{id}/adjustments")
+    public ResponseEntity<BalanceAdjustmentResponse> createAdjustment(
+            @PathVariable Long id,
+            @Valid @RequestBody CreateBalanceAdjustmentRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String adminUser = userDetails != null ? userDetails.getUsername() : "admin";
+        BalanceAdjustment adj = payoutService.createAdjustment(id, request.amount(), request.note(), adminUser);
+        return ResponseEntity.ok(BalanceAdjustmentResponse.from(adj));
+    }
+
+    @Transactional(readOnly = true)
+    @GetMapping("/students/{id}/adjustments")
+    public ResponseEntity<List<BalanceAdjustmentResponse>> getStudentAdjustments(@PathVariable Long id) {
+        List<BalanceAdjustmentResponse> list = payoutService.getAdjustmentsByStudent(id).stream()
+                .map(BalanceAdjustmentResponse::from)
+                .toList();
+        return ResponseEntity.ok(list);
     }
 
     // --- Courses & YouTube Playlist Import / Re-Sync ---
@@ -479,6 +657,19 @@ public class AdminController {
         return ResponseEntity.ok(openAnswerReviewService.suggestGrade(userDetails.getUsername(), submissionId));
     }
 
+    @GetMapping("/open-answers/unread-count")
+    public ResponseEntity<Map<String, Object>> getUnreadOpenAnswersCount() {
+        return ResponseEntity.ok(Map.of("unreadCount", openAnswerReviewService.getUnreadCount()));
+    }
+
+    @PostMapping("/open-answers/{submissionId}/read")
+    public ResponseEntity<OpenAnswerAdminViewResponse> markOpenAnswerAsRead(
+            @PathVariable Long submissionId,
+            @Valid @RequestBody(required = false) AdminReviewDecisionRequest request) {
+        String feedback = request != null ? request.feedback() : null;
+        return ResponseEntity.ok(openAnswerReviewService.markAsRead(submissionId, feedback));
+    }
+
     // --- Question Bank Manager & Transcript 2-Pass AI Generator ---
 
     @GetMapping("/episodes/{episodeId}/question-bank")
@@ -495,8 +686,11 @@ public class AdminController {
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long episodeId,
             @RequestBody(required = false) GenerateBankFromTranscriptRequest request) {
+        if (request != null && request.transcript() != null && request.transcript().trim().isEmpty()) {
+            throw new IllegalArgumentException("Transcript cannot be blank if provided.");
+        }
         String transcript = request != null ? request.transcript() : null;
-        return ResponseEntity.ok(aiQuizService.generateQuestionBankFromTranscript(
+        return ResponseEntity.ok(aiQuizService.generateQuestionBankFromVideo(
                 userDetails.getUsername(), episodeId, transcript));
     }
 

@@ -105,6 +105,8 @@ function wireEvents() {
     });
 
     document.getElementById('btn-record-payout').addEventListener('click', handleRecordPayout);
+    const adjForm = document.getElementById('form-balance-adjustment');
+    if (adjForm) adjForm.addEventListener('submit', handleBalanceAdjustmentSubmit);
     document.getElementById('form-create-student').addEventListener('submit', handleCreateStudentSubmit);
     document.getElementById('btn-run-ai').addEventListener('click', handleGenerateAiQuiz);
     document.getElementById('form-add-episode').addEventListener('submit', handleAddEpisodeSubmit);
@@ -2449,5 +2451,96 @@ async function handleToggleEpisodeEnabled(ep) {
         }
     } catch (err) {
         showFeedback('course-mgmt-msg', 'Error: ' + err.message, true);
+    }
+}
+
+async function loadStudentAdjustments(studentId) {
+    const tbody = document.getElementById('admin-adjustments-tbody');
+    if (!tbody || !studentId) return;
+    clearElement(tbody);
+    try {
+        const res = await apiFetch(/api/admin/students/\/adjustments);
+        if (!res.ok) return;
+        const list = await res.json();
+        if (!list || list.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 4;
+            td.style.textAlign = 'center';
+            td.style.color = 'var(--text-muted)';
+            td.style.padding = '1rem';
+            td.textContent = 'No balance adjustments recorded for this student.';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+        list.forEach(adj => {
+            const tr = document.createElement('tr');
+            const tdDate = document.createElement('td');
+            tdDate.style.fontSize = '0.82rem';
+            tdDate.style.color = 'var(--text-muted)';
+            tdDate.textContent = adj.timestamp ? new Date(adj.timestamp).toLocaleString() : '';
+
+            const tdAmt = document.createElement('td');
+            const amtNum = Number(adj.amount || 0);
+            tdAmt.style.fontWeight = '800';
+            tdAmt.style.color = amtNum >= 0 ? '#10b981' : '#ef4444';
+            tdAmt.textContent = (amtNum >= 0 ? '+$' : '-$') + Math.abs(amtNum).toFixed(2);
+
+            const tdNote = document.createElement('td');
+            tdNote.textContent = adj.note || '';
+
+            const tdAdmin = document.createElement('td');
+            tdAdmin.style.fontSize = '0.82rem';
+            tdAdmin.style.color = 'var(--text-muted)';
+            tdAdmin.textContent = adj.adjustedBy || 'admin';
+
+            tr.appendChild(tdDate);
+            tr.appendChild(tdAmt);
+            tr.appendChild(tdNote);
+            tr.appendChild(tdAdmin);
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        console.warn('Adjustments load error:', e);
+    }
+}
+
+async function handleBalanceAdjustmentSubmit(e) {
+    e.preventDefault();
+    hideFeedback('adj-feedback-msg');
+    if (!selectedStudent) {
+        showFeedback('adj-feedback-msg', 'Select a student account first.', true);
+        return;
+    }
+    const amtInput = document.getElementById('adj-amount');
+    const noteInput = document.getElementById('adj-note');
+    const amt = parseFloat(amtInput.value);
+    const note = noteInput.value.trim();
+    if (isNaN(amt) || amt === 0) {
+        showFeedback('adj-feedback-msg', 'Please enter a non-zero adjustment amount (+ or -).', true);
+        return;
+    }
+    if (!note) {
+        showFeedback('adj-feedback-msg', 'Please enter a reason or note for this adjustment.', true);
+        return;
+    }
+    try {
+        const res = await apiFetch(/api/admin/students/\/adjustments, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: amt, note: note })
+        });
+        if (res.ok) {
+            amtInput.value = '';
+            noteInput.value = '';
+            showFeedback('adj-feedback-msg', ✓ Adjustment of \\ recorded.);
+            await loadAdminDashboard();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showFeedback('adj-feedback-msg', err.error || 'Failed to post balance adjustment', true);
+        }
+    } catch (err) {
+        showFeedback('adj-feedback-msg', 'Connection error: ' + err.message, true);
     }
 }

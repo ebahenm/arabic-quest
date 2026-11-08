@@ -322,6 +322,7 @@ class Phase1SecurityIntegrityTest {
         // Valid strong prod configuration -> passes cleanly
         MockEnvironment validProd = new MockEnvironment()
                 .withProperty("JWT_SECRET", "9f8e7d6c5b4a392817263544536271809a8b7c6d5e4f3a2b")
+                .withProperty("ADMIN_USERNAME", "admin")
                 .withProperty("ADMIN_PASSWORD", "Str0ngUnique#ProdPass2026!")
                 .withProperty("ADMIN_SECRET_PATH", "vault-9c4f2a8b")
                 .withProperty("DATABASE_URL", "postgresql://neondb_owner:realSecret99@ep-divine-wind.us-east-2.aws.neon.tech/neondb?sslmode=require");

@@ -300,10 +300,7 @@
                         <div class="metric-label">Student Total Earned</div>
                         <div id="admin-metric-earned" class="metric-value green">$0.00</div>
                     </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Pending Written Review</div>
-                        <div id="admin-metric-pending" class="metric-value gold">$0.00</div>
-                    </div>
+
                     <div class="metric-card">
                         <div class="metric-label">Total Paid Out</div>
                         <div id="admin-metric-paid" class="metric-value">$0.00</div>
@@ -311,6 +308,7 @@
                     <div class="metric-card">
                         <div class="metric-label">Outstanding Balance Owed</div>
                         <div id="admin-metric-owed" class="metric-value gold">$0.00</div>
+                        <div id="admin-metric-overpaid-alert" style="display:none; color:#ef4444; font-size:0.8rem; font-weight:700; margin-top:0.25rem;"></div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-label">Episodes Completed</div>
@@ -351,30 +349,61 @@
                                 <th>Amount Paid</th>
                                 <th>Note</th>
                                 <th>Date &amp; Time</th>
+                                <th>Action / Status</th>
                             </tr>
                         </thead>
                         <tbody id="admin-payouts-tbody"></tbody>
                     </table>
                 </div>
+
+                <!-- Balance Adjustments Ledger and Form -->
+                <div class="admin-card-section" style="margin-top: 1.5rem; border-color: rgba(59, 130, 246, 0.4);">
+                    <div class="card-header-bar">
+                        <div>
+                            <h3 style="color: #93c5fd;">⚖️ Balance Adjustments</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                Credit (+) or debit (-) student balance. Adjustments immediately recalculate total earned and balance owed.
+                            </p>
+                        </div>
+                    </div>
+                    <form id="form-balance-adjustment" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
+                        <input type="number" id="adj-amount" step="0.01" placeholder="Amount (+/- $)" required style="padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-subtle); color: white; width: 140px; font-weight: 700;">
+                        <input type="text" id="adj-note" maxlength="255" placeholder="Reason / Note (Required)" required style="padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-subtle); color: white; flex: 1; min-width: 200px;">
+                        <button type="submit" class="btn-primary" style="padding: 0.65rem 1.25rem;">Post Adjustment</button>
+                    </form>
+                    <div id="adj-feedback-msg" class="feedback-msg"></div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Amount</th>
+                                    <th>Reason / Note</th>
+                                    <th>Adjusted By</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-adjustments-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- ========================================================== -->
-            <!-- TAB 1B: WRITTEN ANSWERS REVIEW QUEUE                       -->
+            <!-- TAB 1B: WRITTEN REFLECTIONS READING LIST                   -->
             <!-- ========================================================== -->
             <section id="tab-panel-reviews" class="admin-tab-panel">
                 <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.5);">
                     <div class="card-header-bar">
                         <div>
-                            <h3 style="color: var(--gold);">✍️ Written Reflections Review Queue</h3>
+                            <h3 style="color: var(--gold);">✍️ Written Reflections Reading List <span id="unread-reviews-badge" style="background:#fbbf24; color:#0f172a; font-size:0.75rem; font-weight:800; padding:0.15rem 0.5rem; border-radius:9999px; margin-left:0.5rem; display:none;">0 unread</span></h3>
                             <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Episode rewards and course completion bonuses are created only when you approve a student's written answer here. AI grade suggestions never approve anything automatically.
+                                Reflections are automatically approved and credited immediately upon submission (10/10 MCQ + 40 words). This reading list allows you to read submissions, provide optional feedback notes, and mark reflections as read.
                             </p>
                         </div>
                         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
                             <select id="review-status-filter" class="select-input" style="width: 190px; padding: 0.5rem 0.75rem; font-size: 0.84rem;">
-                                <option value="PENDING">Pending Review</option>
-                                <option value="REVISION_REQUESTED">Revision Requested</option>
-                                <option value="APPROVED">Approved</option>
+                                <option value="UNREAD">Unread Only</option>
+                                <option value="READ">Read</option>
                                 <option value="ALL">All Submissions</option>
                             </select>
                             <button type="button" id="btn-refresh-reviews" class="btn-ghost">↻ Refresh Queue</button>
@@ -432,7 +461,7 @@
                             <tr>
                                 <th>Full Name</th>
                                 <th>Username / Login ID</th>
-                                <th>Portal Access</th>
+                                <th>Account Status</th>
                                 <th>Created</th>
                                 <th>Actions</th>
                             </tr>
@@ -466,10 +495,7 @@
                                 <input type="password" id="reset-student-newpw" class="text-input" minlength="8" maxlength="128" placeholder="Leave blank to keep current">
                             </div>
                         </div>
-                        <label class="checkbox-row" for="edit-student-beta">
-                            <input type="checkbox" id="edit-student-beta">
-                            <span><strong>🧪 Grant Beta Test Sandbox Access (`/beta`)</strong> — Keep OFF for real earning students; turn ON only for your own test accounts!</span>
-                        </label>
+
                         <button type="submit" class="btn-primary" style="padding: 0.7rem 1.35rem;">Save Student Account Changes ➔</button>
                     </form>
                     <div id="reset-student-pw-msg" class="feedback-msg"></div>
@@ -727,9 +753,9 @@
                 <div class="admin-card-section">
                     <div class="card-header-bar">
                         <div>
-                            <h3>🤖 Transcript Question Bank Generator (2-Pass Gemini Verification)</h3>
+                            <h3>✨ Generate Question Bank from YouTube Video (2-Pass Gemini)</h3>
                             <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Paste an episode transcript (up to 60,000 chars). Pass 1 generates 30 MCQs + 3 open questions; Pass 2 verifies every item against the transcript and deduplicates. Everything saves as <strong>DRAFT</strong> until you approve it below.
+                                Gemini analyzes the YouTube video directly (segmented for videos &gt; 35 min) with mandatory evidence timestamps and 2-pass verification. Transcript is optional. Everything saves as <strong>DRAFT</strong> until you approve it below.
                             </p>
                         </div>
                     </div>
@@ -741,7 +767,7 @@
 
                     <div style="margin-bottom: 0.85rem;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                            <label for="ai-transcript-input" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted);">Episode Transcript (Required for AI Generation):</label>
+                            <label for="ai-transcript-input" style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted);">Episode Transcript (Optional):</label>
                             <span id="ai-transcript-char-count" style="font-size: 0.78rem; color: var(--text-muted);">0 / 60,000 chars</span>
                         </div>
                         <textarea id="ai-transcript-input" class="text-input" rows="6" maxlength="65000" placeholder="Paste the episode transcript here (up to ~60,000 characters)..." style="resize: vertical; line-height: 1.5;"></textarea>
@@ -749,7 +775,7 @@
 
                     <div>
                         <button type="button" id="btn-run-ai" class="btn-ai-generate">
-                            ✨ Generate Draft Bank from Transcript (2-Pass)
+                            ✨ Generate Draft Bank from YouTube Video (2-Pass)
                         </button>
                     </div>
 

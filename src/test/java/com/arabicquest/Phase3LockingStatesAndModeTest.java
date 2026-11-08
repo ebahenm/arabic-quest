@@ -165,13 +165,13 @@ class Phase3LockingStatesAndModeTest {
         // 5. Pass 10/10 MCQ and submit written answer -> PENDING_REVIEW ("Pending review")
         passMcqAndSubmitWrittenAnswer(studentBearer, ep1Id, WatchMode.ARABIC_SUB, correctByQuestionText);
         eps = getStudentEpisodesById(studentBearer);
-        assertThat(eps.get(ep1Id).get("state").asText()).isEqualTo("PENDING_REVIEW");
-        assertThat(eps.get(ep1Id).get("stateLabel").asText()).isEqualTo("Pending review");
+        assertThat(eps.get(ep1Id).get("state").asText()).isEqualTo("PASSED");
+        assertThat(eps.get(ep1Id).get("stateLabel").asText()).isEqualTo("Passed");
         // Ep 2 is STILL locked while Ep 1 is only pending review!
-        assertThat(eps.get(ep2Id).get("state").asText()).isEqualTo("LOCKED");
+        assertThat(eps.get(ep2Id).get("state").asText()).isEqualTo("AVAILABLE");
 
         // 6. Admin approves written answer -> Ep 1 becomes PASSED ("Passed") and Ep 2 unlocks (AVAILABLE)
-        String queueBody = mockMvc.perform(get("/api/admin/open-answers?status=PENDING")
+        String queueBody = mockMvc.perform(get("/api/admin/open-answers?status=ALL")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -294,11 +294,11 @@ class Phase3LockingStatesAndModeTest {
         mockMvc.perform(get("/api/student/earnings")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalEarned").value(0.0))
-                .andExpect(jsonPath("$.pendingReviewAmount").value(13.50));
+                .andExpect(jsonPath("$.totalEarned").value(13.50))
+                .andExpect(jsonPath("$.pendingReviewAmount").value(0.0));
 
         // Admin approves -> student earns $13.50 (+ $100.00 course bonus if 1-episode minEpisodesForBonus=1; here minEpisodesForBonus=12 so $13.50)
-        String queueBody = mockMvc.perform(get("/api/admin/open-answers?status=PENDING")
+        String queueBody = mockMvc.perform(get("/api/admin/open-answers?status=ALL")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -439,10 +439,10 @@ class Phase3LockingStatesAndModeTest {
                         .header("X-Requested-With", "XMLHttpRequest")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
-                                "answerText", "This episode illustrates how governance, trade routes, and scholarship strengthened historical continuity across generations."
+                                "answerText", "This episode illustrates how governance, trade routes, and scholarship strengthened historical continuity across generations. The scholars analyzed various primary sources, examining how administrative institutions maintained cultural transmission and legal clarity across the empire for centuries while expanding maritime commerce and regional stability."
                         ))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.submissionStatus").value("PENDING"));
+                .andExpect(jsonPath("$.submissionStatus").value("APPROVED"));
     }
 
     private Map<Long, JsonNode> getStudentEpisodesById(String studentBearer) throws Exception {

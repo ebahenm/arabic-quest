@@ -775,14 +775,24 @@ class SecurityAndAuditIntegrationTest {
         mockMvc.perform(post("/api/admin/students/" + studentId + "/update-account")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"newUsername\":\"seqstudent\",\"fullName\":\"Sequential Learner\",\"newPassword\":\"\",\"betaTester\":true}"))
+                        .content("{\"newUsername\":\"seqstudent\",\"fullName\":\"Sequential Learner Renamed\",\"newPassword\":\"\",\"betaTester\":true}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.betaTester").value(true));
+                .andExpect(jsonPath("$.betaTester").value(false));
 
-        mockMvc.perform(post("/api/beta/episodes/" + ep1Id + "/unlock-watch?watchMode=ARABIC_SUB")
-                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
+        mockMvc.perform(post("/api/admin/students/" + studentId + "/episodes/" + ep1Id + "/unlock")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.quizUnlocked").value(true));
+                .andExpect(jsonPath("$.overrideState").value("UNLOCKED"));
+
+        transactionTemplate.executeWithoutResult(st -> {
+            User stu = userRepository.findById(studentId).orElseThrow();
+            Episode e1 = episodeRepository.findById(ep1Id).orElseThrow();
+            WatchSession ws = watchSessionRepository.findByStudentIdAndEpisodeId(studentId, ep1Id)
+                    .orElseGet(() -> new WatchSession(stu, e1, WatchMode.ARABIC_SUB));
+            ws.setModeLocked(true);
+            ws.setVerifiedWatchSeconds(1800);
+            watchSessionRepository.save(ws);
+        });
 
         mockMvc.perform(post("/api/student/quizzes/submit")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
@@ -809,31 +819,35 @@ class SecurityAndAuditIntegrationTest {
         assertThat(objectMapper.readTree(afterEp1List).get(1).get("locked").asBoolean()).isFalse();
         assertThat(objectMapper.readTree(afterEp1List).get(2).get("locked").asBoolean()).isTrue();
 
+        // Student attempting ?betaUnlock=true is ignored (beta tools are admin-only)
         String betaUnlockedAll = mockMvc.perform(get("/api/student/episodes?betaUnlock=true")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        assertThat(objectMapper.readTree(betaUnlockedAll).get(2).get("locked").asBoolean()).isFalse();
+        assertThat(objectMapper.readTree(betaUnlockedAll).get(2).get("locked").asBoolean()).isTrue();
 
+        // Student reset-progress is forbidden
         mockMvc.perform(post("/api/beta/reset-progress")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
-                .andExpect(status().isOk());
+                .andExpect(status().isForbidden());
 
-        mockMvc.perform(get("/api/student/earnings")
-                        .header(HttpHeaders.AUTHORIZATION, studentBearer))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalEarned").value(0.0));
+        // Admin call to reset-progress succeeds
+        mockMvc.perform(post("/api/beta/reset-progress")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer))
+                .andExpect(status().isOk());
     }
 
     private JsonNode submitAndApproveWrittenAnswer(String studentBearer, Long episodeId, String englishAnswer) throws Exception {
-        mockMvc.perform(post("/api/student/episodes/" + episodeId + "/open-answer")
+        String contentText = englishAnswer.length() >= 250 ? englishAnswer : (englishAnswer + " Furthermore the historical record demonstrates how scholarly transmission judicial reasoning and cultural institutions supported civil governance throughout this era maintaining consistent documentation and administrative coherence across multiple centuries while facilitating regional trade routes.");
+        String submitJson = mockMvc.perform(post("/api/student/episodes/" + episodeId + "/open-answer")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("answerText", englishAnswer))))
+                        .content(objectMapper.writeValueAsString(Map.of("answerText", contentText))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.submissionStatus").value("PENDING"));
+                .andExpect(jsonPath("$.submissionStatus").value("APPROVED"))
+                .andReturn().getResponse().getContentAsString();
 
-        String queueJson = mockMvc.perform(get("/api/admin/open-answers?status=PENDING")
+        String queueJson = mockMvc.perform(get("/api/admin/open-answers?status=ALL")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -847,13 +861,12 @@ class SecurityAndAuditIntegrationTest {
         }
         assertThat(subId).isPositive();
 
-        String approveJson = mockMvc.perform(post("/api/admin/open-answers/" + subId + "/approve")
+        mockMvc.perform(post("/api/admin/open-answers/" + subId + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"feedback\":\"Well explained!\"}"))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        return objectMapper.readTree(approveJson);
+                .andExpect(status().isOk());
+        return objectMapper.readTree(submitJson);
     }
 
     private Map<String, Object> buildSessionSubmission(String bearer, Long episodeId, String watchMode, int targetCorrectCount) throws Exception {

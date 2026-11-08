@@ -4,22 +4,26 @@ import com.arabicquest.config.BrandConstants;
 import com.arabicquest.dto.EarningsSummaryResponse;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 @Service
 public class PayoutService {
+
+    private static final Logger log = LoggerFactory.getLogger(PayoutService.class);
 
     private final UserRepository userRepository;
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
     private final PlaylistBonusClaimRepository playlistBonusClaimRepository;
     private final OpenAnswerSubmissionRepository openAnswerSubmissionRepository;
     private final PayoutRepository payoutRepository;
+    private final BalanceAdjustmentRepository balanceAdjustmentRepository;
     private final EpisodeRepository episodeRepository;
     private final PlaylistRepository playlistRepository;
 
@@ -29,6 +33,7 @@ public class PayoutService {
             PlaylistBonusClaimRepository playlistBonusClaimRepository,
             OpenAnswerSubmissionRepository openAnswerSubmissionRepository,
             PayoutRepository payoutRepository,
+            BalanceAdjustmentRepository balanceAdjustmentRepository,
             EpisodeRepository episodeRepository,
             PlaylistRepository playlistRepository) {
         this.userRepository = userRepository;
@@ -36,6 +41,7 @@ public class PayoutService {
         this.playlistBonusClaimRepository = playlistBonusClaimRepository;
         this.openAnswerSubmissionRepository = openAnswerSubmissionRepository;
         this.payoutRepository = payoutRepository;
+        this.balanceAdjustmentRepository = balanceAdjustmentRepository;
         this.episodeRepository = episodeRepository;
         this.playlistRepository = playlistRepository;
     }
@@ -47,25 +53,12 @@ public class PayoutService {
 
         BigDecimal episodeEarned = episodeRewardClaimRepository.calculateTotalEpisodeRewardsByStudent(student.getId());
         BigDecimal bonusEarned = playlistBonusClaimRepository.calculateTotalBonusesByStudent(student.getId());
-        BigDecimal totalEarned = episodeEarned.add(bonusEarned);
+        BigDecimal adjustments = balanceAdjustmentRepository.calculateTotalAdjustmentsByStudent(student.getId());
+        BigDecimal totalEarned = episodeEarned.add(bonusEarned).add(adjustments);
 
-        Set<Long> claimedEpisodeIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(student.getId());
-        List<OpenAnswerSubmission> submissions = openAnswerSubmissionRepository
-                .findByStudentIdWithEpisodeAndPlaylist(student.getId());
-
+        // Under Phase B pass rules, written answer submission immediately creates the reward claim.
         BigDecimal pendingReviewAmount = BigDecimal.ZERO;
         long pendingReviewCount = 0L;
-        for (OpenAnswerSubmission sub : submissions) {
-            if (sub.getStatus() == OpenAnswerStatus.PENDING
-                    && !claimedEpisodeIds.contains(sub.getEpisode().getId())) {
-                Playlist p = sub.getEpisode().getPlaylist();
-                BigDecimal rate = sub.getWatchMode() == WatchMode.ENGLISH_DUB
-                        ? (p != null && p.getEnglishRewardRate() != null ? p.getEnglishRewardRate() : BrandConstants.DEFAULT_RATE_ENGLISH_DUB)
-                        : (p != null && p.getArabicRewardRate() != null ? p.getArabicRewardRate() : BrandConstants.DEFAULT_RATE_ARABIC_SUB);
-                pendingReviewAmount = pendingReviewAmount.add(rate);
-                pendingReviewCount++;
-            }
-        }
 
         BigDecimal totalPaid = payoutRepository.calculateTotalPaidToStudent(student.getId());
         BigDecimal balanceOwed = totalEarned.subtract(totalPaid);
@@ -117,5 +110,97 @@ public class PayoutService {
         payout.setPaidAt(LocalDateTime.now());
 
         return payoutRepository.save(payout);
+    }
+
+    @Transactional
+    public Payout voidPayout(Long payoutId, String rawReason, String adminUsername) {
+        if (rawReason == null || rawReason.trim().isEmpty()) {
+            throw new IllegalArgumentException("A reason is required to void a payout");
+        }
+        Payout payout = payoutRepository.findByIdWithStudent(payoutId)
+                .orElseThrow(() -> new IllegalArgumentException("Payout not found with id: " + payoutId));
+
+        if (payout.isVoided()) {
+            throw new IllegalStateException("Payout #" + payoutId + " is already voided.");
+        }
+
+        payout.setVoided(true);
+        payout.setVoidReason(rawReason.trim());
+        payout.setVoidedBy(adminUsername != null ? adminUsername : "admin");
+        payout.setVoidedAt(LocalDateTime.now());
+
+        log.info("Audited: Admin '{}' voided Payout #{} (${}) for student '{}'. Reason: {}",
+                adminUsername, payout.getId(), payout.getAmount(), payout.getStudent().getUsername(), rawReason.trim());
+
+        return payoutRepository.save(payout);
+    }
+
+    @Transactional
+    public BalanceAdjustment createAdjustment(Long studentId, BigDecimal amount, String rawNote, String adminUsername) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) == 0) {
+            throw new IllegalArgumentException("Adjustment amount cannot be zero");
+        }
+        if (rawNote == null || rawNote.trim().isEmpty()) {
+            throw new IllegalArgumentException("Adjustment note is required");
+        }
+
+        User student = userRepository.findById(studentId)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found with id: " + studentId));
+
+        String note = rawNote.trim();
+        BalanceAdjustment adjustment = new BalanceAdjustment(student, amount, note, adminUsername != null ? adminUsername : "admin");
+        log.info("Audited: Admin '{}' added balance adjustment of ${} to student '{}'. Note: {}",
+                adminUsername, amount, student.getUsername(), note);
+
+        return balanceAdjustmentRepository.save(adjustment);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BalanceAdjustment> getAdjustmentsByStudent(Long studentId) {
+        return balanceAdjustmentRepository.findByStudentIdOrderByTimestampDesc(studentId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BalanceAdjustment> getAllAdjustments() {
+        return balanceAdjustmentRepository.findAllWithStudentOrderByTimestampDesc();
+    }
+
+    @Transactional
+    public void reconcileLegacyPaidThirtyNegativeBalances(String adminUsername) {
+        String reconciliationNote = "Earnings from the old system, already paid";
+        List<User> students = userRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.ROLE_STUDENT)
+                .toList();
+
+        for (User student : students) {
+            boolean alreadyReconciled = balanceAdjustmentRepository
+                    .existsByStudentIdAndNote(student.getId(), reconciliationNote);
+            if (alreadyReconciled) {
+                continue;
+            }
+
+            BigDecimal paid = payoutRepository.calculateTotalPaidToStudent(student.getId());
+            BigDecimal rewards = episodeRewardClaimRepository.calculateTotalEpisodeRewardsByStudent(student.getId());
+            BigDecimal bonuses = playlistBonusClaimRepository.calculateTotalBonusesByStudent(student.getId());
+            BigDecimal adjustments = balanceAdjustmentRepository.calculateTotalAdjustmentsByStudent(student.getId());
+            BigDecimal earnedBefore = rewards.add(bonuses).add(adjustments);
+            BigDecimal owedBefore = earnedBefore.subtract(paid);
+
+            // Target condition: Brother's account with $30 genuine payout from old version and $0 earned
+            if (paid.compareTo(new BigDecimal("30.00")) == 0 && earnedBefore.compareTo(BigDecimal.ZERO) == 0) {
+                BalanceAdjustment adj = new BalanceAdjustment(
+                        student,
+                        new BigDecimal("30.00"),
+                        reconciliationNote,
+                        adminUsername != null ? adminUsername : "admin"
+                );
+                balanceAdjustmentRepository.save(adj);
+
+                BigDecimal earnedAfter = earnedBefore.add(new BigDecimal("30.00"));
+                BigDecimal owedAfter = earnedAfter.subtract(paid);
+                log.info("Reconciled legacy paid $30 negative balance for student '{}' (id {}): before [Earned=${}, Paid=${}, Owed=${}] -> after [Earned=${}, Paid=${}, Owed=${}]",
+                        student.getUsername(), student.getId(), earnedBefore, paid, owedBefore, earnedAfter, paid, owedAfter);
+            }
+        }
     }
 }

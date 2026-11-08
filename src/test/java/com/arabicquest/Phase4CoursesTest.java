@@ -286,10 +286,10 @@ class Phase4CoursesTest {
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .header("X-Requested-With", "XMLHttpRequest")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"answerText\":\"The Mamluk institution combined military training with urban endowments that sustained scholarship across Cairo and Damascus.\"}"))
+                        .content("{\"answerText\":\"The Mamluk institution combined military training with urban endowments that sustained scholarship across Cairo and Damascus. The scholars preserved manuscripts and legal continuity while military commanders defended trade routes across Syria and Egypt, maintaining administrative stability throughout consecutive dynasties and establishing educational centers.\"}"))
                 .andExpect(status().isOk());
 
-        String queueJson = mockMvc.perform(get("/api/admin/open-answers?status=PENDING")
+        String queueJson = mockMvc.perform(get("/api/admin/open-answers?status=ALL")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();

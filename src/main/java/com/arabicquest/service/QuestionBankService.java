@@ -138,6 +138,7 @@ public class QuestionBankService {
         return new QuestionBankAdminResponse(
                 episode.getId(),
                 episode.getTitle(),
+                episode.getYoutubeVideoId(),
                 episode.getTranscriptText() != null && !episode.getTranscriptText().isBlank(),
                 approvedMcq,
                 draftMcq,

@@ -167,7 +167,7 @@ public class SecurityConfig {
 
                 auth.requestMatchers("/api/admin/**").hasRole("ADMIN")
                     .requestMatchers("/api/student/**").hasAnyRole("STUDENT", "ADMIN")
-                    .requestMatchers("/api/beta/**").hasAnyRole("STUDENT", "ADMIN")
+                    .requestMatchers("/api/beta/**").hasRole("ADMIN")
                     .requestMatchers("/api/auth/me", "/api/auth/change-password", "/api/auth/update-credentials").authenticated()
                     .anyRequest().authenticated();
             })
