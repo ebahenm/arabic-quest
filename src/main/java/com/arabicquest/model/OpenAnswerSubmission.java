@@ -34,7 +34,10 @@ public class OpenAnswerSubmission {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
-    private OpenAnswerStatus status = OpenAnswerStatus.PENDING;
+    private OpenAnswerStatus status = OpenAnswerStatus.APPROVED;
+
+    @Column(name = "read_by_admin")
+    private Boolean readByAdmin = false;
 
     @Column(name = "admin_feedback", columnDefinition = "TEXT")
     private String adminFeedback;
@@ -54,7 +57,8 @@ public class OpenAnswerSubmission {
         this.openQuestion = openQuestion;
         this.watchMode = watchMode != null ? watchMode : WatchMode.ARABIC_SUB;
         this.answerText = answerText;
-        this.status = OpenAnswerStatus.PENDING;
+        this.status = OpenAnswerStatus.APPROVED;
+        this.readByAdmin = false;
         this.submittedAt = LocalDateTime.now();
     }
 
@@ -64,7 +68,10 @@ public class OpenAnswerSubmission {
             this.submittedAt = LocalDateTime.now();
         }
         if (this.status == null) {
-            this.status = OpenAnswerStatus.PENDING;
+            this.status = OpenAnswerStatus.APPROVED;
+        }
+        if (this.readByAdmin == null) {
+            this.readByAdmin = false;
         }
         if (this.watchMode == null) {
             this.watchMode = WatchMode.ARABIC_SUB;
@@ -121,6 +128,18 @@ public class OpenAnswerSubmission {
 
     public void setStatus(OpenAnswerStatus status) {
         this.status = status;
+    }
+
+    public boolean isReadByAdmin() {
+        return Boolean.TRUE.equals(readByAdmin);
+    }
+
+    public Boolean getReadByAdmin() {
+        return readByAdmin != null ? readByAdmin : Boolean.FALSE;
+    }
+
+    public void setReadByAdmin(Boolean readByAdmin) {
+        this.readByAdmin = readByAdmin;
     }
 
     public String getAdminFeedback() {

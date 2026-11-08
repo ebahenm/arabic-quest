@@ -40,6 +40,10 @@ public class Question {
     @Column(name = "evidence", columnDefinition = "TEXT")
     private String evidence;
 
+    @JsonIgnore
+    @Column(name = "evidence_timestamp")
+    private Integer evidenceTimestamp;
+
     @Column(name = "report_count")
     private Integer reportCount = 0;
 
@@ -143,6 +147,14 @@ public class Question {
 
     public void setEvidence(String evidence) {
         this.evidence = evidence;
+    }
+
+    public Integer getEvidenceTimestamp() {
+        return evidenceTimestamp;
+    }
+
+    public void setEvidenceTimestamp(Integer evidenceTimestamp) {
+        this.evidenceTimestamp = evidenceTimestamp;
     }
 
     public int getReportCount() {

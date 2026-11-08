@@ -23,6 +23,7 @@ public record OpenAnswerAdminViewResponse(
         BigDecimal potentialRewardAmount,
         String answerText,
         String status,
+        boolean readByAdmin,
         String adminFeedback,
         LocalDateTime submittedAt,
         LocalDateTime reviewedAt
@@ -48,6 +49,7 @@ public record OpenAnswerAdminViewResponse(
                 rate,
                 s.getAnswerText(),
                 s.getStatus().name(),
+                s.isReadByAdmin(),
                 s.getAdminFeedback(),
                 s.getSubmittedAt(),
                 s.getReviewedAt()

@@ -19,6 +19,8 @@ public record UpsertQuestionRequest(
         @Size(max = 3000)
         String evidence,
 
+        Integer evidenceTimestamp,
+
         @Valid
         @NotEmpty(message = "Options are required")
         List<OptionInput> options

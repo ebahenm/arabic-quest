@@ -241,6 +241,7 @@ public class QuestionBankBackupDto {
         private String status = "APPROVED";
         private String type = "RECALL";
         private String evidence;
+        private Integer evidenceTimestamp;
         private List<OptionBackup> options = new ArrayList<>();
 
         public String getQuestionText() {
@@ -289,7 +290,15 @@ public class QuestionBankBackupDto {
 
         public void setEvidence(String evidence) {
             this.evidence = evidence;
+        
+
+        public Integer getEvidenceTimestamp() {
+            return evidenceTimestamp;
         }
+
+        public void setEvidenceTimestamp(Integer evidenceTimestamp) {
+            this.evidenceTimestamp = evidenceTimestamp;
+        }}
 
         public List<OptionBackup> getOptions() {
             return options;
@@ -302,7 +311,9 @@ public class QuestionBankBackupDto {
 
     public static class OpenQuestionBackup {
         private String promptText;
-        private String evidence;
+        private String evidence;    
+            private Integer evidenceTimestamp;
+        
         private Boolean active = true;
         private String status = "APPROVED";
 
@@ -320,7 +331,15 @@ public class QuestionBankBackupDto {
 
         public void setEvidence(String evidence) {
             this.evidence = evidence;
+        
+
+        public Integer getEvidenceTimestamp() {
+            return evidenceTimestamp;
         }
+
+        public void setEvidenceTimestamp(Integer evidenceTimestamp) {
+            this.evidenceTimestamp = evidenceTimestamp;
+        }}
 
         public Boolean getActive() {
             return active;

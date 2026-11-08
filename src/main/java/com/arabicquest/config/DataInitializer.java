@@ -5,9 +5,11 @@ import com.arabicquest.model.QuestionType;
 import com.arabicquest.model.Role;
 import com.arabicquest.model.User;
 import com.arabicquest.repository.EpisodeRepository;
+import com.arabicquest.repository.PayoutRepository;
 import com.arabicquest.repository.PlaylistRepository;
 import com.arabicquest.repository.QuestionRepository;
 import com.arabicquest.repository.UserRepository;
+import com.arabicquest.service.PayoutService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,11 +22,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.security.SecureRandom;
 
-/**
- * Non-sensitive startup bootstrapper.
- * Syncs administrator credentials and safely backfills default flags on pre-existing database rows
- * without embedding any episode, quiz, answer, vocabulary, or transcript content in source code.
- */
 @Configuration
 public class DataInitializer {
 
@@ -37,6 +34,9 @@ public class DataInitializer {
             PlaylistRepository playlistRepository,
             QuestionRepository questionRepository,
             EpisodeRepository episodeRepository,
+            PayoutRepository payoutRepository,
+            PayoutService payoutService,
+            com.arabicquest.service.OpenAnswerReviewService openAnswerReviewService,
             PasswordEncoder passwordEncoder,
             PlatformTransactionManager transactionManager,
             @Value("${ADMIN_USERNAME:admin}") String adminUsername,
@@ -51,8 +51,13 @@ public class DataInitializer {
                         syncAdminAccount(userRepository, passwordEncoder, adminUsername, adminPassword, forceAdminEnvSync);
                         backfillExistingDatabaseCourses(playlistRepository);
                         backfillExistingDatabaseQuestions(questionRepository);
+                        userRepository.backfillNullEnabledToTrue();
                         episodeRepository.backfillNullEnabledToTrue();
                         episodeRepository.backfillNullSortOrder();
+                        payoutRepository.backfillNullVoidedToFalse();
+                        openAnswerReviewService.convertExistingPendingSubmissionsOnStartup();
+                        String cleanAdmin = (adminUsername == null || adminUsername.isBlank()) ? "admin" : adminUsername.trim();
+                        payoutService.reconcileLegacyPaidThirtyNegativeBalances(cleanAdmin);
                     });
                     return;
                 } catch (Exception ex) {
@@ -144,7 +149,6 @@ public class DataInitializer {
                 }
             }
         } else if (existingAdmin == null) {
-            // Only reachable in non-prod ('dev') because ProdStartupValidator enforces ADMIN_PASSWORD in 'prod'.
             String bootstrapPassword = generateRandomPassword(16);
             User admin = new User(
                     cleanAdminUser,

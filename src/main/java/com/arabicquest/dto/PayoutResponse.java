@@ -13,6 +13,10 @@ public record PayoutResponse(
         Boolean isPaid,
         LocalDateTime paidAt,
         String note,
+        boolean voided,
+        String voidReason,
+        String voidedBy,
+        LocalDateTime voidedAt,
         LocalDateTime createdAt
 ) {
     public static PayoutResponse from(Payout p) {
@@ -25,6 +29,10 @@ public record PayoutResponse(
                 p.getIsPaid(),
                 p.getPaidAt(),
                 p.getNote(),
+                p.isVoided(),
+                p.getVoidReason(),
+                p.getVoidedBy(),
+                p.getVoidedAt(),
                 p.getCreatedAt()
         );
     }

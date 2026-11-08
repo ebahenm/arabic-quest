@@ -8,6 +8,7 @@ import java.util.List;
 public record QuestionBankAdminResponse(
         Long episodeId,
         String episodeTitle,
+        String youtubeVideoId,
         boolean hasTranscript,
         int approvedMcqCount,
         int draftMcqCount,
@@ -26,6 +27,7 @@ public record QuestionBankAdminResponse(
             String type,
             boolean active,
             String evidence,
+            Integer evidenceTimestamp,
             int reportCount,
             List<OptionAdminItem> options
     ) {
@@ -38,6 +40,7 @@ public record QuestionBankAdminResponse(
                     q.getType().name(),
                     q.isActive(),
                     q.getEvidence(),
+                    q.getEvidenceTimestamp(),
                     q.getReportCount(),
                     q.getOptions().stream()
                             .map(o -> new OptionAdminItem(o.getId(), o.getOptionText(), Boolean.TRUE.equals(o.getIsCorrect())))
@@ -56,6 +59,7 @@ public record QuestionBankAdminResponse(
             Long id,
             String promptText,
             String evidence,
+            Integer evidenceTimestamp,
             String status,
             boolean active
     ) {
@@ -64,6 +68,7 @@ public record QuestionBankAdminResponse(
                     oq.getId(),
                     oq.getPromptText(),
                     oq.getEvidence(),
+                    oq.getEvidenceTimestamp(),
                     oq.getStatus().name(),
                     oq.isActive()
             );

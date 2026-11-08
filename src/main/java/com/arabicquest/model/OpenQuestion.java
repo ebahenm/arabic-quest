@@ -24,6 +24,10 @@ public class OpenQuestion {
     @Column(name = "evidence", columnDefinition = "TEXT")
     private String evidence;
 
+    @JsonIgnore
+    @Column(name = "evidence_timestamp")
+    private Integer evidenceTimestamp;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private QuestionStatus status = QuestionStatus.DRAFT;
@@ -38,9 +42,14 @@ public class OpenQuestion {
     }
 
     public OpenQuestion(Episode episode, String promptText, String evidence, QuestionStatus status) {
+        this(episode, promptText, evidence, null, status);
+    }
+
+    public OpenQuestion(Episode episode, String promptText, String evidence, Integer evidenceTimestamp, QuestionStatus status) {
         this.episode = episode;
         this.promptText = promptText;
         this.evidence = evidence;
+        this.evidenceTimestamp = evidenceTimestamp;
         this.status = status != null ? status : QuestionStatus.DRAFT;
         this.active = true;
     }
@@ -88,6 +97,14 @@ public class OpenQuestion {
 
     public void setEvidence(String evidence) {
         this.evidence = evidence;
+    }
+
+    public Integer getEvidenceTimestamp() {
+        return evidenceTimestamp;
+    }
+
+    public void setEvidenceTimestamp(Integer evidenceTimestamp) {
+        this.evidenceTimestamp = evidenceTimestamp;
     }
 
     public QuestionStatus getStatus() {
