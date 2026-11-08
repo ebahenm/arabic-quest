@@ -58,7 +58,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             if (token != null && !token.isEmpty()) {
-                // Defense-in-depth CSRF check for cookie-authenticated state-changing requests
                 boolean csrfSafe = true;
                 if (fromCookie && !SAFE_METHODS.contains(request.getMethod())) {
                     String xrw = request.getHeader("X-Requested-With");
@@ -75,10 +74,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     if (claimsOpt.isPresent()) {
                         JwtService.JwtClaims claims = claimsOpt.get();
                         User user = userRepository.findByUsername(claims.username()).orElse(null);
-                        if (user != null && user.getTokenVersion() == claims.tokenVersion()) {
+                        if (user != null && user.isEnabled() && user.getTokenVersion() == claims.tokenVersion()) {
                             UserDetails userDetails = new org.springframework.security.core.userdetails.User(
                                     user.getUsername(),
                                     "",
+                                    user.isEnabled(),
+                                    true,
+                                    true,
+                                    true,
                                     Collections.singletonList(new SimpleGrantedAuthority(user.getRole().name()))
                             );
                             UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
