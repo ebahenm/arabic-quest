@@ -37,6 +37,9 @@ public class User {
     @Column(name = "beta_tester")
     private Boolean betaTester = false;
 
+    @Column(name = "enabled")
+    private Boolean enabled = true;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -49,6 +52,7 @@ public class User {
         this.fullName = fullName;
         this.role = role;
         this.tokenVersion = 0;
+        this.enabled = true;
     }
 
     @PrePersist
@@ -62,6 +66,9 @@ public class User {
         }
         if (this.betaTester == null) {
             this.betaTester = false;
+        }
+        if (this.enabled == null) {
+            this.enabled = true;
         }
     }
 
@@ -134,7 +141,19 @@ public class User {
     }
 
     public boolean hasBetaAccess() {
-        return this.role == Role.ROLE_ADMIN || isBetaTester();
+        return this.role == Role.ROLE_ADMIN;
+    }
+
+    public boolean isEnabled() {
+        return enabled == null || Boolean.TRUE.equals(enabled);
+    }
+
+    public Boolean getEnabled() {
+        return enabled == null ? Boolean.TRUE : enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
     }
 
     public LocalDateTime getCreatedAt() {
