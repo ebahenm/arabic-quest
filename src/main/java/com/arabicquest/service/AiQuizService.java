@@ -43,7 +43,7 @@ public class AiQuizService {
     @Value("${GEMINI_API_KEY:${AI_API_KEY:}}")
     private String geminiApiKey;
 
-    @Value("${GEMINI_MODEL:gemini-3.8-flash}")
+    @Value("${GEMINI_MODEL:gemini-2.5-flash}")
     private String geminiModel;
 
     @Value("${app.ai.admin-max-calls-per-window:6}")
