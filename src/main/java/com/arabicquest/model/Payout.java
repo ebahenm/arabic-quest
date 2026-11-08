@@ -28,6 +28,18 @@ public class Payout {
     @Column(length = 255)
     private String note;
 
+    @Column(name = "voided")
+    private Boolean voided = false;
+
+    @Column(name = "void_reason", length = 500)
+    private String voidReason;
+
+    @Column(name = "voided_by", length = 100)
+    private String voidedBy;
+
+    @Column(name = "voided_at")
+    private LocalDateTime voidedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -38,11 +50,15 @@ public class Payout {
         this.student = student;
         this.amount = amount;
         this.note = note;
+        this.voided = false;
     }
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (this.voided == null) {
+            this.voided = false;
+        }
     }
 
     public Long getId() {
@@ -91,6 +107,42 @@ public class Payout {
 
     public void setNote(String note) {
         this.note = note;
+    }
+
+    public boolean isVoided() {
+        return Boolean.TRUE.equals(voided);
+    }
+
+    public Boolean getVoided() {
+        return voided != null ? voided : Boolean.FALSE;
+    }
+
+    public void setVoided(Boolean voided) {
+        this.voided = voided;
+    }
+
+    public String getVoidReason() {
+        return voidReason;
+    }
+
+    public void setVoidReason(String voidReason) {
+        this.voidReason = voidReason;
+    }
+
+    public String getVoidedBy() {
+        return voidedBy;
+    }
+
+    public void setVoidedBy(String voidedBy) {
+        this.voidedBy = voidedBy;
+    }
+
+    public LocalDateTime getVoidedAt() {
+        return voidedAt;
+    }
+
+    public void setVoidedAt(LocalDateTime voidedAt) {
+        this.voidedAt = voidedAt;
     }
 
     public LocalDateTime getCreatedAt() {
