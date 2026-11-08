@@ -11,6 +11,8 @@ public record UpsertOpenQuestionRequest(
         @Size(max = 3000)
         String evidence,
 
+        Integer evidenceTimestamp,
+
         String status,
         Boolean active
 ) {}
