@@ -15,6 +15,437 @@ import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.*;
+
+@Service
+public class OpenAnswerReviewService {
+
+    private static final Logger log = LoggerFactory.getLogger(OpenAnswerReviewService.class);
+
+    public static final int MIN_ANSWER_WORDS = 40;
+    public static final int MAX_ANSWER_CHARS = 2000;
+
+    private final OpenQuestionRepository openQuestionRepository;
+    private final OpenAnswerSubmissionRepository openAnswerSubmissionRepository;
+    private final StudentOpenQuestionAssignmentRepository assignmentRepository;
+    private final QuizAttemptRepository quizAttemptRepository;
+    private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
+    private final PlaylistBonusClaimRepository playlistBonusClaimRepository;
+    private final EpisodeRepository episodeRepository;
+    private final UserRepository userRepository;
+    private final WatchProgressService watchProgressService;
+    private final AiQuizService aiQuizService;
+    private final SecureRandom secureRandom = new SecureRandom();
+
+    public OpenAnswerReviewService(
+            OpenQuestionRepository openQuestionRepository,
+            OpenAnswerSubmissionRepository openAnswerSubmissionRepository,
+            StudentOpenQuestionAssignmentRepository assignmentRepository,
+            QuizAttemptRepository quizAttemptRepository,
+            EpisodeRewardClaimRepository episodeRewardClaimRepository,
+            PlaylistBonusClaimRepository playlistBonusClaimRepository,
+            EpisodeRepository episodeRepository,
+            UserRepository userRepository,
+            WatchProgressService watchProgressService,
+            AiQuizService aiQuizService) {
+        this.openQuestionRepository = openQuestionRepository;
+        this.openAnswerSubmissionRepository = openAnswerSubmissionRepository;
+        this.assignmentRepository = assignmentRepository;
+        this.quizAttemptRepository = quizAttemptRepository;
+        this.episodeRewardClaimRepository = episodeRewardClaimRepository;
+        this.playlistBonusClaimRepository = playlistBonusClaimRepository;
+        this.episodeRepository = episodeRepository;
+        this.userRepository = userRepository;
+        this.watchProgressService = watchProgressService;
+        this.aiQuizService = aiQuizService;
+    }
+
+    public BigDecimal resolveEpisodeRewardRate(Episode episode, WatchMode mode) {
+        Playlist p = episode.getPlaylist();
+        if (mode == WatchMode.ENGLISH_DUB) {
+            return (p != null && p.getEnglishRewardRate() != null)
+                    ? p.getEnglishRewardRate()
+                    : BrandConstants.DEFAULT_RATE_ENGLISH_DUB;
+        }
+        return (p != null && p.getArabicRewardRate() != null)
+                ? p.getArabicRewardRate()
+                : BrandConstants.DEFAULT_RATE_ARABIC_SUB;
+    }
+
+    @Transactional
+    public OpenQuestionStudentResponse assignOrGetOpenQuestion(User student, Episode episode, WatchMode effectiveMode) {
+        StudentOpenQuestionAssignment assignment = assignmentRepository
+                .findByStudentIdAndEpisodeIdWithOpenQuestion(student.getId(), episode.getId())
+                .orElseGet(() -> {
+                    List<OpenQuestion> approvedOpens = openQuestionRepository
+                            .findByEpisodeIdAndStatusAndActiveTrueOrderByIdAsc(episode.getId(), QuestionStatus.APPROVED);
+                    if (approvedOpens.isEmpty()) {
+                        throw new IllegalStateException("Quiz not ready yet");
+                    }
+                    OpenQuestion picked = approvedOpens.get(secureRandom.nextInt(approvedOpens.size()));
+                    return assignmentRepository.save(new StudentOpenQuestionAssignment(student, episode, picked, effectiveMode));
+                });
+
+        OpenQuestion openQ = assignment.getOpenQuestion();
+        OpenAnswerSubmission submission = openAnswerSubmissionRepository
+                .findByStudentIdAndEpisodeId(student.getId(), episode.getId())
+                .orElse(null);
+
+        WatchMode mode = submission != null ? submission.getWatchMode() : assignment.getWatchMode();
+        BigDecimal rate = resolveEpisodeRewardRate(episode, mode);
+        boolean claimed = episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episode.getId());
+
+        return new OpenQuestionStudentResponse(
+                episode.getId(),
+                openQ.getId(),
+                openQ.getPromptText(),
+                mode,
+                rate,
+                submission != null ? "SUBMITTED" : "AWAITING_SUBMISSION",
+                submission != null ? submission.getAnswerText() : null,
+                submission != null ? submission.getAdminFeedback() : null,
+                submission != null ? submission.getSubmittedAt() : null,
+                submission != null ? submission.getReviewedAt() : null,
+                false,
+                claimed ? rate : BigDecimal.ZERO,
+                false,
+                BigDecimal.ZERO
+        );
+    }
+
+    @Transactional
+    public OpenQuestionStudentResponse getStudentOpenQuestionState(String username, Long episodeId) {
+        User student = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+        if (episode.isArchived() || !episode.isEnabled()
+                || episode.getPlaylist() == null
+                || episode.getPlaylist().isArchived()
+                || !episode.getPlaylist().isPublished()) {
+            throw new SecurityException("Course is not available.");
+        }
+
+        boolean passedMcq = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episodeId)
+                || episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episodeId);
+        if (!passedMcq) {
+            throw new SecurityException("Pass the 10-question quiz with 100% first to unlock the written reflection question.");
+        }
+
+        WatchMode effectiveMode = watchProgressService.resolveEffectiveWatchMode(student.getId(), episodeId, WatchMode.ARABIC_SUB);
+        return assignOrGetOpenQuestion(student, episode, effectiveMode);
+    }
+
+    public static void validateWrittenAnswerQuality(String rawAnswerText, String questionPrompt) {
+        String trimmed = rawAnswerText == null ? "" : rawAnswerText.trim();
+        if (trimmed.isEmpty() || trimmed.length() > MAX_ANSWER_CHARS) {
+            throw new IllegalArgumentException("Your written answer must be at least 40 words and at most 2,000 characters.");
+        }
+
+        String[] rawTokens = trimmed.split("\\s+");
+        List<String> words = new ArrayList<>();
+        for (String tok : rawTokens) {
+            String clean = tok.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase(Locale.ROOT);
+            if (!clean.isEmpty()) {
+                words.add(clean);
+            }
+        }
+
+        if (words.size() < MIN_ANSWER_WORDS) {
+            throw new IllegalArgumentException("Your written answer must be at least 40 words (currently " + words.size() + " words) and at most 2,000 characters.");
+        }
+
+        if (trimmed.matches("(?s).*(.)\\1{7,}.*")) {
+            throw new IllegalArgumentException("Please write a genuine reflection without repeated character spam.");
+        }
+        String alphaNum = trimmed.replaceAll("[^\\p{L}\\p{N}]", "").toLowerCase(Locale.ROOT);
+        if (alphaNum.length() < 80) {
+            throw new IllegalArgumentException("Please write a complete reflection using real words (minimum 40 words).");
+        }
+        Map<Character, Integer> charCounts = new HashMap<>();
+        int maxCharFreq = 0;
+        for (int i = 0; i < alphaNum.length(); i++) {
+            char c = alphaNum.charAt(i);
+            int f = charCounts.merge(c, 1, Integer::sum);
+            if (f > maxCharFreq) {
+                maxCharFreq = f;
+            }
+        }
+        if (charCounts.size() < 6 || ((double) maxCharFreq / alphaNum.length()) > 0.35) {
+            throw new IllegalArgumentException("Please write a genuine reflection without repeated character patterns.");
+        }
+
+        Map<String, Integer> wordCounts = new HashMap<>();
+        int maxWordFreq = 0;
+        for (String w : words) {
+            int f = wordCounts.merge(w, 1, Integer::sum);
+            if (f > maxWordFreq) {
+                maxWordFreq = f;
+            }
+        }
+        double uniqueRatio = (double) wordCounts.size() / words.size();
+        double maxWordShare = (double) maxWordFreq / words.size();
+        if (wordCounts.size() < 12 || uniqueRatio < 0.25 || maxWordShare > 0.25) {
+            throw new IllegalArgumentException("Your answer contains too many repeated words. Please write an original explanation in your own words.");
+        }
+
+        if (questionPrompt != null && !questionPrompt.isBlank()) {
+            String normPrompt = questionPrompt.replaceAll("[^\\p{L}\\p{N}]+", " ").trim().toLowerCase(Locale.ROOT);
+            String normAnswer = String.join(" ", words);
+            if (!normPrompt.isEmpty()) {
+                int occurrences = 0;
+                int idx = 0;
+                while ((idx = normAnswer.indexOf(normPrompt, idx)) != -1) {
+                    occurrences++;
+                    idx += normPrompt.length();
+                }
+                if (occurrences >= 2 || (occurrences == 1 && normPrompt.length() > normAnswer.length() * 0.55)) {
+                    throw new IllegalArgumentException("Please answer the question in your own words instead of copying the question prompt.");
+                }
+
+                Set<String> promptWordSet = new HashSet<>();
+                for (String pw : normPrompt.split("\\s+")) {
+                    if (pw.length() >= 4) {
+                        promptWordSet.add(pw);
+                    }
+                }
+                if (promptWordSet.size() >= 4) {
+                    long copiedContentWords = words.stream().filter(w -> w.length() >= 4 && promptWordSet.contains(w)).count();
+                    long totalContentWords = words.stream().filter(w -> w.length() >= 4).count();
+                    if (totalContentWords > 0 && ((double) copiedContentWords / totalContentWords) > 0.75) {
+                        throw new IllegalArgumentException("Your answer mostly repeats words from the question. Please write your own explanation.");
+                    }
+                }
+            }
+        }
+    }
+
+    private record RewardOutcome(
+            boolean rewardCreated,
+            BigDecimal episodeRewardAmount,
+            boolean bonusAwarded,
+            BigDecimal bonusAmount
+    ) {}
+
+    private RewardOutcome awardEpisodeAndCourseBonusIdempotently(User student, Episode episode, WatchMode watchMode) {
+        boolean rewardCreated = false;
+        BigDecimal episodeRewardAmount = resolveEpisodeRewardRate(episode, watchMode);
+        boolean bonusAwarded = false;
+        BigDecimal bonusAmount = BigDecimal.ZERO;
+
+        if (!episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episode.getId())) {
+            episodeRewardClaimRepository.save(new EpisodeRewardClaim(
+                    student,
+                    episode,
+                    watchMode,
+                    episodeRewardAmount
+            ));
+            episodeRewardClaimRepository.flush();
+            rewardCreated = true;
+
+            Playlist playlist = episode.getPlaylist();
+            if (playlist != null) {
+                long totalActiveEpisodes = episodeRepository.countActiveByPlaylistId(playlist.getId());
+                long claimedActiveEpisodes = episodeRewardClaimRepository
+                        .countClaimedActiveEpisodesByStudentAndPlaylist(student.getId(), playlist.getId());
+                boolean bonusAlreadyClaimed = playlistBonusClaimRepository
+                        .existsByStudentIdAndPlaylistId(student.getId(), playlist.getId());
+
+                int minEpisodes = Math.max(1, playlist.getMinEpisodesForBonus());
+                if (!bonusAlreadyClaimed
+                        && totalActiveEpisodes > 0
+                        && totalActiveEpisodes >= minEpisodes
+                        && claimedActiveEpisodes >= totalActiveEpisodes) {
+                    bonusAmount = playlist.getCompletionBonus() != null
+                            ? playlist.getCompletionBonus()
+                            : BrandConstants.DEFAULT_COMPLETION_BONUS;
+                    playlistBonusClaimRepository.save(new PlaylistBonusClaim(student, playlist, bonusAmount));
+                    playlistBonusClaimRepository.flush();
+                    bonusAwarded = true;
+                }
+            }
+        }
+
+        return new RewardOutcome(rewardCreated, episodeRewardAmount, bonusAwarded, bonusAmount);
+    }
+
+    @Transactional
+    public OpenQuestionStudentResponse submitStudentOpenAnswer(String username, Long episodeId, String rawAnswerText) {
+        User student = userRepository.findByUsernameForUpdate(username)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+
+        if (episode.isArchived() || !episode.isEnabled()
+                || episode.getPlaylist() == null
+                || episode.getPlaylist().isArchived()
+                || !episode.getPlaylist().isPublished()) {
+            throw new SecurityException("Course is not available.");
+        }
+
+        boolean passedMcq = quizAttemptRepository.existsByStudentIdAndEpisodeIdAndPassedTrue(student.getId(), episodeId)
+                || episodeRewardClaimRepository.existsByStudentIdAndEpisodeId(student.getId(), episodeId);
+        if (!passedMcq) {
+            throw new SecurityException("You must pass the 10-question quiz (10/10) before submitting the written answer.");
+        }
+
+        WatchMode effectiveMode = watchProgressService.resolveEffectiveWatchMode(student.getId(), episodeId, WatchMode.ARABIC_SUB);
+
+        StudentOpenQuestionAssignment assignment = assignmentRepository
+                .findByStudentIdAndEpisodeIdWithOpenQuestion(student.getId(), episodeId)
+                .orElseGet(() -> {
+                    List<OpenQuestion> approvedOpens = openQuestionRepository
+                            .findByEpisodeIdAndStatusAndActiveTrueOrderByIdAsc(episodeId, QuestionStatus.APPROVED);
+                    if (approvedOpens.isEmpty()) {
+                        throw new IllegalStateException("No approved open question available for this episode.");
+                    }
+                    OpenQuestion picked = approvedOpens.get(secureRandom.nextInt(approvedOpens.size()));
+                    return assignmentRepository.save(new StudentOpenQuestionAssignment(student, episode, picked, effectiveMode));
+                });
+
+        String trimmed = rawAnswerText == null ? "" : rawAnswerText.trim();
+        validateWrittenAnswerQuality(trimmed, assignment.getOpenQuestion().getPromptText());
+
+        OpenAnswerSubmission submission = openAnswerSubmissionRepository
+                .findByStudentIdAndEpisodeId(student.getId(), episodeId)
+                .orElse(null);
+
+        if (submission == null) {
+            submission = new OpenAnswerSubmission(student, episode, assignment.getOpenQuestion(), assignment.getWatchMode(), trimmed);
+            submission.setStatus(OpenAnswerStatus.APPROVED);
+            submission.setReadByAdmin(false);
+            submission = openAnswerSubmissionRepository.save(submission);
+        }
+
+        RewardOutcome outcome = awardEpisodeAndCourseBonusIdempotently(student, episode, submission.getWatchMode());
+        BigDecimal rate = resolveEpisodeRewardRate(episode, submission.getWatchMode());
+
+        return new OpenQuestionStudentResponse(
+                episode.getId(),
+                submission.getOpenQuestion().getId(),
+                submission.getOpenQuestion().getPromptText(),
+                submission.getWatchMode(),
+                rate,
+                "SUBMITTED",
+                submission.getAnswerText(),
+                submission.getAdminFeedback(),
+                submission.getSubmittedAt(),
+                submission.getReviewedAt(),
+                outcome.rewardCreated(),
+                outcome.episodeRewardAmount(),
+                outcome.bonusAwarded(),
+                outcome.bonusAmount()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<OpenAnswerAdminViewResponse> listSubmissionsForAdmin(String statusFilter) {
+        List<OpenAnswerSubmission> list;
+        if (statusFilter != null && !statusFilter.isBlank() && !"ALL".equalsIgnoreCase(statusFilter.trim())) {
+            String normalized = statusFilter.trim().toUpperCase(Locale.ROOT);
+            if ("UNREAD".equals(normalized) || "PENDING".equals(normalized)) {
+                list = openAnswerSubmissionRepository.findUnreadWithDetailsOrderBySubmittedAtAsc();
+            } else if ("READ".equals(normalized)) {
+                list = openAnswerSubmissionRepository.findReadWithDetailsOrderBySubmittedAtDesc();
+            } else {
+                OpenAnswerStatus status = OpenAnswerStatus.valueOf(normalized);
+                list = openAnswerSubmissionRepository.findByStatusWithDetailsOrderBySubmittedAtAsc(status);
+            }
+        } else {
+            list = openAnswerSubmissionRepository.findAllWithDetailsOrderBySubmittedAtDesc();
+        }
+        return list.stream().map(OpenAnswerAdminViewResponse::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public long countUnreadSubmissions() {
+        return openAnswerSubmissionRepository.countUnread();
+    }
+
+    @Transactional
+    public Map<String, Object> markAsReadAndSaveFeedback(Long submissionId, String rawFeedback) {
+        OpenAnswerSubmission submission = openAnswerSubmissionRepository.findByIdWithDetails(submissionId)
+                .orElseThrow(() -> new IllegalArgumentException("Written answer submission not found"));
+
+        User student = userRepository.findByIdForUpdate(submission.getStudent().getId())
+                .orElseThrow(() -> new IllegalArgumentException("Student not found"));
+
+        String cleanFeedback = (rawFeedback != null && !rawFeedback.isBlank()) ? rawFeedback.trim() : null;
+        submission.setStatus(OpenAnswerStatus.APPROVED);
+        submission.setReadByAdmin(true);
+        if (cleanFeedback != null) {
+            submission.setAdminFeedback(cleanFeedback);
+        }
+        submission.setReviewedAt(LocalDateTime.now());
+        openAnswerSubmissionRepository.save(submission);
+
+        RewardOutcome outcome = awardEpisodeAndCourseBonusIdempotently(
+                student, submission.getEpisode(), submission.getWatchMode());
+
+        return Map.of(
+                "submission", OpenAnswerAdminViewResponse.from(submission),
+                "rewardCreated", outcome.rewardCreated(),
+                "episodeRewardAmount", outcome.rewardCreated() ? outcome.episodeRewardAmount() : BigDecimal.ZERO,
+                "bonusAwarded", outcome.bonusAwarded(),
+                "bonusAmount", outcome.bonusAmount()
+        );
+    }
+
+    @Transactional
+    public Map<String, Object> approveSubmission(Long submissionId, String rawFeedback) {
+        return markAsReadAndSaveFeedback(submissionId, rawFeedback);
+    }
+
+    @Transactional
+    public void convertExistingPendingSubmissionsOnStartup() {
+        openAnswerSubmissionRepository.backfillNullReadByAdminForApproved();
+        openAnswerSubmissionRepository.backfillNullReadByAdminToFalse();
+
+        List<OpenAnswerSubmission> pendingList = openAnswerSubmissionRepository
+                .findByStatusWithDetailsOrderBySubmittedAtAsc(OpenAnswerStatus.PENDING);
+        if (pendingList.isEmpty()) {
+            return;
+        }
+        int converted = 0;
+        for (OpenAnswerSubmission sub : pendingList) {
+            User student = userRepository.findByIdForUpdate(sub.getStudent().getId()).orElse(sub.getStudent());
+            awardEpisodeAndCourseBonusIdempotently(student, sub.getEpisode(), sub.getWatchMode());
+            sub.setStatus(OpenAnswerStatus.APPROVED);
+            sub.setReadByAdmin(true);
+            if (sub.getReviewedAt() == null) {
+                sub.setReviewedAt(LocalDateTime.now());
+            }
+            openAnswerSubmissionRepository.save(sub);
+            converted++;
+        }
+        log.info("Phase B migration: converted {} existing PENDING written submission(s) to rewarded & read.", converted);
+    }
+
+    @Transactional(readOnly = true)
+    public GradeSuggestionResponse suggestGrade(String adminUsername, Long submissionId) {
+        OpenAnswerSubmission submission = openAnswerSubmissionRepository.findByIdWithDetails(submissionId)
+                .orElseThrow(() -> new IllegalArgumentException("Written answer submission not found"));
+        return aiQuizService.suggestGradeForOpenAnswer(
+                adminUsername,
+                submission.getOpenQuestion(),
+                submission.getAnswerText()
+        );
+    }
+}
+import com.arabicquest.config.BrandConstants;
+import com.arabicquest.dto.GradeSuggestionResponse;
+import com.arabicquest.dto.OpenAnswerAdminViewResponse;
+import com.arabicquest.dto.OpenQuestionStudentResponse;
+import com.arabicquest.model.*;
+import com.arabicquest.repository.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.regex.Pattern;
 
 @Service
