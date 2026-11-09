@@ -1,5 +1,4 @@
 package com.arabicquest.service;
-package com.arabicquest.service;
 
 import com.arabicquest.config.BrandConstants;
 import com.arabicquest.dto.*;
