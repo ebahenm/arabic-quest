@@ -1,3 +1,4 @@
+// Generates and verifies episode question banks from YouTube videos or optional transcripts via Gemini.
 package com.arabicquest.service;
 
 import com.arabicquest.config.TooManyRequestsException;
@@ -41,7 +42,10 @@ public class AiQuizService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final SecureRandom secureRandom = new SecureRandom();
     private final Map<String, Deque<Instant>> adminRateLimitBuckets = new ConcurrentHashMap<>();
-    private RestTemplate restTemplate = new RestTemplate();
+    private RestTemplate restTemplate = GeminiVideoBankSupport.createDefaultRestTemplate();
+
+    @Value("${app.ai.retry-backoff-ms:300}")
+    private long retryBackoffMs = 300;
 
     @Value("${GEMINI_API_KEY:${AI_API_KEY:}}")
     private String geminiApiKey;
@@ -70,6 +74,10 @@ public class AiQuizService {
 
     public void setGeminiApiKey(String geminiApiKey) {
         this.geminiApiKey = geminiApiKey;
+    }
+
+    public void setRetryBackoffMs(long retryBackoffMs) {
+        this.retryBackoffMs = retryBackoffMs;
     }
 
     public RestTemplate getRestTemplate() {
@@ -172,43 +180,37 @@ public class AiQuizService {
         int totalPass1OpenCount = 0;
 
         for (VideoSegment seg : segments) {
-            Pass1GeneratedBank pass1;
-            try {
-                pass1 = runPass1VideoGeneration(episode.getTitle(), episode.getEpisodeNumber(), videoId, seg, optionalTranscript);
-            } catch (HttpClientErrorException.TooManyRequests ex) {
-                throw new TooManyRequestsException("Gemini API rate quota reached. Please wait a moment before trying again.", 60);
-            } catch (HttpClientErrorException.BadRequest | HttpClientErrorException.NotFound ex) {
-                throw new IllegalArgumentException("The YouTube video is private or unavailable on YouTube.");
-            } catch (ResourceAccessException ex) {
-                throw new IllegalStateException("Gemini request timed out while analyzing the video segment. Please retry.");
-            } catch (IllegalStateException ex) {
-                throw ex;
-            } catch (Exception ex) {
-                log.warn("Gemini Pass 1 video generation failed for ep {} seg {}-{}: {}",
-                        episodeId, seg.startSeconds(), seg.endSeconds(), ex.getClass().getSimpleName());
-                throw new IllegalStateException("Gemini Pass 1 video generation failed (" + ex.getClass().getSimpleName() + "). Check API quota or retry.");
-            }
+            Pass1GeneratedBank pass1 = GeminiVideoBankSupport.executeWithRetry(
+                    () -> runPass1VideoGeneration(episode.getTitle(), episode.getEpisodeNumber(), videoId, seg, optionalTranscript),
+                    retryBackoffMs,
+                    "Pass 1 video generation"
+            );
 
             totalPass1McqCount += (pass1.mcqs() != null ? pass1.mcqs().size() : 0);
             totalPass1OpenCount += (pass1.openQuestions() != null ? pass1.openQuestions().size() : 0);
 
             // Require timestamps unless generating from pasted text transcript
             boolean requireTimestamp = (optionalTranscript == null || optionalTranscript.isBlank());
-            List<CandidateMcq> validMcqs = filterStructurallyValidMcqs(pass1.mcqs(), requireTimestamp);
-            List<CandidateOpen> validOpens = filterStructurallyValidOpens(pass1.openQuestions(), requireTimestamp);
+            List<CandidateMcq> validMcqs = GeminiVideoBankSupport.filterValidTimestampsForMcqs(
+                    filterStructurallyValidMcqs(pass1.mcqs(), requireTimestamp),
+                    episode.getDurationSeconds(),
+                    requireTimestamp
+            );
+            List<CandidateOpen> validOpens = GeminiVideoBankSupport.filterValidTimestampsForOpens(
+                    filterStructurallyValidOpens(pass1.openQuestions(), requireTimestamp),
+                    episode.getDurationSeconds(),
+                    requireTimestamp
+            );
 
             allPass1Mcqs.addAll(validMcqs);
             allPass1Opens.addAll(validOpens);
 
             if (!validMcqs.isEmpty() || !validOpens.isEmpty()) {
-                VerificationSelection verified;
-                try {
-                    verified = runPass2VideoVerification(videoId, seg, validMcqs, validOpens, optionalTranscript);
-                } catch (Exception ex) {
-                    log.warn("Gemini Pass 2 verification failed for ep {} seg {}-{}: {}",
-                            episodeId, seg.startSeconds(), seg.endSeconds(), ex.getClass().getSimpleName());
-                    throw new IllegalStateException("Gemini Pass 2 video verification failed (" + ex.getClass().getSimpleName() + "). Nothing was saved.");
-                }
+                VerificationSelection verified = GeminiVideoBankSupport.executeWithRetry(
+                        () -> runPass2VideoVerification(videoId, seg, validMcqs, validOpens, optionalTranscript),
+                        retryBackoffMs,
+                        "Pass 2 video verification"
+                );
 
                 for (Integer idx : verified.verifiedMcqIndices()) {
                     if (idx != null && idx >= 0 && idx < validMcqs.size()) {
@@ -248,9 +250,13 @@ public class AiQuizService {
             }
         }
 
+        List<CandidateMcq> dedupedMcqs = GeminiVideoBankSupport.deduplicateMcqsByConcept(
+                finalVerifiedMcqs,
+                quiz.getQuestions()
+        );
         int nextOrder = quiz.getQuestions().size() + 1;
         int savedMcqs = 0;
-        for (CandidateMcq c : finalVerifiedMcqs) {
+        for (CandidateMcq c : dedupedMcqs) {
             String norm = normalizeForDedup(c.questionText());
             if (!existingNormalizedStems.add(norm)) {
                 continue;

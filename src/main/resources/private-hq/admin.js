@@ -108,7 +108,7 @@ function wireEvents() {
     const adjForm = document.getElementById('form-balance-adjustment');
     if (adjForm) adjForm.addEventListener('submit', handleBalanceAdjustmentSubmit);
     document.getElementById('form-create-student').addEventListener('submit', handleCreateStudentSubmit);
-    document.getElementById('btn-run-ai').addEventListener('click', handleGenerateAiQuiz);
+    document.getElementById('btn-run-ai').addEventListener('click', (...args) => (typeof handleGenerateAiVideoQuiz === 'function' ? handleGenerateAiVideoQuiz(...args) : handleGenerateAiQuiz(...args)));
     document.getElementById('form-add-episode').addEventListener('submit', handleAddEpisodeSubmit);
     document.getElementById('btn-refresh-audit').addEventListener('click', loadAdminDashboard);
     document.getElementById('audit-student-filter').addEventListener('change', renderAttemptsTable);
@@ -1098,6 +1098,7 @@ async function loadEpisodeQuestionBank() {
 
         renderMcqBankList(bank.questions || []);
         renderOpenQuestionBankList(bank.openQuestions || []);
+        if (typeof enhanceQuestionBankCards === 'function') enhanceQuestionBankCards(bank);
         syncEpisodeReadinessFromBank(Number(episodeId), bank);
     } catch (err) {
         console.warn('Question bank load failed:', err);
