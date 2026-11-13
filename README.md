@@ -77,7 +77,7 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 | `ADMIN_PASSWORD` | **Yes** | Random logged | Administrator password (**>= 12 characters** in `prod`; BCrypt-hashed on startup). |
 | `ADMIN_SECRET_PATH` | **Yes** | Dev-only slug | Private URL slug for the Admin Command Center (must not be blank or `turath-hq` in `prod`). |
 | `GEMINI_API_KEY` | **Yes** | Empty | Google Gemini API key (`gemini-2.5-flash`) for video-grounded question bank generation. |
-| `GEMINI_MODEL` | **Yes** | `gemini-2.5-flash` | Gemini model name (must not be blank). |
+| `GEMINI_MODEL` | **Yes** | `gemini-3.5-flash` (override via env var, e.g. `gemini-2.5-flash`) | Gemini model name configured on the server (never hardcoded as the only option). |
 | `YOUTUBE_API_KEY` | **Yes** | Empty | YouTube Data API v3 key for course playlist preview and import. |
 | `GOOGLE_CLIENT_ID` | Optional | Empty | Google OAuth 2.0 Web Client ID (`...apps.googleusercontent.com`) for Sign in with Google on pre-created student accounts. |
 | `ALLOWED_ORIGINS` | Optional | `https://turathtona.site,https://www.turathtona.site` | Comma-separated allowed CORS origins. |
@@ -100,15 +100,17 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 
 ### 2. Video-Grounded Question Bank Generation & Jump-to-Moment
 1. In the Admin Command Center, select an episode in the **Question Bank Manager**.
-2. Click **Generate Question Bank from YouTube Video** (`POST /api/admin/episodes/{episodeId}/generate-bank`):
-   - Gemini analyzes the video directly using `file_data` with YouTube URL (videos longer than 35 minutes are split into ~25-30 minute segments with `MEDIA_RESOLUTION_LOW`).
-   - Every question requires an `evidenceTimestamp` (seconds from video start).
-   - **Pass 1** produces candidate MCQs and open questions.
-   - **Pass 2** strictly verifies candidates against the video segment, capping vocabulary questions at 2 per batch.
-   - Surviving questions are saved strictly as **`DRAFT`**.
-3. Draft and approved questions render clickable **⏱️ Jump to Xs** links (`https://www.youtube.com/watch?v={videoId}&t={sec}s`) allowing administrators to jump directly to the exact moment in the video for verification.
-4. Ensure each episode has **>= 10 `APPROVED` active MCQs** and **>= 1 `APPROVED` active open question** for student readiness.
-5. Use **Export Question Bank JSON** (`GET /api/admin/question-bank/export`) and **Import Question Bank JSON** (`POST /api/admin/question-bank/import`) for off-repo curriculum backups.
+2. Pasting a transcript is **optional**. Click **Generate from the YouTube video** (`POST /api/admin/episodes/{episodeId}/generate-bank`):
+   - Gemini analyzes the video directly using `file_data` with the YouTube URL and `MEDIA_RESOLUTION_LOW` (episodes longer than 35 minutes are split automatically into ~25-30 minute segments).
+   - Every generated question requires a valid `evidenceTimestamp` (seconds from video start) and an `evidence` quote/note.
+   - **Pass 1** produces candidate MCQs (~10+ per segment, up to ~30 total) and open explanation questions (~1+ per segment, up to ~3 total).
+   - **Pass 2** strictly verifies candidates against the video segment, enforces a max of 2 vocabulary questions, and removes same-concept / repeated-term duplicates.
+   - Surviving items are saved strictly as **`DRAFT`**; any existing **`APPROVED`** questions remain untouched.
+   - Transient failures (429/503/timeouts) are retried automatically on the backend; any exhausted failure rolls back cleanly ("Nothing was saved") and renders a **Retry Generation** button in the Admin UI.
+3. Every draft and approved question card renders a clickable **Jump to moment (`M:SS`)** link (`https://www.youtube.com/watch?v={videoId}&t={sec}s`) alongside its evidence note for fast timestamp verification.
+4. Filter questions by status (`ALL`/`DRAFT`/`APPROVED`/`RETIRED`), type (`RECALL`/`REASONING`/`VOCABULARY`/`LISTENING`), or reported count; use **Bulk Approve All Drafts** (`POST /api/admin/episodes/{episodeId}/questions/bulk-approve`) once verified.
+5. Each episode requires **>= 10 `APPROVED` active MCQs** and **>= 1 `APPROVED` active open question** to appear as **Quiz Ready** to students.
+6. Use **Export Question Bank JSON** (`GET /api/admin/question-bank/export`) and **Import Question Bank JSON** (`POST /api/admin/question-bank/import`) for off-repo curriculum backups.
 
 ### 3. Written Reflections Reading List
 1. Open the **Written Reflections Reading List** (`GET /api/admin/open-answers?status=UNREAD`). An unread badge displays the count of unread submissions.
@@ -118,7 +120,7 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 ### 4. Student Account Management
 1. **Enable / Disable Account**: Administrators can toggle account status (`PUT /api/admin/students/{id}/enabled`). Disabling an account immediately revokes all active JWT tokens via `tokenVersion` bump and blocks sign-in.
 2. **Export History**: Export complete JSON history of a student (`GET /api/admin/students/{id}/export`), including attempts, claims, bonuses, payouts, and adjustments.
-3. **Permanent Deletion**: Permanently delete a student account (`DELETE /api/admin/students/{id}`) only if `balanceOwed == 0.00`. Deletes all child records across all 13 database tables and logs an audit entry.
+3. **Permanent Deletion**: Permanently delete a student account (`DELETE /api/admin/students/{id}`) inside the confirmation modal only when all guards pass: target is a non-admin account (never the acting admin), `balanceOwed == 0.00` (check `earnings.balanceOwed` ? if positive or overpaid negative, issue a payout or adjustment first), the student record JSON has been exported (`GET /api/admin/students/{id}/export`), and the exact username is typed for confirmation. Runs atomically in one transaction across all child tables and writes a clean `AUDIT [USER_DELETED]` entry.
 
 ### 5. Payouts Ledger & Balance Adjustments
 1. **Issue Payout**: Record payouts (`POST /api/admin/payouts`) to deduct from balance owed.
@@ -139,3 +141,10 @@ mvn spring-boot:run
 
 - **Public Landing Page**: `http://localhost:8080/`
 - **Student Sign-In**: `http://localhost:8080/login`
+
+---
+
+## Project Rules, CI & Render Deployment
+- **Engineering Rules (`RULES.md` & `.agents/rules/turathtona.md` / `AGENTS.md`)**: Strict separation between frontend `pages/`, `components/`, and `data/` modules; backend `controller/`, `service/`, `repository/`, `model/`, and `config/`; files kept focused and under 300 lines; no `innerHTML`; server-side authority for rewards/balances/grading/watch time; unique `(HTTP method, path)` mappings.
+- **CI (`.github/workflows/ci.yml`)**: Runs `mvn clean test` on Java 21 Temurin for every push and pull request (`ContextAndRouteMappingTest` verifies Spring startup and unique endpoint mappings alongside all phase integration tests).
+- **Render Docker Deployment (`Dockerfile`)**: Multi-stage Maven + Eclipse Temurin 21 JRE image (`appuser` UID 10001 with `/bin/bash` shell and container-aware JVM memory flags). Recommend configuring Render Auto-Deploy **"After CI Checks Pass"** and setting all 8 required environment variables above before manual hard refresh (`Ctrl+Shift+R`).
