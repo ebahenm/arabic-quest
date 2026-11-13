@@ -1,11 +1,14 @@
 // Provides retry/backoff, HTTP timeout defaults, error mapping, and timestamp/concept guards for Gemini video quiz generation.
 package com.arabicquest.service;
 
+import com.arabicquest.config.AiProviderClientException;
 import com.arabicquest.config.TooManyRequestsException;
 import com.arabicquest.model.Question;
 import com.arabicquest.model.QuestionType;
 import com.arabicquest.service.AiQuizService.CandidateMcq;
 import com.arabicquest.service.AiQuizService.CandidateOpen;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -25,6 +28,7 @@ import java.util.regex.Pattern;
 
 public final class GeminiVideoBankSupport {
 
+    private static final Logger log = LoggerFactory.getLogger(GeminiVideoBankSupport.class);
     private static final int MAX_ATTEMPTS = 3;
     private static final int CONNECT_TIMEOUT_MS = 15_000;
     private static final int READ_TIMEOUT_MS = 120_000;
@@ -46,6 +50,10 @@ public final class GeminiVideoBankSupport {
     }
 
     public static <T> T executeWithRetry(Callable<T> action, long baseBackoffMs, String phaseName) {
+        return executeWithRetry(action, baseBackoffMs, phaseName, new String[0]);
+    }
+
+    public static <T> T executeWithRetry(Callable<T> action, long baseBackoffMs, String phaseName, String... secrets) {
         Exception lastEx = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
@@ -54,62 +62,65 @@ public final class GeminiVideoBankSupport {
                 lastEx = ex;
                 boolean transientErr = isTransientGeminiError(ex);
                 if (!transientErr || attempt == MAX_ATTEMPTS) {
-                    throw mapGeminiException(ex, phaseName);
+                    AiErrorSanitizer.logProviderHttpError(log, "Gemini", phaseName, ex, secrets);
+                    throw mapGeminiException(ex, phaseName, secrets);
                 }
                 if (baseBackoffMs > 0) {
                     try {
                         Thread.sleep(baseBackoffMs * attempt);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
-                        throw mapGeminiException(ex, phaseName);
+                        AiErrorSanitizer.logProviderHttpError(log, "Gemini", phaseName, ex, secrets);
+                    throw mapGeminiException(ex, phaseName, secrets);
                     }
                 }
             }
         }
-        throw mapGeminiException(lastEx, phaseName);
+        AiErrorSanitizer.logProviderHttpError(log, "Gemini", phaseName, lastEx, secrets);
+        throw mapGeminiException(lastEx, phaseName, secrets);
     }
 
     public static RuntimeException mapGeminiException(Exception ex, String phaseName) {
+        return mapGeminiException(ex, phaseName, new String[0]);
+    }
+
+    public static RuntimeException mapGeminiException(Exception ex, String phaseName, String... secrets) {
         if (ex instanceof TooManyRequestsException tme) {
             return tme;
         }
+        String detail = AiErrorSanitizer.extractProviderErrorDetail(ex, secrets);
+        String suffix = detail.isEmpty() ? "" : ": " + detail;
         if (ex instanceof HttpClientErrorException.TooManyRequests tmr) {
             long waitSecs = parseRetryAfterSeconds(tmr, 60L);
             return new TooManyRequestsException(
-                    "Gemini API rate quota reached during " + phaseName + " (HTTP 429). Wait ~" + waitSecs + "s and click Retry.",
+                    "Gemini API rate quota reached during " + phaseName + " (HTTP 429). Wait ~" + waitSecs + "s and click Retry." + suffix,
                     waitSecs
             );
         }
         if (ex instanceof HttpClientErrorException clientErr) {
             int code = clientErr.getStatusCode().value();
             if (code == 400 || code == 403 || code == 404) {
-                return new IllegalArgumentException(
-                        "The YouTube video is private, unavailable, or rejected during " + phaseName
-                                + " (HTTP " + code + "). Check video visibility or provide an optional transcript."
+                return new AiProviderClientException(code,
+                        "The YouTube video is private, unavailable, or rejected during " + phaseName + " (HTTP " + code + ")"
+                                + (detail.isEmpty() ? ". Check video visibility or provide an optional transcript." : ": " + detail)
                 );
             }
-            return new IllegalStateException(
-                    "Gemini rejected the request during " + phaseName + " (HTTP " + code + "). Nothing was saved."
+            return new AiProviderClientException(code,
+                    "Gemini rejected the request during " + phaseName + " (HTTP " + code + "). Nothing was saved" + suffix
             );
         }
         if (ex instanceof ResourceAccessException) {
-            return new IllegalStateException(
-                    "Gemini request timed out while analyzing the video (" + phaseName + "). Nothing was saved — please click Retry."
-            );
+            return new IllegalStateException("Gemini request timed out while analyzing the video (" + phaseName + "). Nothing was saved ? please click Retry.");
         }
         if (ex instanceof HttpServerErrorException serverErr) {
-            return new IllegalStateException(
-                    "Gemini service was temporarily unavailable during " + phaseName
-                            + " (HTTP " + serverErr.getStatusCode().value() + "). Nothing was saved — please retry."
-            );
+            return new IllegalStateException("Gemini service was temporarily unavailable during " + phaseName
+                    + " (HTTP " + serverErr.getStatusCode().value() + "). Nothing was saved ? please retry." + suffix);
         }
         if (ex instanceof IllegalStateException ise) {
             return ise;
         }
         String kind = ex != null ? ex.getClass().getSimpleName() : "UnknownError";
-        return new IllegalStateException(
-                "Gemini " + phaseName + " failed (" + kind + "). Nothing was saved — check API quota or retry."
-        );
+        return new IllegalStateException("Gemini " + phaseName + " failed (" + kind + "). Nothing was saved ? check API quota or retry.");
     }
 
     private static long parseRetryAfterSeconds(HttpClientErrorException ex, long defaultSeconds) {

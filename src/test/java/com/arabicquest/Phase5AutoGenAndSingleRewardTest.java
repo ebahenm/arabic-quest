@@ -135,9 +135,9 @@ class Phase5AutoGenAndSingleRewardTest {
         RestTemplate rt1 = new RestTemplate();
         aiQuizService.setRestTemplate(rt1);
         MockRestServiceServer s1 = MockRestServiceServer.bindTo(rt1).build();
-        s1.expect(once(), MockRestRequestMatchers.requestTo(containsString(":generateContent"))).andRespond(withBadRequest());
+        // Saved transcript skips video file_data and executes text-only Pass 1 + Pass 2 directly
         s1.expect(once(), MockRestRequestMatchers.requestTo(containsString(":generateContent")))
-                .andExpect(MockRestRequestMatchers.content().string(containsString("Baghdad and Cordoba")))
+                .andExpect(MockRestRequestMatchers.content().string(containsString("Baghdad and Cordoba"))).andExpect(MockRestRequestMatchers.content().string(org.hamcrest.Matchers.not(containsString("file_data"))))
                 .andRespond(withSuccess(wrapGeminiText(objectMapper, buildPass1Json(objectMapper, "TrFallback", 10, 1)), MediaType.APPLICATION_JSON));
         s1.expect(once(), MockRestRequestMatchers.requestTo(containsString(":generateContent")))
                 .andRespond(withSuccess(wrapGeminiText(objectMapper, buildPass2Json(objectMapper, 10, 1)), MediaType.APPLICATION_JSON));

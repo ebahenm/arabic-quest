@@ -88,7 +88,7 @@ public class AutoQuizGenerationService {
     }
 
     private boolean canAttemptAutoGeneration(Long episodeId) {
-        return autoGenerateEnabled && episodeId != null && aiQuizService.isGeminiConfigured();
+        return autoGenerateEnabled && episodeId != null && aiQuizService.isAiConfigured();
     }
 
     private CompletableFuture<AiQuizService.GeneratedBankSummary> scheduleAsync(Long episodeId, boolean topUpMode) {

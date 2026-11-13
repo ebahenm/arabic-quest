@@ -209,7 +209,11 @@ public class WatchProgressService {
             String episodeTitle,
             boolean passed,
             boolean effectiveLocked,
-            String overrideState
+            String overrideState,
+            int verifiedWatchSeconds,
+            int requiredWatchSeconds,
+            boolean quizUnlocked,
+            String watchQuizStatus
     ) {}
 
     @Transactional(readOnly = true)
@@ -227,6 +231,12 @@ public class WatchProgressService {
         }
 
         Set<Long> passedIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(studentId);
+        Map<Long, WatchSession> sessionsByEp = new HashMap<>();
+        for (WatchSession ws : watchSessionRepository.findByStudentId(studentId)) {
+            if (ws.getEpisode() != null) {
+                sessionsByEp.put(ws.getEpisode().getId(), ws);
+            }
+        }
         Map<Long, StudentEpisodeOverride.OverrideState> overridesByEp = new HashMap<>();
         for (StudentEpisodeOverride ov : studentEpisodeOverrideRepository.findByStudentIdWithEpisode(studentId)) {
             if (ov.getOverrideState() != null) {
@@ -238,6 +248,14 @@ public class WatchProgressService {
         for (Episode ep : activeEpisodes) {
             List<Episode> courseEps = byCourse.getOrDefault(ep.getPlaylist().getId(), List.of(ep));
             StudentEpisodeOverride.OverrideState ov = overridesByEp.get(ep.getId());
+            boolean epPassed = passedIds.contains(ep.getId());
+            int requiredSecs = computeRequiredWatchSeconds(ep);
+            WatchSession session = sessionsByEp.get(ep.getId());
+            int verifiedSecs = epPassed ? requiredSecs
+                    : (session != null ? Math.min(requiredSecs, session.getVerifiedWatchSeconds()) : 0);
+            boolean epQuizUnlocked = epPassed || requiredSecs == 0 || verifiedSecs >= requiredSecs;
+            String watchQuizStatus = epPassed ? "PASSED"
+                    : (epQuizUnlocked ? "QUIZ_UNLOCKED" : (verifiedSecs > 0 ? "WATCHING" : "NOT_STARTED"));
             EpisodeLockState lockState = evaluateSequentialLock(ep, courseEps, passedIds, ov, false);
             result.add(new StudentEpisodeOverrideView(
                     ep.getId(),
@@ -247,7 +265,11 @@ public class WatchProgressService {
                     ep.getTitle(),
                     passedIds.contains(ep.getId()),
                     lockState.locked(),
-                    ov != null ? ov.name() : "AUTO"
+                    ov != null ? ov.name() : "AUTO",
+                    verifiedSecs,
+                    requiredSecs,
+                    epQuizUnlocked,
+                    watchQuizStatus
             ));
         }
         return result;
@@ -272,6 +294,47 @@ public class WatchProgressService {
         override.setOverrideState(state);
         studentEpisodeOverrideRepository.save(override);
         return override.getOverrideState();
+    }
+
+    @Transactional
+    public Map<String, Object> unlockQuizForStudent(Long studentId, Long episodeId) {
+        User student = userRepository.findById(studentId)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found"));
+        if (student.getRole() != Role.ROLE_STUDENT) {
+            throw new IllegalArgumentException("Quiz unlock applies to student accounts only");
+        }
+        Episode episode = episodeRepository.findByIdWithPlaylist(episodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+        int required = computeRequiredWatchSeconds(episode);
+        WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(studentId, episodeId)
+                .orElseGet(() -> new WatchSession(student, episode, WatchMode.ARABIC_SUB));
+        session.setLockedWatchMode(WatchMode.ARABIC_SUB);
+        session.setModeLocked(false);
+        session.setVerifiedWatchSeconds(required);
+        session.setVideoEnded(true);
+        watchSessionRepository.save(session);
+
+        StudentEpisodeOverride override = studentEpisodeOverrideRepository
+                .findByStudentIdAndEpisodeId(studentId, episodeId).orElse(null);
+        StudentEpisodeOverride.OverrideState currentOv = override != null ? override.getOverrideState() : null;
+        if (episode.getPlaylist() != null) {
+            List<Episode> courseEps = episodeRepository.findActiveByPlaylistIdOrderByEpisodeNumberAsc(episode.getPlaylist().getId());
+            Set<Long> passedIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(studentId);
+            if (evaluateSequentialLock(episode, courseEps, passedIds, currentOv, false).locked()) {
+                StudentEpisodeOverride targetOv = override != null ? override : new StudentEpisodeOverride(student, episode);
+                targetOv.setOverrideState(StudentEpisodeOverride.OverrideState.UNLOCKED);
+                studentEpisodeOverrideRepository.save(targetOv);
+                currentOv = StudentEpisodeOverride.OverrideState.UNLOCKED;
+            }
+        }
+        return Map.of(
+                "studentId", studentId,
+                "episodeId", episodeId,
+                "verifiedWatchSeconds", required,
+                "requiredWatchSeconds", required,
+                "quizUnlocked", true,
+                "overrideState", currentOv != null ? currentOv.name() : "AUTO"
+        );
     }
 
     public long getRetryCooldownRemainingSeconds(Long studentId, Long episodeId) {

@@ -1682,7 +1682,7 @@ async function loadStudentEpisodeOverrides(studentId) {
         if (!rows || rows.length === 0) {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
-            td.colSpan = 5;
+            td.colSpan = 6;
             td.style.textAlign = 'center';
             td.style.color = 'var(--text-muted)';
             td.style.padding = '1.25rem';
@@ -1726,6 +1726,34 @@ async function loadStudentEpisodeOverrides(studentId) {
             }
             tdEff.appendChild(effBadge);
 
+            const tdWatch = document.createElement('td');
+            const watchBadge = document.createElement('span');
+            watchBadge.style.fontSize = '0.74rem';
+            watchBadge.style.fontWeight = '700';
+            watchBadge.style.padding = '0.2rem 0.55rem';
+            watchBadge.style.borderRadius = '999px';
+            const verifiedSecs = Number(row.verifiedWatchSeconds || 0);
+            const requiredSecs = Number(row.requiredWatchSeconds || 0);
+            const fmtClock = (secs) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+            if (row.passed) {
+                watchBadge.style.background = 'rgba(16, 185, 129, 0.18)';
+                watchBadge.style.color = '#6ee7b7';
+                watchBadge.textContent = '✓ Quiz Passed';
+            } else if (row.quizUnlocked) {
+                watchBadge.style.background = 'rgba(16, 185, 129, 0.16)';
+                watchBadge.style.color = '#6ee7b7';
+                watchBadge.textContent = `✓ Quiz Unlocked (${fmtClock(verifiedSecs)} / ${fmtClock(requiredSecs)})`;
+            } else if (verifiedSecs > 0) {
+                watchBadge.style.background = 'rgba(59, 130, 246, 0.16)';
+                watchBadge.style.color = '#93c5fd';
+                watchBadge.textContent = `⏳ Watching (${fmtClock(verifiedSecs)} / ${fmtClock(requiredSecs)})`;
+            } else {
+                watchBadge.style.background = 'rgba(148, 163, 184, 0.14)';
+                watchBadge.style.color = 'var(--text-muted)';
+                watchBadge.textContent = `⏸️ Not Watched (0:00 / ${fmtClock(requiredSecs)})`;
+            }
+            tdWatch.appendChild(watchBadge);
+
             const tdOv = document.createElement('td');
             const ovCode = document.createElement('code');
             ovCode.textContent = row.overrideState || 'AUTO';
@@ -1760,6 +1788,17 @@ async function loadStudentEpisodeOverrides(studentId) {
             btnAuto.textContent = '↺ Auto';
             btnAuto.addEventListener('click', () => setStudentEpisodeOverrideAction(studentId, row.episodeId, 'auto'));
 
+            const btnUnlockQuiz = document.createElement('button');
+            btnUnlockQuiz.type = 'button';
+            btnUnlockQuiz.className = 'btn-ghost';
+            btnUnlockQuiz.style.padding = '0.28rem 0.6rem';
+            btnUnlockQuiz.style.fontSize = '0.76rem';
+            btnUnlockQuiz.textContent = row.quizUnlocked ? '✓ Quiz Unlocked' : '🔓 Unlock Quiz';
+            btnUnlockQuiz.disabled = Boolean(row.passed || row.quizUnlocked);
+            if (btnUnlockQuiz.disabled) btnUnlockQuiz.style.opacity = '0.6';
+            btnUnlockQuiz.addEventListener('click', () => setStudentEpisodeOverrideAction(studentId, row.episodeId, 'unlock-quiz'));
+
+            tdAct.appendChild(btnUnlockQuiz);
             tdAct.appendChild(btnUnlock);
             tdAct.appendChild(btnLock);
             tdAct.appendChild(btnAuto);
@@ -1767,6 +1806,7 @@ async function loadStudentEpisodeOverrides(studentId) {
             tr.appendChild(tdCourse);
             tr.appendChild(tdEp);
             tr.appendChild(tdEff);
+            tr.appendChild(tdWatch);
             tr.appendChild(tdOv);
             tr.appendChild(tdAct);
             tbody.appendChild(tr);
@@ -1781,7 +1821,10 @@ async function setStudentEpisodeOverrideAction(studentId, episodeId, action) {
     try {
         let url;
         let method;
-        if (action === 'unlock') {
+        if (action === 'unlock-quiz') {
+            url = `/api/admin/students/${studentId}/episodes/${episodeId}/unlock-quiz`;
+            method = 'POST';
+        } else if (action === 'unlock') {
             url = `/api/admin/students/${studentId}/episodes/${episodeId}/unlock`;
             method = 'POST';
         } else if (action === 'lock') {
@@ -1794,7 +1837,9 @@ async function setStudentEpisodeOverrideAction(studentId, episodeId, action) {
         const res = await apiFetch(url, { method });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
-            showFeedback('student-overrides-msg', `✓ Updated episode override to ${data.overrideState || action.toUpperCase()}.`);
+            showFeedback('student-overrides-msg', action === 'unlock-quiz'
+                    ? '✓ Quiz unlocked for student (watch target marked complete).'
+                    : `✓ Updated episode override to ${data.overrideState || action.toUpperCase()}.`);
             await loadStudentEpisodeOverrides(studentId);
         } else {
             showFeedback('student-overrides-msg', data.error || 'Could not update episode override.', true);

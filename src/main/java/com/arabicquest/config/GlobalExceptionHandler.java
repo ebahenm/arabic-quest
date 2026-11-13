@@ -1,3 +1,4 @@
+// Maps validation, security, rate-limit, and AI provider exceptions to safe JSON error responses.
 package com.arabicquest.config;
 
 import jakarta.validation.ConstraintViolationException;
@@ -56,6 +57,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleMalformedRequest(Exception ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("error", "Malformed or invalid request parameters"));
+    }
+
+    @ExceptionHandler(AiProviderClientException.class)
+    public ResponseEntity<Map<String, Object>> handleAiProviderClientError(AiProviderClientException ex) {
+        String msg = ex.getMessage() != null ? ex.getMessage() : "AI provider rejected request";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", msg));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

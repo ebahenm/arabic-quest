@@ -59,7 +59,7 @@
 - **Frontend**: Vanilla HTML5, CSS3, and JavaScript (`src/main/resources/static` and `src/main/resources/private-hq`), self-hosted SIL OFL Arabic `.woff2` fonts (`Amiri`, `Cairo`), strict `textContent` / DOM rendering (`innerHTML` is never used).
 - **External APIs**:
   - **YouTube Data API v3** (`X-Goog-Api-Key` request header only).
-  - **Google Gemini (`gemini-2.5-flash`)** (`x-goog-api-key` request header only; structured JSON output).
+  - **Google Gemini (`gemini-2.5-flash`)** (`x-goog-api-key` request header only; structured JSON output) with optional **OpenAI-compatible fallback** (`FALLBACK_AI_API_KEY`) and automatic YouTube caption extraction.
 - **Container**: Multi-stage `Dockerfile` running as non-root `appuser` on Eclipse Temurin 21 Alpine.
 
 ---
@@ -78,6 +78,9 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 | `ADMIN_SECRET_PATH` | **Yes** | Dev-only slug | Private URL slug for the Admin Command Center (must not be blank or `turath-hq` in `prod`). |
 | `GEMINI_API_KEY` | **Yes** | Empty | Google Gemini API key (`gemini-2.5-flash`) for video-grounded question bank generation. |
 | `GEMINI_MODEL` | **Yes** | `gemini-2.5-flash` (override via env var) | Gemini model name configured on the server (`maxOutputTokens` defaulted to `16384` with resilient truncated-JSON repair). |
+| `FALLBACK_AI_API_KEY` | Optional | Empty | Optional OpenAI-compatible API key used automatically for text-only Pass 1 / Pass 2 generation if Gemini returns `400`/`403`/`429`/`5xx` or is disabled. |
+| `FALLBACK_AI_BASE_URL` | Optional | `https://api.openai.com/v1` | Base URL for the optional OpenAI-compatible fallback provider (`/chat/completions`). |
+| `FALLBACK_AI_MODEL` | Optional | `gpt-4.1` | Model identifier sent to the optional OpenAI-compatible fallback provider. |
 | `YOUTUBE_API_KEY` | **Yes** | Empty | YouTube Data API v3 key for course playlist preview and import. |
 | `GOOGLE_CLIENT_ID` | Optional | Empty | Google OAuth 2.0 Web Client ID (`...apps.googleusercontent.com`) for Sign in with Google on pre-created student accounts. |
 | `ALLOWED_ORIGINS` | Optional | `https://turathtona.site,https://www.turathtona.site` | Comma-separated allowed CORS origins. |
@@ -105,7 +108,7 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
    - Every generated question requires a valid `evidenceTimestamp` (seconds from video start) and an `evidence` quote/note.
    - **Pass 1** produces candidate MCQs (~10+ per segment, up to ~30 total) and open explanation questions (~1+ per segment, up to ~3 total).
    - **Pass 2** strictly verifies candidates against the video segment, enforces a max of 2 vocabulary questions, and removes same-concept / repeated-term duplicates.
-   - Manual admin runs save surviving items as **`DRAFT`** for review (automatic student-triggered watch/retry runs auto-approve verified items); if video processing fails on a segment, the pipeline falls back to available transcript text or retries once with a reduced batch size.
+   - Manual admin runs save surviving items as **`DRAFT`** for review (automatic student-triggered watch/retry runs auto-approve verified items). When a transcript is pasted, saved, or auto-fetched from YouTube captions, both Pass 1 and Pass 2 run in text-only mode (skipping `file_data`), prioritizing >=60% cause-and-effect/chronology/reasoning MCQs with plausible episode distractors and multi-point open prompts; if Gemini text calls still fail (`400`/`403`/`429`/`5xx`), `FALLBACK_AI_API_KEY` completes generation automatically with secrets redacted from logs.
    - Transient failures (429/503/timeouts) are retried automatically on the backend; any exhausted failure rolls back cleanly ("Nothing was saved") and renders a **Retry Generation** button in the Admin UI.
 3. Every draft and approved question card renders a clickable **Jump to moment (`M:SS`)** link (`https://www.youtube.com/watch?v={videoId}&t={sec}s`) alongside its evidence note for fast timestamp verification.
 4. Filter questions by status (`ALL`/`DRAFT`/`APPROVED`/`RETIRED`), type (`RECALL`/`REASONING`/`VOCABULARY`/`LISTENING`), or reported count; use **Bulk Approve All Drafts** (`POST /api/admin/episodes/{episodeId}/questions/bulk-approve`) once verified.
@@ -120,7 +123,11 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 ### 4. Student Account Management
 1. **Enable / Disable Account**: Administrators can toggle account status (`PUT /api/admin/students/{id}/enabled`). Disabling an account immediately revokes all active JWT tokens via `tokenVersion` bump and blocks sign-in.
 2. **Export History**: Export complete JSON history of a student (`GET /api/admin/students/{id}/export`), including attempts, claims, bonuses, payouts, and adjustments.
-3. **Permanent Deletion**: Permanently delete a student account (`DELETE /api/admin/students/{id}`) inside the confirmation modal only when all guards pass: target is a non-admin account (never the acting admin), `balanceOwed == 0.00` (check `earnings.balanceOwed` ? if positive or overpaid negative, issue a payout or adjustment first), the student record JSON has been exported (`GET /api/admin/students/{id}/export`), and the exact username is typed for confirmation. Runs atomically in one transaction across all child tables and writes a clean `AUDIT [USER_DELETED]` entry.
+
+3. **Permanent Deletion**: Permanently delete a student account (`DELETE /api/admin/students/{id}`) inside the confirmation modal only when all guards pass: target is a non-admin account (never the acting admin), `balanceOwed == 0.00` (check `earnings.balanceOwed` — if positive or overpaid negative, issue a payout or adjustment first), the student record JSON has been exported (`GET /api/admin/students/{id}/export`), and the exact username is typed for confirmation. Runs atomically in one transaction across all child tables and writes a clean `AUDIT [USER_DELETED]` entry.
+4. **Unlock Quiz Direct Override**: Next to any row in **Admin -> Students -> Per-Student Episode Access Overrides**, inspect each episode's Watch / Quiz Status and click **🔓 Unlock Quiz** (`POST /api/admin/students/{studentId}/episodes/{episodeId}/unlock-quiz`) to credit required watch time and unlock sequential quiz access immediately for students who watched directly on YouTube.com.
+
+
 
 ### 5. Payouts Ledger & Balance Adjustments
 1. **Issue Payout**: Record payouts (`POST /api/admin/payouts`) to deduct from balance owed.
