@@ -1,3 +1,4 @@
+// DTO schema for exporting and importing course metadata and episode question banks.
 package com.arabicquest.dto;
 
 import java.math.BigDecimal;
@@ -47,6 +48,7 @@ public class QuestionBankBackupDto {
         private Boolean published;
         private Boolean archived;
         private Integer sortOrder;
+        private BigDecimal episodeReward;
         private BigDecimal rateArabicSub;
         private BigDecimal rateEnglishDub;
         private BigDecimal completionBonus;
@@ -107,6 +109,14 @@ public class QuestionBankBackupDto {
 
         public void setSortOrder(Integer sortOrder) {
             this.sortOrder = sortOrder;
+        }
+
+        public BigDecimal getEpisodeReward() {
+            return episodeReward;
+        }
+
+        public void setEpisodeReward(BigDecimal episodeReward) {
+            this.episodeReward = episodeReward;
         }
 
         public BigDecimal getRateArabicSub() {

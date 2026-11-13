@@ -159,8 +159,7 @@ public class CourseService {
             EpisodeProgressState progressState = watchProgressService.computeEpisodeProgressState(
                     lockState, passed, pendingReview, mcqPassed, watchStatus, quizBankReady);
 
-            BigDecimal rateAr = resolveRateArabicSub(course);
-            BigDecimal rateEn = resolveRateEnglishDub(course);
+            BigDecimal episodeReward = resolveEpisodeReward(course);
 
             return new EpisodeStudentResponse(
                     ep.getId(),
@@ -177,8 +176,9 @@ public class CourseService {
                     progressState.getLabel(),
                     quizBankReady,
                     favoriteIds.contains(ep.getId()),
-                    rateAr,
-                    rateEn,
+                    episodeReward,
+                    episodeReward,
+                    episodeReward,
                     watchStatus
             );
         }).toList();
@@ -283,8 +283,7 @@ public class CourseService {
         course.setPublished(false);
         course.setArchived(false);
         course.setSortOrder((int) playlistRepository.count() + 1);
-        course.setRateArabicSub(request.rateArabicSub() != null ? request.rateArabicSub() : BrandConstants.DEFAULT_RATE_ARABIC_SUB);
-        course.setRateEnglishDub(request.rateEnglishDub() != null ? request.rateEnglishDub() : BrandConstants.DEFAULT_RATE_ENGLISH_DUB);
+        course.setEpisodeReward(request.resolveEpisodeReward());
         course.setCompletionBonus(request.completionBonus() != null ? request.completionBonus() : BrandConstants.DEFAULT_COMPLETION_BONUS);
         course.setMinEpisodesForBonus(1);
         Playlist savedCourse = playlistRepository.save(course);
@@ -422,8 +421,7 @@ public class CourseService {
         course.setPublished(false);
         course.setArchived(false);
         course.setSortOrder(request.sortOrder() != null ? request.sortOrder() : (int) playlistRepository.count() + 1);
-        course.setRateArabicSub(request.rateArabicSub() != null ? request.rateArabicSub() : BrandConstants.DEFAULT_RATE_ARABIC_SUB);
-        course.setRateEnglishDub(request.rateEnglishDub() != null ? request.rateEnglishDub() : BrandConstants.DEFAULT_RATE_ENGLISH_DUB);
+        course.setEpisodeReward(request.resolveEpisodeReward());
         course.setCompletionBonus(request.completionBonus() != null ? request.completionBonus() : BrandConstants.DEFAULT_COMPLETION_BONUS);
         course.setMinEpisodesForBonus(1);
 
@@ -457,11 +455,8 @@ public class CourseService {
             }
         }
 
-        if (request.rateArabicSub() != null) {
-            course.setRateArabicSub(request.rateArabicSub());
-        }
-        if (request.rateEnglishDub() != null) {
-            course.setRateEnglishDub(request.rateEnglishDub());
+        if (request.episodeReward() != null || request.rateArabicSub() != null || request.rateEnglishDub() != null) {
+            course.setEpisodeReward(request.resolveEpisodeReward());
         }
         if (request.completionBonus() != null) {
             course.setCompletionBonus(request.completionBonus());
@@ -619,6 +614,7 @@ public class CourseService {
             episodeItems.add(buildEpisodeAdminItem(ep, counts));
         }
 
+        BigDecimal episodeReward = resolveEpisodeReward(course);
         return new CourseAdminResponse(
                 course.getId(),
                 course.getTitle(),
@@ -628,8 +624,9 @@ public class CourseService {
                 course.isPublished(),
                 course.isArchived(),
                 course.getSortOrder(),
-                resolveRateArabicSub(course),
-                resolveRateEnglishDub(course),
+                episodeReward,
+                episodeReward,
+                episodeReward,
                 resolveCompletionBonus(course),
                 course.getMinEpisodesForBonus(),
                 activeCount,
@@ -693,8 +690,7 @@ public class CourseService {
                 ? Math.min(100, (int) Math.round((passedEpisodes * 100.0) / totalEpisodes))
                 : 0;
 
-        BigDecimal rateAr = resolveRateArabicSub(course);
-        BigDecimal rateEn = resolveRateEnglishDub(course);
+        BigDecimal episodeReward = resolveEpisodeReward(course);
         BigDecimal bonus = resolveCompletionBonus(course);
 
         BigDecimal episodeRewardsEarned = episodeRewardClaimRepository
@@ -706,7 +702,7 @@ public class CourseService {
 
         int minForBonus = Math.max(1, course.getMinEpisodesForBonus());
         boolean bonusReachable = totalEpisodes > 0 && totalEpisodes >= minForBonus;
-        BigDecimal possibleAmount = rateAr.multiply(BigDecimal.valueOf(totalEpisodes))
+        BigDecimal possibleAmount = episodeReward.multiply(BigDecimal.valueOf(totalEpisodes))
                 .add(bonusReachable ? bonus : BigDecimal.ZERO);
 
         return new CourseCatalogItemResponse(
@@ -719,8 +715,9 @@ public class CourseService {
                 totalEpisodes,
                 passedEpisodes,
                 progressPct,
-                rateAr,
-                rateEn,
+                episodeReward,
+                episodeReward,
+                episodeReward,
                 bonus,
                 bonusEarned,
                 earnedAmount,
@@ -736,16 +733,16 @@ public class CourseService {
         return value.length() <= maxLen ? value : value.substring(0, maxLen);
     }
 
+    public static BigDecimal resolveEpisodeReward(Playlist course) {
+        return (course != null) ? course.getEpisodeReward() : BrandConstants.DEFAULT_EPISODE_REWARD;
+    }
+
     public static BigDecimal resolveRateArabicSub(Playlist course) {
-        return (course != null && course.getArabicRewardRate() != null)
-                ? course.getArabicRewardRate()
-                : BrandConstants.DEFAULT_RATE_ARABIC_SUB;
+        return resolveEpisodeReward(course);
     }
 
     public static BigDecimal resolveRateEnglishDub(Playlist course) {
-        return (course != null && course.getEnglishRewardRate() != null)
-                ? course.getEnglishRewardRate()
-                : BrandConstants.DEFAULT_RATE_ENGLISH_DUB;
+        return resolveEpisodeReward(course);
     }
 
     public static BigDecimal resolveCompletionBonus(Playlist course) {

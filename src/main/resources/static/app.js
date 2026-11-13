@@ -5,7 +5,11 @@
     try { localStorage.removeItem(k); } catch (_) {}
 });
 
-let selectedWatchMode = 'ARABIC_SUB';
+const DEFAULT_WATCH_MODE = 'ARABIC_SUB';
+
+function resolveEpisodeRewardValue(entity) {
+    return Number(entity?.episodeReward ?? entity?.rateArabicSub ?? 15);
+}
 const DEFAULT_REQUIRED_WATCH_SECONDS = 1800; // 30 minutes cap
 const isBetaRoute = window.location.pathname === '/beta' || window.location.pathname.startsWith('/beta/');
 
@@ -314,7 +318,7 @@ function renderCourseCatalog() {
         const epCountSpan = document.createElement('span');
         epCountSpan.textContent = `${course.totalEpisodes} Episode${course.totalEpisodes === 1 ? '' : 's'}`;
         const ratesSpan = document.createElement('span');
-        ratesSpan.textContent = `🎧 $${Number(course.rateArabicSub).toFixed(2)} • 🔊 $${Number(course.rateEnglishDub).toFixed(2)}`;
+        ratesSpan.textContent = `+$${resolveEpisodeRewardValue(course).toFixed(2)} / episode`;
         metaRow.appendChild(epCountSpan);
         metaRow.appendChild(ratesSpan);
         body.appendChild(metaRow);
@@ -467,7 +471,7 @@ function renderCourseSyllabus() {
 
     const ratesSummary = document.getElementById('syllabus-rates-summary');
     if (ratesSummary) {
-        ratesSummary.textContent = `🎧 Arabic + Subs: +$${Number(currentCourse.rateArabicSub).toFixed(2)} • 🔊 English Dub: +$${Number(currentCourse.rateEnglishDub).toFixed(2)}`;
+        ratesSummary.textContent = `Episode Reward: +$${resolveEpisodeRewardValue(currentCourse).toFixed(2)}`;
     }
 
     syncSyllabusFavFilterButton();
@@ -544,21 +548,16 @@ function renderCourseSyllabus() {
         const rightWrap = document.createElement('div');
         rightWrap.className = 'syllabus-ep-rates';
 
-        const chipAr = document.createElement('span');
-        chipAr.className = 'rate-chip';
-        chipAr.textContent = `🎧 Arabic + Subs: +$${Number(ep.rateArabicSub != null ? ep.rateArabicSub : 15).toFixed(2)}`;
-
-        const chipEn = document.createElement('span');
-        chipEn.className = 'rate-chip';
-        chipEn.textContent = `🔊 English Dub: +$${Number(ep.rateEnglishDub != null ? ep.rateEnglishDub : 10).toFixed(2)}`;
+        const chipReward = document.createElement('span');
+        chipReward.className = 'rate-chip';
+        chipReward.textContent = `+$${resolveEpisodeRewardValue(ep).toFixed(2)} Reward`;
 
         const stateBadge = document.createElement('span');
         const stateCode = ep.state || (ep.locked ? 'LOCKED' : (ep.passed ? 'PASSED' : 'AVAILABLE'));
         applyEpisodeStateBadgeStyle(stateBadge, stateCode);
         stateBadge.textContent = ep.stateLabel || stateCode;
 
-        rightWrap.appendChild(chipAr);
-        rightWrap.appendChild(chipEn);
+        rightWrap.appendChild(chipReward);
         rightWrap.appendChild(stateBadge);
         rightWrap.appendChild(createFavoriteHeartButton(ep));
 
@@ -828,15 +827,14 @@ function renderEpisodeList() {
 
         const tag = document.createElement('div');
         tag.className = 'ep-tag';
-        const rateAr = Number(ep.rateArabicSub != null ? ep.rateArabicSub : 15).toFixed(2);
-        const rateEn = Number(ep.rateEnglishDub != null ? ep.rateEnglishDub : 10).toFixed(2);
+        const epReward = resolveEpisodeRewardValue(ep).toFixed(2);
         if (ep.locked) {
             tag.textContent = ep.unlockAfterEpisodeNumber
                 ? `Pass Episode ${ep.unlockAfterEpisodeNumber} first`
                 : 'Locked by administrator';
         } else {
             const mins = Math.max(1, Math.round((ep.durationSeconds || 1200) / 60));
-            tag.textContent = `~${mins} min • Arabic $${rateAr} / Dub $${rateEn}`;
+            tag.textContent = `~${mins} min • +$${epReward} Reward`;
         }
         info.appendChild(tag);
 
@@ -854,49 +852,11 @@ function renderEpisodeList() {
     });
 }
 
-function renderModePicker(ep, statusOverride = null) {
+function renderEpisodeHeader(ep) {
     if (!ep) return;
-    const status = statusOverride || ep.watchStatus || {};
-    const modeLocked = Boolean(status.modeLocked);
-    if (modeLocked && status.lockedWatchMode) {
-        selectedWatchMode = status.lockedWatchMode;
-    }
-
-    const rateAr = Number(ep.rateArabicSub != null ? ep.rateArabicSub : 15).toFixed(2);
-    const rateEn = Number(ep.rateEnglishDub != null ? ep.rateEnglishDub : 10).toFixed(2);
-
-    const arRateLabel = document.getElementById('label-rate-arabic');
-    if (arRateLabel) arRateLabel.textContent = `+$${rateAr} Reward`;
-    const enRateLabel = document.getElementById('label-rate-english');
-    if (enRateLabel) enRateLabel.textContent = `+$${rateEn} Reward`;
-
-    const btnAr = document.getElementById('btn-mode-arabic');
-    const btnEn = document.getElementById('btn-mode-english');
-    if (btnAr) {
-        btnAr.classList.toggle('active', selectedWatchMode === 'ARABIC_SUB');
-        btnAr.disabled = modeLocked && selectedWatchMode !== 'ARABIC_SUB';
-        btnAr.style.opacity = (modeLocked && selectedWatchMode !== 'ARABIC_SUB') ? '0.45' : '1';
-    }
-    if (btnEn) {
-        btnEn.classList.toggle('active', selectedWatchMode === 'ENGLISH_DUB');
-        btnEn.disabled = modeLocked && selectedWatchMode !== 'ENGLISH_DUB';
-        btnEn.style.opacity = (modeLocked && selectedWatchMode !== 'ENGLISH_DUB') ? '0.45' : '1';
-    }
-
-    const banner = document.getElementById('mode-instructions-banner');
-    if (banner) {
-        banner.classList.toggle('english-mode', selectedWatchMode === 'ENGLISH_DUB');
-    }
-
-    const lockInd = document.getElementById('mode-lock-indicator');
-    if (lockInd) {
-        lockInd.style.display = modeLocked ? 'inline-flex' : 'none';
-    }
-
-    const resetBtn = document.getElementById('btn-reset-watch-mode');
-    if (resetBtn) {
-        const canReset = modeLocked && !ep.passed && ep.state !== 'PENDING_REVIEW';
-        resetBtn.style.display = canReset ? 'inline-flex' : 'none';
+    const rewardBadge = document.getElementById('episode-reward-badge');
+    if (rewardBadge) {
+        rewardBadge.textContent = `+$${resolveEpisodeRewardValue(ep).toFixed(2)}`;
     }
 
     const curStateBadge = document.getElementById('current-episode-state-badge');
@@ -905,47 +865,6 @@ function renderModePicker(ep, statusOverride = null) {
         applyEpisodeStateBadgeStyle(curStateBadge, stateCode);
         curStateBadge.textContent = ep.stateLabel || stateCode;
         curStateBadge.style.display = 'inline-flex';
-    }
-}
-
-function handleSelectWatchMode(mode) {
-    if (!currentEpisode) return;
-    const status = currentEpisode.watchStatus || {};
-    if (status.modeLocked) {
-        return;
-    }
-    selectedWatchMode = (mode === 'ENGLISH_DUB') ? 'ENGLISH_DUB' : 'ARABIC_SUB';
-    renderModePicker(currentEpisode, status);
-    applyCaptionsPreference();
-}
-
-async function handleResetWatchSessionAndSwitchMode() {
-    if (!currentEpisode) return;
-    const nextMode = selectedWatchMode === 'ARABIC_SUB' ? 'ENGLISH_DUB' : 'ARABIC_SUB';
-    if (!confirm(`Reset your current watch timer to 00:00 on this episode so you can switch to ${nextMode === 'ARABIC_SUB' ? 'Original Arabic + English Subs' : 'English Dub'}?`)) {
-        return;
-    }
-    try {
-        if (ytReady && ytPlayer && typeof ytPlayer.pauseVideo === 'function') {
-            try { ytPlayer.pauseVideo(); } catch (_) {}
-        }
-        const res = await fetch(`/api/student/episodes/${currentEpisode.id}/reset-session?watchMode=${encodeURIComponent(nextMode)}`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: apiHeaders()
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-            pendingWatchedDeltaSeconds = 0;
-            selectedWatchMode = data.lockedWatchMode || nextMode;
-            currentEpisode.watchStatus = data;
-            applyWatchStatus(data, currentEpisode.passed);
-            await fetchEpisodes();
-        } else {
-            alert(data.error || 'Could not reset watch mode.');
-        }
-    } catch (err) {
-        alert('Error resetting watch session: ' + err.message);
     }
 }
 
@@ -965,19 +884,13 @@ function selectEpisode(ep) {
     currentEpisode = ep;
     document.getElementById('current-episode-title').textContent = ep.title;
 
-    if (ep.watchStatus && ep.watchStatus.lockedWatchMode) {
-        selectedWatchMode = ep.watchStatus.lockedWatchMode;
-    } else {
-        selectedWatchMode = 'ARABIC_SUB';
-    }
-
     if (ep.watchStatus) {
         applyWatchStatus(ep.watchStatus, ep.passed);
     } else {
         serverVerifiedSeconds = 0;
         requiredWatchSeconds = Math.min(DEFAULT_REQUIRED_WATCH_SECONDS, Math.max(60, ep.durationSeconds || DEFAULT_REQUIRED_WATCH_SECONDS));
         document.getElementById('quiz-section').style.display = 'none';
-        renderModePicker(ep, null);
+        renderEpisodeHeader(ep);
     }
     const openSec = document.getElementById('open-question-section');
     if (openSec) openSec.style.display = 'none';
@@ -1013,11 +926,8 @@ function applyWatchStatus(status, episodePassed) {
 
     serverVerifiedSeconds = status.verifiedWatchSeconds || 0;
     requiredWatchSeconds = status.requiredWatchSeconds || DEFAULT_REQUIRED_WATCH_SECONDS;
-    if (status.modeLocked && status.lockedWatchMode) {
-        selectedWatchMode = status.lockedWatchMode;
-    }
 
-    renderModePicker(currentEpisode, status);
+    renderEpisodeHeader(currentEpisode);
     updateExternalYoutubeLink();
     renderLiveWatchBar(status, episodePassed);
 
@@ -1283,7 +1193,7 @@ async function flushWatchHeartbeat(opts = {}) {
     heartbeatInFlight = true;
     try {
         const bodyPayload = {
-            watchMode: selectedWatchMode,
+            watchMode: DEFAULT_WATCH_MODE,
             external: false,
             videoEnded: Boolean(opts.videoEnded),
             watchedDeltaSeconds: deltaToSend,
@@ -1300,12 +1210,12 @@ async function flushWatchHeartbeat(opts = {}) {
 
         if (res.ok) {
             const wasUnlocked = Boolean(currentEpisode.watchStatus && currentEpisode.watchStatus.quizUnlocked);
-            const wasModeLocked = Boolean(currentEpisode.watchStatus && currentEpisode.watchStatus.modeLocked);
+            const wasWatchStarted = Boolean(currentEpisode.watchStatus && currentEpisode.watchStatus.watchStarted);
             const status = await res.json();
             currentEpisode.watchStatus = status;
             applyWatchStatus(status, currentEpisode.passed);
 
-            if ((!wasModeLocked && status.modeLocked) || (!wasUnlocked && status.quizUnlocked)) {
+            if ((!wasWatchStarted && status.watchStarted) || (!wasUnlocked && status.quizUnlocked)) {
                 fetchEpisodes();
             }
             if (!wasUnlocked && status.quizUnlocked && !currentEpisode.passed) {
@@ -1338,7 +1248,7 @@ function setBetaStatusMessage(msg) {
 async function betaInstantUnlockQuiz() {
     if (!currentEpisode || !hasBetaAccess) return;
     try {
-        const res = await fetch(`/api/beta/episodes/${currentEpisode.id}/unlock-watch?watchMode=${encodeURIComponent(selectedWatchMode)}`, {
+        const res = await fetch(`/api/beta/episodes/${currentEpisode.id}/unlock-watch?watchMode=${encodeURIComponent(DEFAULT_WATCH_MODE)}`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: apiHeaders()
@@ -1349,7 +1259,7 @@ async function betaInstantUnlockQuiz() {
             currentEpisode.watchStatus = status;
             applyWatchStatus(status, currentEpisode.passed);
             await fetchEpisodes();
-            setBetaStatusMessage(`✓ Watch target unlocked instantly (${selectedWatchMode}) for Ep. ${currentEpisode.episodeNumber}.`);
+            setBetaStatusMessage(`✓ Watch target unlocked instantly for Ep. ${currentEpisode.episodeNumber}.`);
             document.getElementById('quiz-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
             const err = await res.json().catch(() => ({}));
@@ -1859,7 +1769,7 @@ async function handleQuizSubmit(event) {
     const payload = {
         sessionId: currentQuiz.sessionId,
         episodeId: currentEpisode.id,
-        watchMode: selectedWatchMode,
+        watchMode: DEFAULT_WATCH_MODE,
         answers: answers
     };
 

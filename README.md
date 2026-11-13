@@ -17,19 +17,19 @@
    - Students browse published courses in the **Course Catalog**, view per-course syllabi and progress (`LOCKED`, `AVAILABLE`, `WATCHING`, `QUIZ_READY`, `QUIZ_NOT_READY`, `PASSED`), and mark favourite episodes (`♡ / ♥`).
    - Within each course, Episode `N` unlocks sequentially after Episode `N - 1` is `PASSED` (independent across separate courses). Administrators can also apply per-student episode unlock/lock overrides.
 
-2. **Language Modes & Configurable Per-Course Rewards**
-   - **Original Arabic Audio + English Subtitles (`ARABIC_SUB`)**: Default **+$15.00** per passed episode (editable per course).
-   - **English Dubbed Audio (`ENGLISH_DUB`)**: Default **+$10.00** per passed episode (editable per course).
+2. **Single Episode Reward & Course Completion Bonus**
+   - **Episode Reward**: Default **+$15.00** per passed episode (single unified reward per course, editable in Course Settings).
    - **Course Completion Bonus**: Default **+$100.00** awarded once when all active episodes in the course are `PASSED` (editable per course).
-   - Choosing a mode locks that episode's reward tier once playback starts. Before passing, a student may explicitly reset the episode watch timer to `0` to switch modes.
+   - Videos stream immediately upon selection without mode selection or mode locking.
 
 3. **30-Minute Server-Verified Watch Requirement**
    - Required watch time per episode is `min(app.watch.required-cap-seconds, episode.durationSeconds)` — **30 minutes (`1800s`)** or the full authoritative video length if shorter.
    - Episode durations come exclusively from YouTube Data API v3 imports or admin edits (client-supplied durations and external self-reported watch flags are ignored).
    - Every playback heartbeat is bounded by elapsed server wall-clock time so watch credit cannot accumulate faster than real time.
 
-4. **10-Question Attempt Sessions (`100%` Pass Mark)**
-   - Student requests never invoke AI generation. An episode is `QUIZ_READY` only when it has **at least 10 `APPROVED` active multiple-choice questions** and **at least 1 `APPROVED` active open question**.
+4. **10-Question Attempt Sessions (`100%` Pass Mark) & Background Auto-Generation**
+   - When a student starts watching an episode (or crosses ~25% watch progress) and its approved bank has fewer than 10 `APPROVED` MCQs or 1 `APPROVED` open question, the server triggers a non-blocking `@Async` background job (with per-episode concurrency lock) running Gemini 2-pass generation and auto-approving verified items so the quiz reaches `QUIZ_READY` seamlessly.
+   - An episode is `QUIZ_READY` when it has **at least 10 `APPROVED` active multiple-choice questions** and **at least 1 `APPROVED` active open question**. If a student's unseen `APPROVED` MCQ count drops below 10 on attempt draw or failed submission, a deduplicated background top-up is triggered automatically.
    - Opening a ready quiz creates (or reuses on page refresh) a 60-minute `QuizAttemptSession` drawing **10 distinct `APPROVED` active MCQs**, prioritizing questions unseen by that student and then least-recently seen, with shuffled options.
    - Submissions are graded strictly against the open session's 10 questions (`sessionId` required; expired, reused, or foreign-question submissions are rejected).
    - Passing requires **10/10 (`100%`)**. Answer keys and transcript evidence are never returned by any student endpoint.
@@ -77,7 +77,7 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 | `ADMIN_PASSWORD` | **Yes** | Random logged | Administrator password (**>= 12 characters** in `prod`; BCrypt-hashed on startup). |
 | `ADMIN_SECRET_PATH` | **Yes** | Dev-only slug | Private URL slug for the Admin Command Center (must not be blank or `turath-hq` in `prod`). |
 | `GEMINI_API_KEY` | **Yes** | Empty | Google Gemini API key (`gemini-2.5-flash`) for video-grounded question bank generation. |
-| `GEMINI_MODEL` | **Yes** | `gemini-3.5-flash` (override via env var, e.g. `gemini-2.5-flash`) | Gemini model name configured on the server (never hardcoded as the only option). |
+| `GEMINI_MODEL` | **Yes** | `gemini-2.5-flash` (override via env var) | Gemini model name configured on the server (`maxOutputTokens` defaulted to `16384` with resilient truncated-JSON repair). |
 | `YOUTUBE_API_KEY` | **Yes** | Empty | YouTube Data API v3 key for course playlist preview and import. |
 | `GOOGLE_CLIENT_ID` | Optional | Empty | Google OAuth 2.0 Web Client ID (`...apps.googleusercontent.com`) for Sign in with Google on pre-created student accounts. |
 | `ALLOWED_ORIGINS` | Optional | `https://turathtona.site,https://www.turathtona.site` | Comma-separated allowed CORS origins. |
@@ -93,19 +93,19 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 1. Sign in to your private Admin Command Center (`/<ADMIN_SECRET_PATH>-login`).
 2. Open the **Courses & YouTube Import** section and paste a YouTube Playlist URL or Playlist ID (`PL...`).
 3. Click **Preview YouTube Playlist** (`POST /api/admin/courses/youtube-preview`). The server fetches playlist metadata, paginates all items (`50` per page), skips private/deleted videos, and parses authoritative ISO-8601 video durations via YouTube Data API v3.
-4. Review or customize the course title, description, cover image URL, `ARABIC_SUB` reward rate (default `$15.00`), `ENGLISH_DUB` reward rate (default `$10.00`), and completion bonus (default `$100.00`), then click **Import Course as Draft** (`POST /api/admin/courses/youtube-import`).
+4. Review or customize the course title, description, cover image URL, single **Episode Reward** (default `$15.00`), and completion bonus (default `$100.00`), then click **Import Course as Draft** (`POST /api/admin/courses/youtube-import`).
 5. Imported courses start **unpublished (`published = false`)** so students cannot see or access them until question banks are ready.
 6. After approving question banks for the episodes, click **Publish** (`POST /api/admin/courses/{id}/publish`) to make the course live in the Student Catalog.
 7. At any time later, click **Re-sync YouTube** (`POST /api/admin/courses/{id}/resync`) to safely append newly added playlist videos, update changed titles/durations, and mark removed videos inactive (`enabled = false`) **without deleting existing episodes, quizzes, student progress, or earned completion bonuses**.
 
 ### 2. Video-Grounded Question Bank Generation & Jump-to-Moment
-1. In the Admin Command Center, select an episode in the **Question Bank Manager**.
+1. Open the dedicated **🗂️ Question Bank** tab in the Admin Command Center (or click **🗂️ Bank** on any episode in **🎬 Courses**) and select an episode.
 2. Pasting a transcript is **optional**. Click **Generate from the YouTube video** (`POST /api/admin/episodes/{episodeId}/generate-bank`):
    - Gemini analyzes the video directly using `file_data` with the YouTube URL and `MEDIA_RESOLUTION_LOW` (episodes longer than 35 minutes are split automatically into ~25-30 minute segments).
    - Every generated question requires a valid `evidenceTimestamp` (seconds from video start) and an `evidence` quote/note.
    - **Pass 1** produces candidate MCQs (~10+ per segment, up to ~30 total) and open explanation questions (~1+ per segment, up to ~3 total).
    - **Pass 2** strictly verifies candidates against the video segment, enforces a max of 2 vocabulary questions, and removes same-concept / repeated-term duplicates.
-   - Surviving items are saved strictly as **`DRAFT`**; any existing **`APPROVED`** questions remain untouched.
+   - Manual admin runs save surviving items as **`DRAFT`** for review (automatic student-triggered watch/retry runs auto-approve verified items); if video processing fails on a segment, the pipeline falls back to available transcript text or retries once with a reduced batch size.
    - Transient failures (429/503/timeouts) are retried automatically on the backend; any exhausted failure rolls back cleanly ("Nothing was saved") and renders a **Retry Generation** button in the Admin UI.
 3. Every draft and approved question card renders a clickable **Jump to moment (`M:SS`)** link (`https://www.youtube.com/watch?v={videoId}&t={sec}s`) alongside its evidence note for fast timestamp verification.
 4. Filter questions by status (`ALL`/`DRAFT`/`APPROVED`/`RETIRED`), type (`RECALL`/`REASONING`/`VOCABULARY`/`LISTENING`), or reported count; use **Bulk Approve All Drafts** (`POST /api/admin/episodes/{episodeId}/questions/bulk-approve`) once verified.

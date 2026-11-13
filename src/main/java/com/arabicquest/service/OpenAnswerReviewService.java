@@ -64,15 +64,8 @@ public class OpenAnswerReviewService {
     }
 
     public BigDecimal resolveEpisodeRewardRate(Episode episode, WatchMode mode) {
-        Playlist p = episode.getPlaylist();
-        if (mode == WatchMode.ENGLISH_DUB) {
-            return (p != null && p.getEnglishRewardRate() != null)
-                    ? p.getEnglishRewardRate()
-                    : BrandConstants.DEFAULT_RATE_ENGLISH_DUB;
-        }
-        return (p != null && p.getArabicRewardRate() != null)
-                ? p.getArabicRewardRate()
-                : BrandConstants.DEFAULT_RATE_ARABIC_SUB;
+        Playlist p = episode != null ? episode.getPlaylist() : null;
+        return p != null ? p.getEpisodeReward() : BrandConstants.DEFAULT_EPISODE_REWARD;
     }
 
     @Transactional

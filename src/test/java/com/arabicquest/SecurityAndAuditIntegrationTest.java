@@ -1,3 +1,4 @@
+// Integration tests verifying auth boundaries, rate limits, CSRF guards, payouts, and unified reward persistence.
 package com.arabicquest;
 
 import com.arabicquest.config.DatabaseConfig;
@@ -481,10 +482,10 @@ class SecurityAndAuditIntegrationTest {
                         .content(objectMapper.writeValueAsString(perfectEp1Payload)))
                 .andExpect(status().isBadRequest());
 
-        // Submit written answer and approve -> awards $10.00 (locked ENGLISH_DUB mode on ws1)
+        // Submit written answer and approve -> awards $15.00 unified Episode Reward regardless of legacy WatchMode
         JsonNode ep1Approval = submitAndApproveWrittenAnswer(studentBearer, ep1.getId(),
                 "The lecturer explained the key historical turning points and primary sources in detail.");
-        assertThat(new BigDecimal(ep1Approval.get("episodeRewardAmount").asText())).isEqualByComparingTo("10.00");
+        assertThat(new BigDecimal(ep1Approval.get("episodeRewardAmount").asText())).isEqualByComparingTo("15.00");
 
         WatchSession ws2 = new WatchSession(earner, ep2, WatchMode.ARABIC_SUB);
         ws2.setModeLocked(true);
@@ -610,14 +611,14 @@ class SecurityAndAuditIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isNoContent());
 
-        // Total earned: $10 (ep1) + 2 * $15 ($30) + $100 bonus + $15 (ep4) = $155.00; paid $25.00 -> owed $130.00
+        // Total earned: $15 (ep1) + 2 * $15 ($30) + $100 bonus + $15 (ep4) = $160.00; paid $25.00 -> owed $135.00
         String earningsJson = mockMvc.perform(get("/api/student/earnings")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         JsonNode earnings = objectMapper.readTree(earningsJson);
-        assertThat(new BigDecimal(earnings.get("totalEarned").asText())).isEqualByComparingTo("155.00");
-        assertThat(new BigDecimal(earnings.get("balanceOwed").asText())).isEqualByComparingTo("130.00");
+        assertThat(new BigDecimal(earnings.get("totalEarned").asText())).isEqualByComparingTo("160.00");
+        assertThat(new BigDecimal(earnings.get("balanceOwed").asText())).isEqualByComparingTo("135.00");
     }
 
     @Test

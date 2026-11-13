@@ -1,3 +1,4 @@
+// Validates admin YouTube course import payloads with a unified episode reward (plus legacy field fallback).
 package com.arabicquest.dto;
 
 import jakarta.validation.constraints.DecimalMin;
@@ -20,6 +21,9 @@ public record YouTubeImportCourseRequest(
         @Size(max = 1000, message = "Cover image URL is too long")
         String coverImageUrl,
 
+        @DecimalMin(value = "0.00", message = "Episode reward must be >= 0")
+        BigDecimal episodeReward,
+
         @DecimalMin(value = "0.00", message = "Arabic subtitle rate must be >= 0")
         BigDecimal rateArabicSub,
 
@@ -29,4 +33,13 @@ public record YouTubeImportCourseRequest(
         @DecimalMin(value = "0.00", message = "Completion bonus must be >= 0")
         BigDecimal completionBonus
 ) {
+    public BigDecimal resolveEpisodeReward() {
+        if (episodeReward != null) {
+            return episodeReward;
+        }
+        if (rateArabicSub != null) {
+            return rateArabicSub;
+        }
+        return rateEnglishDub;
+    }
 }

@@ -109,10 +109,15 @@
                     await loadEpisodes();
                 }
             } else {
-                let errMsg = data.error || `Generation failed (HTTP ${res.status}).`;
+                const statusPrefix = `[HTTP ${res.status}] `;
+                let errMsg = statusPrefix + (data.error || `Generation failed (HTTP ${res.status}).`);
                 if (res.status === 429) {
-                    const retryHint = data.retryAfterSeconds ? ` Try again in ~${data.retryAfterSeconds}s.` : '';
-                    errMsg = (data.error || 'Gemini rate quota reached.') + retryHint;
+                    const retryHint = data.retryAfterSeconds ? ` Wait ~${data.retryAfterSeconds}s before retrying.` : ' Please wait briefly and retry.';
+                    errMsg = statusPrefix + (data.error || 'Gemini API rate limit reached.') + retryHint;
+                } else if (res.status === 400 || res.status === 403 || res.status === 404) {
+                    errMsg += ' Verify the YouTube video is public/unlisted and accessible, or paste an optional transcript above.';
+                } else if (res.status >= 500) {
+                    errMsg += ' Temporary server/Gemini error — please retry shortly or paste an optional transcript.';
                 }
                 renderAiErrorWithRetry(resultTitle, resultContent, errMsg);
             }

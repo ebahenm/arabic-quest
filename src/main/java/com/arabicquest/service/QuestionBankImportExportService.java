@@ -56,8 +56,9 @@ public class QuestionBankImportExportService {
             courseDto.setPublished(playlist.isPublished());
             courseDto.setArchived(playlist.isArchived());
             courseDto.setSortOrder(playlist.getSortOrder());
-            courseDto.setRateArabicSub(playlist.getArabicRewardRate());
-            courseDto.setRateEnglishDub(playlist.getEnglishRewardRate());
+            courseDto.setEpisodeReward(playlist.getEpisodeReward());
+            courseDto.setRateArabicSub(playlist.getEpisodeReward());
+            courseDto.setRateEnglishDub(playlist.getEpisodeReward());
             courseDto.setCompletionBonus(playlist.getCompletionBonus());
             courseDto.setMinEpisodesForBonus(playlist.getMinEpisodesForBonus());
 
@@ -161,12 +162,14 @@ public class QuestionBankImportExportService {
             if (courseDto.getSortOrder() != null) {
                 playlist.setSortOrder(courseDto.getSortOrder());
             }
-            playlist.setArabicRewardRate(courseDto.getRateArabicSub() != null
-                    ? courseDto.getRateArabicSub()
-                    : BrandConstants.DEFAULT_RATE_ARABIC_SUB);
-            playlist.setEnglishRewardRate(courseDto.getRateEnglishDub() != null
-                    ? courseDto.getRateEnglishDub()
-                    : BrandConstants.DEFAULT_RATE_ENGLISH_DUB);
+            java.math.BigDecimal importedReward = courseDto.getEpisodeReward() != null
+                    ? courseDto.getEpisodeReward()
+                    : (courseDto.getRateArabicSub() != null
+                            ? courseDto.getRateArabicSub()
+                            : (courseDto.getRateEnglishDub() != null
+                                    ? courseDto.getRateEnglishDub()
+                                    : BrandConstants.DEFAULT_EPISODE_REWARD));
+            playlist.setEpisodeReward(importedReward);
             playlist.setCompletionBonus(courseDto.getCompletionBonus() != null
                     ? courseDto.getCompletionBonus()
                     : BrandConstants.DEFAULT_COMPLETION_BONUS);

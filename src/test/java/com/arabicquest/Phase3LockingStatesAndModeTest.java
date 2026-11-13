@@ -1,3 +1,4 @@
+// Integration tests verifying watch progression locks, 10/10 quiz mastery, retry cooldowns, and unified episode rewards.
 package com.arabicquest;
 
 import com.arabicquest.model.*;
@@ -109,7 +110,8 @@ class Phase3LockingStatesAndModeTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"watchMode\":\"ARABIC_SUB\",\"playing\":true,\"watchedDeltaSeconds\":0}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.modeLocked").value(true));
+                .andExpect(jsonPath("$.watchStarted").value(true))
+                .andExpect(jsonPath("$.modeLocked").value(false));
 
         // Course B Episode 2 remains locked (403) until Course B Episode 1 is passed
         mockMvc.perform(post("/api/student/episodes/" + courseB[2] + "/heartbeat")
@@ -249,7 +251,7 @@ class Phase3LockingStatesAndModeTest {
     }
 
     @Test
-    void modeLocksOncePlaybackStarts_andPaysCourseRateForChosenMode() throws Exception {
+    void playbackStartsWithoutModeLock_andPaysSingleEpisodeRewardRegardlessOfLegacyMode() throws Exception {
         Long[] course = createCourseWithEpisodes("PL_P3_MODES", "Levantine History", 1,
                 new BigDecimal("22.50"), new BigDecimal("13.50"));
         long epId = course[1];
@@ -258,46 +260,45 @@ class Phase3LockingStatesAndModeTest {
         String studentBearer = createAndLoginStudent("modebrother", "ModePass!123", "Mode Brother", "10.30.1.3");
         User student = userRepository.findByUsername("modebrother").orElseThrow();
 
-        // Start playback in ENGLISH_DUB -> mode locks to ENGLISH_DUB
+        // Start playback without mode locking (watchStarted=true, modeLocked=false)
         mockMvc.perform(post("/api/student/episodes/" + epId + "/heartbeat")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .header("X-Requested-With", "XMLHttpRequest")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"watchMode\":\"ENGLISH_DUB\",\"playing\":true,\"watchedDeltaSeconds\":0}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.modeLocked").value(true))
-                .andExpect(jsonPath("$.lockedWatchMode").value("ENGLISH_DUB"));
+                .andExpect(jsonPath("$.watchStarted").value(true))
+                .andExpect(jsonPath("$.modeLocked").value(false))
+                .andExpect(jsonPath("$.lockedWatchMode").value("ARABIC_SUB"));
 
-        // Subsequent heartbeat attempting ARABIC_SUB without resetting session stays locked to ENGLISH_DUB
+        // Subsequent heartbeat works smoothly with unified single-mode semantics
         mockMvc.perform(post("/api/student/episodes/" + epId + "/heartbeat")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .header("X-Requested-With", "XMLHttpRequest")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"watchMode\":\"ARABIC_SUB\",\"playing\":true,\"watchedDeltaSeconds\":5}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.modeLocked").value(true))
-                .andExpect(jsonPath("$.lockedWatchMode").value("ENGLISH_DUB"));
+                .andExpect(jsonPath("$.watchStarted").value(true))
+                .andExpect(jsonPath("$.modeLocked").value(false))
+                .andExpect(jsonPath("$.lockedWatchMode").value("ARABIC_SUB"));
 
-        // Complete watch in locked ENGLISH_DUB mode
+        // Complete watch and submit quiz -> single unified Episode Reward ($22.50) applies regardless of legacy WatchMode
         completeWatchInDb(student, epId, WatchMode.ENGLISH_DUB);
+        passMcqAndSubmitWrittenAnswer(studentBearer, epId, WatchMode.ENGLISH_DUB, correctByQuestionText);
 
-        // Even if student spoofs watchMode="ARABIC_SUB" on quiz submit, server enforces locked ENGLISH_DUB ($13.50)
-        passMcqAndSubmitWrittenAnswer(studentBearer, epId, WatchMode.ARABIC_SUB, correctByQuestionText);
-
-        // After passing MCQ, resetting watch session to switch mode is rejected (400)
+        // After passing MCQ, resetting watch session is rejected (400)
         mockMvc.perform(post("/api/student/episodes/" + epId + "/reset-session?watchMode=ARABIC_SUB")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer)
                         .header("X-Requested-With", "XMLHttpRequest"))
                 .andExpect(status().isBadRequest());
 
-        // Pending review shows $13.50 (the course's ENGLISH_DUB rate)
         mockMvc.perform(get("/api/student/earnings")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalEarned").value(13.50))
+                .andExpect(jsonPath("$.totalEarned").value(22.50))
                 .andExpect(jsonPath("$.pendingReviewAmount").value(0.0));
 
-        // Admin approves -> student earns $13.50 (+ $100.00 course bonus if 1-episode minEpisodesForBonus=1; here minEpisodesForBonus=12 so $13.50)
+        // Admin approves written answer -> episodeRewardAmount confirms unified $22.50 reward
         String queueBody = mockMvc.perform(get("/api/admin/open-answers?status=ALL")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isOk())
@@ -308,14 +309,14 @@ class Phase3LockingStatesAndModeTest {
                         .header(HttpHeaders.AUTHORIZATION, adminBearer)
                         .header("X-Requested-With", "XMLHttpRequest")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"feedback\":\"Approved in English Dub mode.\"}"))
+                        .content("{\"feedback\":\"Approved with unified episode reward.\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.episodeRewardAmount").value(13.50));
+                .andExpect(jsonPath("$.episodeRewardAmount").value(22.50));
 
         mockMvc.perform(get("/api/student/earnings")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalEarned").value(13.50))
+                .andExpect(jsonPath("$.totalEarned").value(22.50))
                 .andExpect(jsonPath("$.pendingReviewAmount").value(0.0));
     }
 

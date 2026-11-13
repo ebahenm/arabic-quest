@@ -1,3 +1,4 @@
+// Student course catalog summary DTO exposing unified episodeReward and compatibility rate fields.
 package com.arabicquest.dto;
 
 import java.math.BigDecimal;
@@ -12,6 +13,7 @@ public record CourseCatalogItemResponse(
         int totalEpisodes,
         int passedEpisodes,
         int progressPercentage,
+        BigDecimal episodeReward,
         BigDecimal rateArabicSub,
         BigDecimal rateEnglishDub,
         BigDecimal completionBonus,

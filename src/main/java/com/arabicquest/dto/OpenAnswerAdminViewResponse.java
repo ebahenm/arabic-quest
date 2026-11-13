@@ -1,3 +1,4 @@
+// Admin open-answer review DTO exposing the unified episode reward rate.
 package com.arabicquest.dto;
 
 import com.arabicquest.model.OpenAnswerSubmission;
@@ -30,9 +31,7 @@ public record OpenAnswerAdminViewResponse(
 ) {
     public static OpenAnswerAdminViewResponse from(OpenAnswerSubmission s) {
         Playlist p = s.getEpisode().getPlaylist();
-        BigDecimal rate = s.getWatchMode() == WatchMode.ARABIC_SUB
-                ? p.getArabicRewardRate()
-                : p.getEnglishRewardRate();
+        BigDecimal rate = p.getEpisodeReward();
         return new OpenAnswerAdminViewResponse(
                 s.getId(),
                 s.getStudent().getId(),

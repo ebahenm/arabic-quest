@@ -73,17 +73,23 @@ public final class GeminiVideoBankSupport {
         if (ex instanceof TooManyRequestsException tme) {
             return tme;
         }
-        if (ex instanceof HttpClientErrorException.TooManyRequests) {
+        if (ex instanceof HttpClientErrorException.TooManyRequests tmr) {
+            long waitSecs = parseRetryAfterSeconds(tmr, 60L);
             return new TooManyRequestsException(
-                    "Gemini API rate quota reached during " + phaseName + ". Nothing was saved — please wait a moment and click Retry.",
-                    60
+                    "Gemini API rate quota reached during " + phaseName + " (HTTP 429). Wait ~" + waitSecs + "s and click Retry.",
+                    waitSecs
             );
         }
-        if (ex instanceof HttpClientErrorException.BadRequest
-                || ex instanceof HttpClientErrorException.NotFound
-                || ex instanceof HttpClientErrorException.Forbidden) {
-            return new IllegalArgumentException(
-                    "The YouTube video is private, unavailable, or rejected during " + phaseName + ". Nothing was saved."
+        if (ex instanceof HttpClientErrorException clientErr) {
+            int code = clientErr.getStatusCode().value();
+            if (code == 400 || code == 403 || code == 404) {
+                return new IllegalArgumentException(
+                        "The YouTube video is private, unavailable, or rejected during " + phaseName
+                                + " (HTTP " + code + "). Check video visibility or provide an optional transcript."
+                );
+            }
+            return new IllegalStateException(
+                    "Gemini rejected the request during " + phaseName + " (HTTP " + code + "). Nothing was saved."
             );
         }
         if (ex instanceof ResourceAccessException) {
@@ -91,9 +97,10 @@ public final class GeminiVideoBankSupport {
                     "Gemini request timed out while analyzing the video (" + phaseName + "). Nothing was saved — please click Retry."
             );
         }
-        if (ex instanceof HttpServerErrorException) {
+        if (ex instanceof HttpServerErrorException serverErr) {
             return new IllegalStateException(
-                    "Gemini service was temporarily unavailable during " + phaseName + ". Nothing was saved — please retry."
+                    "Gemini service was temporarily unavailable during " + phaseName
+                            + " (HTTP " + serverErr.getStatusCode().value() + "). Nothing was saved — please retry."
             );
         }
         if (ex instanceof IllegalStateException ise) {
@@ -103,6 +110,23 @@ public final class GeminiVideoBankSupport {
         return new IllegalStateException(
                 "Gemini " + phaseName + " failed (" + kind + "). Nothing was saved — check API quota or retry."
         );
+    }
+
+    private static long parseRetryAfterSeconds(HttpClientErrorException ex, long defaultSeconds) {
+        if (ex.getResponseHeaders() == null) {
+            return defaultSeconds;
+        }
+        String raw = ex.getResponseHeaders().getFirst("Retry-After");
+        if (raw != null) {
+            try {
+                long parsed = Long.parseLong(raw.trim());
+                if (parsed > 0) {
+                    return parsed;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return defaultSeconds;
     }
 
     public static List<CandidateMcq> filterValidTimestampsForMcqs(

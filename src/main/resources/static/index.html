@@ -398,27 +398,12 @@
                             <h2 id="current-episode-title" style="margin-bottom: 0;">Loading episode...</h2>
                             <span id="current-episode-state-badge" class="ep-badge-passed" style="display: none;">Available</span>
                         </div>
-                        <p id="mode-helper-text">Choose your language mode before pressing play. Mode locks once playback begins.</p>
+                        <p id="episode-header-subtitle">Watch the episode to unlock the 10-question mastery check and written reflection.</p>
                     </div>
 
-                    <div class="mode-toggle-group" role="group" aria-label="Audio &amp; Subtitle Reward Mode">
-                        <button type="button" id="btn-mode-arabic" class="mode-button active" onclick="handleSelectWatchMode('ARABIC_SUB')">
-                            <span class="mode-name">🎧 Arabic + English Subs</span>
-                            <span id="label-rate-arabic" class="mode-reward">+$15.00 Reward</span>
-                        </button>
-                        <button type="button" id="btn-mode-english" class="mode-button" onclick="handleSelectWatchMode('ENGLISH_DUB')">
-                            <span class="mode-name">🔊 English Dub</span>
-                            <span id="label-rate-english" class="mode-reward">+$10.00 Reward</span>
-                        </button>
-                    </div>
-                </div>
-
-                <div id="mode-instructions-banner" class="mode-status-banner" style="margin-top: 0.25rem;">
-                    <div style="display: flex; align-items: center; gap: 0.55rem;">
-                        <span id="mode-lock-indicator" style="font-size: 0.76rem; font-weight: 700; color: #fcd34d; display: none;">🔒 Mode Locked</span>
-                        <button type="button" id="btn-reset-watch-mode" class="btn-reset-mode" style="display: none;" onclick="handleResetWatchSessionAndSwitchMode()">
-                            ↺ Reset Timer &amp; Switch Mode
-                        </button>
+                    <div id="episode-reward-pill" style="display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.65rem 1.05rem; border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.4); white-space: nowrap;">
+                        <span style="font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 700;">Episode Reward</span>
+                        <strong id="episode-reward-badge" style="font-size: 1.05rem; color: #fcd34d;">+$15.00</strong>
                     </div>
                 </div>
             </div>

@@ -1,3 +1,4 @@
+// Student episode DTO exposing unified episodeReward and simplified watch progress status.
 package com.arabicquest.dto;
 
 import java.math.BigDecimal;
@@ -17,6 +18,7 @@ public record EpisodeStudentResponse(
         String stateLabel,
         boolean quizReady,
         boolean favorited,
+        BigDecimal episodeReward,
         BigDecimal rateArabicSub,
         BigDecimal rateEnglishDub,
         WatchStatusResponse watchStatus

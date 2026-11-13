@@ -1,3 +1,4 @@
+// Admin course DTO exposing unified episodeReward alongside legacy fields for backward compatibility.
 package com.arabicquest.dto;
 
 import java.math.BigDecimal;
@@ -13,6 +14,7 @@ public record CourseAdminResponse(
         boolean published,
         boolean archived,
         int sortOrder,
+        BigDecimal episodeReward,
         BigDecimal rateArabicSub,
         BigDecimal rateEnglishDub,
         BigDecimal completionBonus,

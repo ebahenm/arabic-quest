@@ -6,6 +6,8 @@ import com.arabicquest.config.TooManyRequestsException;
 import com.arabicquest.dto.*;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +34,7 @@ public class QuizService {
     private final EpisodeRewardClaimRepository episodeRewardClaimRepository;
     private final WatchProgressService watchProgressService;
     private final OpenAnswerReviewService openAnswerReviewService;
+    private final AutoQuizGenerationService autoQuizGenerationService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public QuizService(
@@ -46,6 +49,25 @@ public class QuizService {
             EpisodeRewardClaimRepository episodeRewardClaimRepository,
             WatchProgressService watchProgressService,
             OpenAnswerReviewService openAnswerReviewService) {
+        this(quizRepository, questionRepository, openQuestionRepository, quizAttemptSessionRepository,
+                exposureRepository, quizAttemptRepository, episodeRepository, userRepository,
+                episodeRewardClaimRepository, watchProgressService, openAnswerReviewService, null);
+    }
+
+    @Autowired
+    public QuizService(
+            QuizRepository quizRepository,
+            QuestionRepository questionRepository,
+            OpenQuestionRepository openQuestionRepository,
+            QuizAttemptSessionRepository quizAttemptSessionRepository,
+            StudentQuestionExposureRepository exposureRepository,
+            QuizAttemptRepository quizAttemptRepository,
+            EpisodeRepository episodeRepository,
+            UserRepository userRepository,
+            EpisodeRewardClaimRepository episodeRewardClaimRepository,
+            WatchProgressService watchProgressService,
+            OpenAnswerReviewService openAnswerReviewService,
+            @Lazy AutoQuizGenerationService autoQuizGenerationService) {
         this.quizRepository = quizRepository;
         this.questionRepository = questionRepository;
         this.openQuestionRepository = openQuestionRepository;
@@ -57,6 +79,7 @@ public class QuizService {
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
         this.watchProgressService = watchProgressService;
         this.openAnswerReviewService = openAnswerReviewService;
+        this.autoQuizGenerationService = autoQuizGenerationService;
     }
 
     @Transactional
@@ -189,9 +212,16 @@ public class QuizService {
         seen.sort(Comparator.comparing(q -> exposureByQuestionId.get(q.getId()).getLastShownAt()));
 
         List<Question> chosen = new ArrayList<>(SESSION_QUESTION_COUNT);
+        int drawnUnseenCount = 0;
         for (Question q : unseen) {
             if (chosen.size() >= SESSION_QUESTION_COUNT) break;
             chosen.add(q);
+            drawnUnseenCount++;
+        }
+        int remainingUnseen = Math.max(0, unseen.size() - drawnUnseenCount);
+        if (autoQuizGenerationService != null
+                && (unseen.size() < SESSION_QUESTION_COUNT || remainingUnseen < SESSION_QUESTION_COUNT)) {
+            autoQuizGenerationService.triggerTopUpIfUnseenLow(episode.getId(), remainingUnseen);
         }
         for (Question q : seen) {
             if (chosen.size() >= SESSION_QUESTION_COUNT) break;
@@ -366,6 +396,21 @@ public class QuizService {
                     openQ
             );
         } else {
+            if (autoQuizGenerationService != null) {
+                Set<Long> exposedIds = new HashSet<>();
+                for (StudentQuestionExposure exp : exposureRepository.findByStudentIdAndEpisodeId(student.getId(), episode.getId())) {
+                    exposedIds.add(exp.getQuestion().getId());
+                }
+                int remainingUnseen = 0;
+                for (Question q : episodeQuestions) {
+                    if (q.isActive()
+                            && q.getStatus() == QuestionStatus.APPROVED
+                            && !exposedIds.contains(q.getId())) {
+                        remainingUnseen++;
+                    }
+                }
+                autoQuizGenerationService.triggerTopUpIfUnseenLow(episode.getId(), remainingUnseen);
+            }
             long cooldownSecs = watchProgressService.getConfiguredRetryCooldownSeconds();
             String msg = String.format(
                     "Score: %d/%d (%.0f%%). Pass mark is 100%% (10/10). Review the episode and retry with a fresh set of questions after cooldown.",

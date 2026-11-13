@@ -1,3 +1,4 @@
+// Course/playlist entity storing title, YouTube playlist ID, unified episode reward rate, and completion bonus.
 package com.arabicquest.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -40,7 +41,7 @@ public class Playlist {
     private BigDecimal arabicRewardRate = new BigDecimal("15.00");
 
     @Column(name = "english_reward_rate", nullable = false, precision = 10, scale = 2)
-    private BigDecimal englishRewardRate = new BigDecimal("10.00");
+    private BigDecimal englishRewardRate = new BigDecimal("15.00");
 
     @Column(name = "completion_bonus", nullable = false, precision = 10, scale = 2)
     private BigDecimal completionBonus = new BigDecimal("100.00");
@@ -84,7 +85,7 @@ public class Playlist {
             this.arabicRewardRate = new BigDecimal("15.00");
         }
         if (this.englishRewardRate == null) {
-            this.englishRewardRate = new BigDecimal("10.00");
+            this.englishRewardRate = new BigDecimal("15.00");
         }
         if (this.completionBonus == null) {
             this.completionBonus = new BigDecimal("100.00");
@@ -156,6 +157,20 @@ public class Playlist {
 
     public void setSortOrder(Integer sortOrder) {
         this.sortOrder = sortOrder != null ? sortOrder : 0;
+    }
+
+    /** Single unified episode reward rate, synced with legacy dual-mode columns for backward compatibility. */
+    public BigDecimal getEpisodeReward() {
+        if (arabicRewardRate != null) {
+            return arabicRewardRate;
+        }
+        return englishRewardRate != null ? englishRewardRate : new BigDecimal("15.00");
+    }
+
+    public void setEpisodeReward(BigDecimal episodeReward) {
+        BigDecimal resolved = episodeReward != null ? episodeReward : new BigDecimal("15.00");
+        this.arabicRewardRate = resolved;
+        this.englishRewardRate = resolved;
     }
 
     public BigDecimal getArabicRewardRate() {

@@ -53,6 +53,33 @@ function switchAdminTab(tabKey) {
     document.querySelectorAll('.admin-tab-panel').forEach((panel) => {
         panel.classList.toggle('active', panel.id === `tab-panel-${tabKey}`);
     });
+    if (tabKey === 'question-bank' && typeof loadEpisodeQuestionBank === 'function') {
+        loadEpisodeQuestionBank();
+    }
+}
+
+function openQuestionBankForEpisode(episodeId) {
+    const aiSel = document.getElementById('ai-episode-select');
+    if (aiSel && episodeId != null) {
+        aiSel.value = String(episodeId);
+    }
+    switchAdminTab('question-bank');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updateQuestionBankTabBadge() {
+    const badge = document.getElementById('tab-badge-qbank');
+    if (!badge) return;
+    let totalEps = 0;
+    let readyEps = 0;
+    (adminCourses || []).forEach((c) => {
+        (c.episodes || []).forEach((ep) => {
+            totalEps += 1;
+            if (ep.quizReady) readyEps += 1;
+        });
+    });
+    badge.textContent = totalEps > 0 ? `${readyEps}/${totalEps}` : String((episodes || []).length || 0);
+    badge.title = `${readyEps} of ${totalEps} episodes quiz-ready`;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1858,8 +1885,7 @@ async function handlePreviewYouTubePlaylist() {
         document.getElementById('yt-draft-title').value = data.title || '';
         document.getElementById('yt-draft-desc').value = data.description || '';
         document.getElementById('yt-draft-cover').value = data.thumbnailUrl || '';
-        document.getElementById('yt-draft-rate-ar').value = '15.00';
-        document.getElementById('yt-draft-rate-en').value = '10.00';
+        document.getElementById('yt-draft-episode-reward').value = '15.00';
         document.getElementById('yt-draft-bonus').value = '100.00';
 
         if (previewBox) previewBox.style.display = 'block';
@@ -1889,8 +1915,7 @@ async function handleSaveYouTubeDraftCourse(e) {
         title: document.getElementById('yt-draft-title').value.trim(),
         description: document.getElementById('yt-draft-desc').value.trim(),
         coverImageUrl: document.getElementById('yt-draft-cover').value.trim(),
-        rateArabicSub: parseFloat(document.getElementById('yt-draft-rate-ar').value) || 15.0,
-        rateEnglishDub: parseFloat(document.getElementById('yt-draft-rate-en').value) || 10.0,
+        episodeReward: (() => { const v = parseFloat(document.getElementById('yt-draft-episode-reward').value); return Number.isFinite(v) ? v : 15.0; })(),
         completionBonus: parseFloat(document.getElementById('yt-draft-bonus').value) || 100.0
     };
 
@@ -1955,6 +1980,7 @@ async function loadAdminCourses(preferredCourseId = null) {
         selectedAdminCourseId = matched.id;
         select.value = String(matched.id);
         renderSelectedAdminCourse(matched);
+        updateQuestionBankTabBadge();
     } catch (err) {
         console.warn('Failed to load admin courses:', err);
     }
@@ -2003,8 +2029,7 @@ function renderSelectedAdminCourse(course) {
 
     document.getElementById('edit-course-title').value = course.title || '';
     document.getElementById('edit-course-sort').value = String(course.sortOrder ?? 0);
-    document.getElementById('edit-course-rate-ar').value = Number(course.rateArabicSub ?? 15).toFixed(2);
-    document.getElementById('edit-course-rate-en').value = Number(course.rateEnglishDub ?? 10).toFixed(2);
+    document.getElementById('edit-course-episode-reward').value = Number(course.episodeReward ?? course.rateArabicSub ?? 15).toFixed(2);
     document.getElementById('edit-course-bonus').value = Number(course.completionBonus ?? 100).toFixed(2);
     document.getElementById('edit-course-cover').value = course.coverImageUrl || '';
     document.getElementById('edit-course-ytid').value = course.youtubePlaylistId || '';
@@ -2144,12 +2169,7 @@ function renderAdminCourseEpisodesTable(course) {
         bankBtn.style.fontSize = '0.75rem';
         bankBtn.textContent = '🗂️ Bank';
         bankBtn.addEventListener('click', () => {
-            const aiSel = document.getElementById('ai-episode-select');
-            if (aiSel) {
-                aiSel.value = String(ep.id);
-                loadEpisodeQuestionBank();
-                aiSel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
+            openQuestionBankForEpisode(ep.id);
         });
 
         const editEpBtn = document.createElement('button');
@@ -2224,6 +2244,7 @@ function syncEpisodeReadinessFromBank(episodeId, bank) {
             break;
         }
     }
+    updateQuestionBankTabBadge();
     if (touchedCourse && touchedCourse.id === selectedAdminCourseId) {
         renderAdminCourseEpisodesTable(touchedCourse);
     }
@@ -2240,8 +2261,7 @@ async function handleCreateManualDraftCourse() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 title: rawTitle.trim(),
-                rateArabicSub: 15.0,
-                rateEnglishDub: 10.0,
+                episodeReward: 15.0,
                 completionBonus: 100.0
             })
         });
@@ -2266,8 +2286,7 @@ async function handleSaveCourseSettings(e) {
     const payload = {
         title: document.getElementById('edit-course-title').value.trim(),
         sortOrder: parseInt(document.getElementById('edit-course-sort').value, 10) || 0,
-        rateArabicSub: parseFloat(document.getElementById('edit-course-rate-ar').value) || 0,
-        rateEnglishDub: parseFloat(document.getElementById('edit-course-rate-en').value) || 0,
+        episodeReward: (() => { const v = parseFloat(document.getElementById('edit-course-episode-reward').value); return Number.isFinite(v) ? v : 0; })(),
         completionBonus: parseFloat(document.getElementById('edit-course-bonus').value) || 0,
         coverImageUrl: document.getElementById('edit-course-cover').value.trim(),
         youtubePlaylistId: document.getElementById('edit-course-ytid').value.trim(),

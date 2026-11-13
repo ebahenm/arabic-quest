@@ -254,7 +254,7 @@
                 </button>
             </div>
 
-            <!-- Organized 6-Tab Navigation Bar -->
+            <!-- Organized 7-Tab Navigation Bar -->
             <nav class="admin-tabs-nav" aria-label="Admin Sections">
                 <button type="button" class="admin-tab-btn active" data-tab="overview">
                     <span>📊 Overview &amp; Payouts</span>
@@ -268,8 +268,12 @@
                     <span id="tab-badge-students" class="tab-count-pill">0</span>
                 </button>
                 <button type="button" class="admin-tab-btn" data-tab="course">
-                    <span>🎬 Courses &amp; Question Bank</span>
+                    <span>🎬 Courses</span>
                     <span id="tab-badge-episodes" class="tab-count-pill">0</span>
+                </button>
+                <button type="button" class="admin-tab-btn" data-tab="question-bank">
+                    <span>🗂️ Question Bank</span>
+                    <span id="tab-badge-qbank" class="tab-count-pill">0</span>
                 </button>
                 <button type="button" class="admin-tab-btn" data-tab="audit">
                     <span>📋 Attempts Audit Log</span>
@@ -574,12 +578,8 @@
                                     <input type="text" id="yt-draft-title" class="text-input" maxlength="200" required>
                                 </div>
                                 <div>
-                                    <label for="yt-draft-rate-ar" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Arabic Sub Rate ($)</label>
-                                    <input type="number" id="yt-draft-rate-ar" class="text-input" min="0" step="0.01" value="15.00" required>
-                                </div>
-                                <div>
-                                    <label for="yt-draft-rate-en" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">English Dub Rate ($)</label>
-                                    <input type="number" id="yt-draft-rate-en" class="text-input" min="0" step="0.01" value="10.00" required>
+                                    <label for="yt-draft-episode-reward" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Episode Reward ($)</label>
+                                    <input type="number" id="yt-draft-episode-reward" class="text-input" min="0" step="0.01" value="15.00" required>
                                 </div>
                                 <div>
                                     <label for="yt-draft-bonus" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Completion Bonus ($)</label>
@@ -607,7 +607,7 @@
                         <div>
                             <h3 style="color: #5eead4;">🎓 Course Management &amp; Syllabus</h3>
                             <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Edit course metadata, reward rates, completion bonus, publish/archive state, re-sync from YouTube, reorder episodes, and verify quiz readiness.
+                                Edit course metadata, episode reward, completion bonus, publish/archive state, re-sync from YouTube, reorder episodes, and verify quiz readiness.
                             </p>
                         </div>
                         <div style="display: flex; gap: 0.55rem; flex-wrap: wrap;">
@@ -640,12 +640,8 @@
                                 <input type="number" id="edit-course-sort" class="text-input" value="0">
                             </div>
                             <div>
-                                <label for="edit-course-rate-ar" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Arabic Sub Rate ($)</label>
-                                <input type="number" id="edit-course-rate-ar" class="text-input" min="0" step="0.01" required>
-                            </div>
-                            <div>
-                                <label for="edit-course-rate-en" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">English Dub Rate ($)</label>
-                                <input type="number" id="edit-course-rate-en" class="text-input" min="0" step="0.01" required>
+                                <label for="edit-course-episode-reward" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Episode Reward ($)</label>
+                                <input type="number" id="edit-course-episode-reward" class="text-input" min="0" step="0.01" value="15.00" required>
                             </div>
                             <div>
                                 <label for="edit-course-bonus" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 0.3rem;">Completion Bonus ($)</label>
@@ -728,7 +724,12 @@
                         </table>
                     </div>
                 </div>
+            </section>
 
+            <!-- ========================================================== -->
+            <!-- TAB 4: QUESTION BANK (AI GENERATOR & BACKUP)               -->
+            <!-- ========================================================== -->
+            <section id="tab-panel-question-bank" class="admin-tab-panel">
                 <div class="admin-card-section" style="border-color: rgba(201, 162, 77, 0.45);">
                     <div class="card-header-bar">
                         <div>
@@ -755,7 +756,7 @@
                         <div>
                             <h3>✨ Generate Question Bank from YouTube Video (2-Pass Gemini)</h3>
                             <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Gemini analyzes the YouTube video directly (segmented for videos &gt; 35 min) with mandatory evidence timestamps and 2-pass verification. Transcript is optional. Everything saves as <strong>DRAFT</strong> until you approve it below.
+                                Gemini analyzes the YouTube video directly (segmented for videos &gt; 35 min) with mandatory evidence timestamps and 2-pass verification. Transcript is optional. Manual runs save as <strong>DRAFT</strong> until you approve them below (background student-triggered runs auto-approve verified items).
                             </p>
                         </div>
                     </div>
@@ -937,7 +938,7 @@
             </section>
 
             <!-- ========================================================== -->
-            <!-- TAB 4: QUIZ ATTEMPTS AUDIT LOG                             -->
+            <!-- TAB 5: QUIZ ATTEMPTS AUDIT LOG                             -->
             <!-- ========================================================== -->
             <section id="tab-panel-audit" class="admin-tab-panel">
                 <div class="table-container">

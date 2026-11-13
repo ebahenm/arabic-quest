@@ -1,3 +1,4 @@
+// Spring Data JPA repository for playlists/courses and default metadata backfills.
 package com.arabicquest.repository;
 
 import com.arabicquest.model.Playlist;
@@ -38,7 +39,7 @@ public interface PlaylistRepository extends JpaRepository<Playlist, Long> {
     @Modifying
     @Query("UPDATE Playlist p SET " +
            "p.arabicRewardRate = COALESCE(p.arabicRewardRate, 15.00), " +
-           "p.englishRewardRate = COALESCE(p.englishRewardRate, 10.00), " +
+           "p.englishRewardRate = COALESCE(p.englishRewardRate, 15.00), " +
            "p.completionBonus = COALESCE(p.completionBonus, 100.00) " +
            "WHERE p.arabicRewardRate IS NULL OR p.englishRewardRate IS NULL OR p.completionBonus IS NULL")
     int backfillNullRatesAndBonus();

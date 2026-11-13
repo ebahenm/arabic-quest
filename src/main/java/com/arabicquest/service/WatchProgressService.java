@@ -1,3 +1,4 @@
+// Tracks verified watch time, sequential episode unlocks, retry cooldowns, and background quiz triggers.
 package com.arabicquest.service;
 
 import com.arabicquest.dto.WatchHeartbeatRequest;
@@ -18,7 +19,9 @@ import com.arabicquest.repository.UserRepository;
 import com.arabicquest.repository.WatchSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,6 +48,7 @@ public class WatchProgressService {
     private final StudentEpisodeOverrideRepository studentEpisodeOverrideRepository;
     private final UserRepository userRepository;
     private final EpisodeRepository episodeRepository;
+    private final AutoQuizGenerationService autoQuizGenerationService;
     private final int requiredCapSeconds;
     private final long retryCooldownSeconds;
 
@@ -55,8 +59,24 @@ public class WatchProgressService {
             StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
             UserRepository userRepository,
             EpisodeRepository episodeRepository,
+            int requiredCapSeconds,
+            long retryCooldownSeconds) {
+        this(watchSessionRepository, quizAttemptRepository, episodeRewardClaimRepository,
+                studentEpisodeOverrideRepository, userRepository, episodeRepository,
+                requiredCapSeconds, retryCooldownSeconds, null);
+    }
+
+    @Autowired
+    public WatchProgressService(
+            WatchSessionRepository watchSessionRepository,
+            QuizAttemptRepository quizAttemptRepository,
+            EpisodeRewardClaimRepository episodeRewardClaimRepository,
+            StudentEpisodeOverrideRepository studentEpisodeOverrideRepository,
+            UserRepository userRepository,
+            EpisodeRepository episodeRepository,
             @Value("${app.watch.required-cap-seconds:1800}") int requiredCapSeconds,
-            @Value("${app.quiz.retry-cooldown-seconds:${QUIZ_RETRY_COOLDOWN_SECONDS:600}}") long retryCooldownSeconds) {
+            @Value("${app.quiz.retry-cooldown-seconds:${QUIZ_RETRY_COOLDOWN_SECONDS:600}}") long retryCooldownSeconds,
+            @Lazy AutoQuizGenerationService autoQuizGenerationService) {
         this.watchSessionRepository = watchSessionRepository;
         this.quizAttemptRepository = quizAttemptRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
@@ -65,6 +85,7 @@ public class WatchProgressService {
         this.episodeRepository = episodeRepository;
         this.requiredCapSeconds = requiredCapSeconds;
         this.retryCooldownSeconds = retryCooldownSeconds;
+        this.autoQuizGenerationService = autoQuizGenerationService;
     }
 
     public long getConfiguredRetryCooldownSeconds() {
@@ -142,7 +163,7 @@ public class WatchProgressService {
         if (watchMet) {
             return quizBankReady ? EpisodeProgressState.QUIZ_READY : EpisodeProgressState.QUIZ_NOT_READY;
         }
-        if (watchStatus != null && (watchStatus.verifiedWatchSeconds() > 0 || watchStatus.modeLocked())) {
+        if (watchStatus != null && (watchStatus.watchStarted() || watchStatus.verifiedWatchSeconds() > 0 || watchStatus.modeLocked())) {
             return EpisodeProgressState.WATCHING;
         }
         return EpisodeProgressState.AVAILABLE;
@@ -297,22 +318,25 @@ public class WatchProgressService {
                     alreadyPassed ? required : 0,
                     required,
                     alreadyPassed || required == 0,
-                    cooldown
+                    cooldown,
+                    alreadyPassed
             );
         }
 
         WatchSession session = opt.get();
         int verified = Math.min(required, session.getVerifiedWatchSeconds());
         boolean unlocked = alreadyPassed || verified >= required;
+        boolean watchStarted = alreadyPassed || session.getLastHeartbeatAt() != null || verified > 0;
 
         return new WatchStatusResponse(
                 episode.getId(),
-                session.getLockedWatchMode(),
-                session.isModeLocked(),
+                WatchMode.ARABIC_SUB,
+                false,
                 alreadyPassed ? required : verified,
                 required,
                 unlocked,
-                cooldown
+                cooldown,
+                watchStarted
         );
     }
 
@@ -342,7 +366,7 @@ public class WatchProgressService {
             return getWatchStatus(student, episode, alreadyPassed);
         }
 
-        WatchMode requestedMode = (req != null && req.watchMode() != null) ? req.watchMode() : WatchMode.ARABIC_SUB;
+        WatchMode effectiveMode = WatchMode.ARABIC_SUB;
         boolean videoEnded = req != null && req.videoEnded();
         int reportedDelta = (req != null && req.watchedDeltaSeconds() != null) ? Math.max(0, req.watchedDeltaSeconds()) : 0;
         boolean isPlaying = req != null && Boolean.TRUE.equals(req.playing());
@@ -355,14 +379,14 @@ public class WatchProgressService {
         assertEpisodeUnlocked(student, episode, betaUnlockRequested);
 
         WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(student.getId(), episode.getId())
-                .orElseGet(() -> new WatchSession(student, episode, requestedMode));
+                .orElseGet(() -> new WatchSession(student, episode, effectiveMode));
 
         LocalDateTime now = LocalDateTime.now();
+        boolean wasFirstHeartbeat = (session.getLastHeartbeatAt() == null);
+        int beforeVerified = session.getVerifiedWatchSeconds();
 
-        if (!session.isModeLocked()) {
-            session.setLockedWatchMode(requestedMode);
-            session.setModeLocked(true);
-        }
+        session.setLockedWatchMode(effectiveMode);
+        session.setModeLocked(false);
 
         if (session.getLastHeartbeatAt() == null) {
             session.setLastHeartbeatAt(now);
@@ -389,17 +413,24 @@ public class WatchProgressService {
         watchSessionRepository.save(session);
 
         int verified = Math.min(required, session.getVerifiedWatchSeconds());
+        int quarterMark = required > 0 ? Math.max(1, (int) Math.ceil(required * 0.25)) : 0;
+        boolean crossedQuarter = required > 0 && beforeVerified < quarterMark && verified >= quarterMark;
+        if (autoQuizGenerationService != null && (wasFirstHeartbeat || beforeVerified == 0 || crossedQuarter)) {
+            autoQuizGenerationService.triggerIfEpisodeBankIncomplete(episode.getId());
+        }
+
         long cooldown = alreadyPassed ? 0L : getRetryCooldownRemainingSeconds(student.getId(), episode.getId());
         boolean unlocked = alreadyPassed || verified >= required;
 
         return new WatchStatusResponse(
                 episode.getId(),
-                session.getLockedWatchMode(),
-                session.isModeLocked(),
+                WatchMode.ARABIC_SUB,
+                false,
                 alreadyPassed ? required : verified,
                 required,
                 unlocked,
-                cooldown
+                cooldown,
+                true
         );
     }
 
@@ -416,7 +447,7 @@ public class WatchProgressService {
             throw new IllegalArgumentException("Watch mode cannot be changed after passing the episode quiz.");
         }
         int required = computeRequiredWatchSeconds(episode);
-        WatchMode targetMode = newMode != null ? newMode : WatchMode.ARABIC_SUB;
+        WatchMode targetMode = WatchMode.ARABIC_SUB;
 
         WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(student.getId(), episode.getId())
                 .orElseGet(() -> new WatchSession(student, episode, targetMode));
@@ -432,12 +463,13 @@ public class WatchProgressService {
 
         return new WatchStatusResponse(
                 episode.getId(),
-                session.getLockedWatchMode(),
+                WatchMode.ARABIC_SUB,
                 false,
                 alreadyPassed ? required : 0,
                 required,
                 alreadyPassed || required == 0,
-                cooldown
+                cooldown,
+                alreadyPassed
         );
     }
 
@@ -450,13 +482,13 @@ public class WatchProgressService {
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
 
         int required = computeRequiredWatchSeconds(episode);
-        WatchMode targetMode = mode != null ? mode : WatchMode.ARABIC_SUB;
+        WatchMode targetMode = WatchMode.ARABIC_SUB;
 
         WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(user.getId(), episode.getId())
                 .orElseGet(() -> new WatchSession(user, episode, targetMode));
 
         session.setLockedWatchMode(targetMode);
-        session.setModeLocked(true);
+        session.setModeLocked(false);
         session.setVerifiedWatchSeconds(required);
         session.setVideoEnded(true);
         session.setLastHeartbeatAt(null);
@@ -465,12 +497,13 @@ public class WatchProgressService {
         long cooldown = getRetryCooldownRemainingSeconds(user.getId(), episode.getId());
         return new WatchStatusResponse(
                 episode.getId(),
-                session.getLockedWatchMode(),
-                true,
+                WatchMode.ARABIC_SUB,
+                false,
                 required,
                 required,
                 true,
-                cooldown
+                cooldown,
+                true
         );
     }
 
@@ -487,9 +520,6 @@ public class WatchProgressService {
     }
 
     public WatchMode resolveEffectiveWatchMode(Long studentId, Long episodeId, WatchMode fallbackMode) {
-        return watchSessionRepository.findByStudentIdAndEpisodeId(studentId, episodeId)
-                .filter(WatchSession::isModeLocked)
-                .map(WatchSession::getLockedWatchMode)
-                .orElse(fallbackMode != null ? fallbackMode : WatchMode.ARABIC_SUB);
+        return WatchMode.ARABIC_SUB;
     }
 }
