@@ -1,3 +1,4 @@
+// Configures stateless JWT cookie security, CORS, headers, and Admin HQ path permissions.
 package com.arabicquest.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -150,6 +151,7 @@ public class SecurityConfig {
                     hqLogin,
                     hqLogin + "/",
                     hqJs,
+                    hqBase + "/modules/**",
                     "/turath-hq",
                     "/turath-hq/",
                     "/turath-hq-login",

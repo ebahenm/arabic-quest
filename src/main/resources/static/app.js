@@ -887,7 +887,6 @@ function renderModePicker(ep, statusOverride = null) {
     if (banner) {
         banner.classList.toggle('english-mode', selectedWatchMode === 'ENGLISH_DUB');
     }
-    }
 
     const lockInd = document.getElementById('mode-lock-indicator');
     if (lockInd) {

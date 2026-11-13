@@ -372,6 +372,9 @@ function renderStudentsDirectoryTable() {
 
         tdActions.appendChild(editBtn);
         tdActions.appendChild(ledgerBtn);
+        if (typeof window.enhanceStudentRow === 'function') {
+            window.enhanceStudentRow(tdActions, tdAccess, s);
+        }
 
         tr.appendChild(tdName);
         tr.appendChild(tdUser);
@@ -461,8 +464,12 @@ async function loadAdminDashboard() {
     await Promise.all([
         loadPayoutsLedger(),
         loadAttemptsAuditLog(),
-        loadReviewQueue()
+        loadReviewQueue(),
+        selectedStudent ? loadStudentAdjustments(selectedStudent.id) : Promise.resolve()
     ]);
+    if (typeof window.refreshAdminOverviewExtras === 'function') {
+        await window.refreshAdminOverviewExtras(selectedStudent, lastOwedAmount);
+    }
 }
 
 async function loadPayoutsLedger() {
@@ -476,7 +483,7 @@ async function loadPayoutsLedger() {
         if (!payouts || payouts.length === 0) {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
-            td.colSpan = 4;
+            td.colSpan = 5;
             td.style.textAlign = 'center';
             td.style.color = 'var(--text-muted)';
             td.style.padding = '1.5rem';
@@ -511,6 +518,9 @@ async function loadPayoutsLedger() {
             tr.appendChild(tdAmount);
             tr.appendChild(tdNote);
             tr.appendChild(tdDate);
+            if (typeof window.appendPayoutActionCell === 'function') {
+                window.appendPayoutActionCell(tr, tdAmount, p);
+            }
             tbody.appendChild(tr);
         });
     } catch (e) {
@@ -719,7 +729,8 @@ async function handleResetStudentPassword(e) {
     const newUsername = document.getElementById('edit-student-username').value.trim();
     const fullName = document.getElementById('edit-student-fullname').value.trim();
     const newPassword = document.getElementById('reset-student-newpw').value;
-    const betaTester = Boolean(document.getElementById('edit-student-beta').checked);
+    const betaEl = document.getElementById('edit-student-beta');
+    const betaTester = betaEl ? Boolean(betaEl.checked) : Boolean(selectedStudent.betaTester);
 
     if (newPassword && newPassword.length < 8) {
         showFeedback('reset-student-pw-msg', 'New password must be at least 8 characters.', true);
@@ -811,23 +822,23 @@ async function loadReviewQueue() {
     const badgeEl = document.getElementById('tab-badge-reviews');
     if (!listEl) return;
 
-    const statusVal = filterEl ? filterEl.value : 'PENDING';
+    const statusVal = filterEl ? filterEl.value : 'UNREAD';
     try {
-        const [filteredRes, pendingRes] = await Promise.all([
+        const [filteredRes, countRes] = await Promise.all([
             apiFetch(`/api/admin/open-answers?status=${encodeURIComponent(statusVal)}`),
-            statusVal === 'PENDING'
-                ? Promise.resolve(null)
-                : apiFetch('/api/admin/open-answers?status=PENDING')
+            apiFetch('/api/admin/open-answers/unread-count')
         ]);
         if (!filteredRes.ok) return;
 
         const items = await filteredRes.json();
-        if (badgeEl) {
-            if (statusVal === 'PENDING') {
-                badgeEl.textContent = String(items.length);
-            } else if (pendingRes && pendingRes.ok) {
-                const pendingItems = await pendingRes.json();
-                badgeEl.textContent = String(pendingItems.length);
+        if (countRes && countRes.ok) {
+            const countData = await countRes.json();
+            const unread = Number(countData.unreadCount || 0);
+            if (badgeEl) badgeEl.textContent = String(unread);
+            const pill = document.getElementById('unread-reviews-badge');
+            if (pill) {
+                pill.textContent = `${unread} unread`;
+                pill.style.display = unread > 0 ? 'inline-block' : 'none';
             }
         }
 
@@ -1037,6 +1048,9 @@ function buildReviewSubmissionCard(sub) {
     });
     actionsRow.appendChild(suggestBtn);
 
+    if (typeof window.appendReadingListActions === 'function') {
+        window.appendReadingListActions(actionsRow, feedbackInput, sub, statusPill);
+    }
     card.appendChild(actionsRow);
     return card;
 }
@@ -2459,7 +2473,7 @@ async function loadStudentAdjustments(studentId) {
     if (!tbody || !studentId) return;
     clearElement(tbody);
     try {
-        const res = await apiFetch(/api/admin/students/\/adjustments);
+        const res = await apiFetch(`/api/admin/students/${encodeURIComponent(studentId)}/adjustments`);
         if (!res.ok) return;
         const list = await res.json();
         if (!list || list.length === 0) {
@@ -2526,7 +2540,7 @@ async function handleBalanceAdjustmentSubmit(e) {
         return;
     }
     try {
-        const res = await apiFetch(/api/admin/students/\/adjustments, {
+        const res = await apiFetch(`/api/admin/students/${encodeURIComponent(selectedStudent.id)}/adjustments`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ amount: amt, note: note })
@@ -2534,7 +2548,7 @@ async function handleBalanceAdjustmentSubmit(e) {
         if (res.ok) {
             amtInput.value = '';
             noteInput.value = '';
-            showFeedback('adj-feedback-msg', ✓ Adjustment of \\ recorded.);
+            showFeedback('adj-feedback-msg', `✓ Adjustment of ${amt >= 0 ? '+$' : '-$'}${Math.abs(amt).toFixed(2)} recorded.`);
             await loadAdminDashboard();
         } else {
             const err = await res.json().catch(() => ({}));

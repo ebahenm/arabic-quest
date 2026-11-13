@@ -1,3 +1,4 @@
+// Serves public pages and secret-path Admin HQ HTML, script, and modular script resources.
 package com.arabicquest.controller;
 
 import com.arabicquest.config.BrandConstants;
@@ -11,12 +12,14 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StreamUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 public class PortalRouteController {
@@ -54,6 +57,7 @@ public class PortalRouteController {
     @GetMapping({"/${ADMIN_SECRET_PATH}", "/${ADMIN_SECRET_PATH}/"})
     public ResponseEntity<String> serveSecretAdminDashboard() throws IOException {
         String html = readResource("private-hq/admin.html")
+                .replace("{{HQ_BASE_PATH}}", "/" + adminSecretSlug)
                 .replace("{{HQ_SCRIPT_PATH}}", "/" + adminSecretSlug + ".js")
                 .replace("{{HQ_LOGIN_PATH}}", "/" + adminSecretSlug + "-login");
         return ResponseEntity.ok()
@@ -77,6 +81,25 @@ public class PortalRouteController {
                 .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.CONTENT_TYPE, "text/html;charset=UTF-8")
                 .body(html);
+    }
+
+    @GetMapping("/${ADMIN_SECRET_PATH}/modules/{folder}/{file}")
+    public ResponseEntity<String> serveSecretAdminModule(
+            @PathVariable String folder,
+            @PathVariable String file) throws IOException {
+        if (!Set.of("data", "components", "pages").contains(folder) || !file.matches("^[a-z0-9-]+\\.js$")) {
+            return ResponseEntity.notFound().build();
+        }
+        ClassPathResource resource = new ClassPathResource("private-hq/" + folder + "/" + file);
+        if (!resource.exists()) {
+            return ResponseEntity.notFound().build();
+        }
+        String js = readResource("private-hq/" + folder + "/" + file)
+                .replace("{{HQ_LOGIN_PATH}}", "/" + adminSecretSlug + "-login");
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.valueOf("application/javascript;charset=UTF-8"))
+                .body(js);
     }
 
     @GetMapping("/${ADMIN_SECRET_PATH}.js")
