@@ -14,7 +14,7 @@ FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
 # Create unprivileged non-root runtime user
-RUN groupadd -r -g 10001 appgroup && useradd -r -u 10001 -g appgroup -d /app -s /sbin/nologin appuser
+RUN groupadd -r -g 10001 appgroup && useradd -r -u 10001 -g appgroup -d /app -s /bin/bash appuser
 
 # Copy compiled jar owned by non-root user
 COPY --from=build --chown=appuser:appgroup /app/target/*.jar app.jar
