@@ -27,13 +27,13 @@
    - Episode durations come exclusively from YouTube Data API v3 imports or admin edits (client-supplied durations and external self-reported watch flags are ignored).
    - Every playback heartbeat is bounded by elapsed server wall-clock time so watch credit cannot accumulate faster than real time.
 
-4. **10-Question Attempt Sessions (`100%` Pass Mark) & Background Auto-Generation**
-   - When a student starts watching an episode (or crosses ~25% watch progress) and its approved bank has fewer than 10 `APPROVED` MCQs or 1 `APPROVED` open question, the server triggers a non-blocking `@Async` background job (with per-episode concurrency lock) running Gemini 2-pass generation and auto-approving verified items so the quiz reaches `QUIZ_READY` seamlessly.
+4. **10-Question Attempt Sessions (`100%` Pass Mark), Cross-Model Pipeline v2, & Auto-Gen Guardrails**
+   - When `AUTO_QUIZ_GENERATION_ENABLED=true` (default `true`) and a student starts watching an episode (or crosses ~25% watch progress) whose approved bank has fewer than 10 `APPROVED` MCQs or 1 `APPROVED` open question, the server triggers a non-blocking `@Async` background job (capped at **3 auto-generation attempts per episode per day**). Auto-generated items are auto-approved (`status = APPROVED`, `source = AUTO`) **only** when the transcript quality gate and all pipeline passes succeed; admins can review them via the **Needs Review (`AUTO`)** filter.
    - An episode is `QUIZ_READY` when it has **at least 10 `APPROVED` active multiple-choice questions** and **at least 1 `APPROVED` active open question**. If a student's unseen `APPROVED` MCQ count drops below 10 on attempt draw or failed submission, a deduplicated background top-up is triggered automatically.
-   - Opening a ready quiz creates (or reuses on page refresh) a 60-minute `QuizAttemptSession` drawing **10 distinct `APPROVED` active MCQs**, prioritizing questions unseen by that student and then least-recently seen, with shuffled options.
+   - Opening a ready quiz creates (or reuses on page refresh) a 60-minute `QuizAttemptSession` drawing **10 distinct `APPROVED` active MCQs** (at most **3 questions per 25-minute `chunkIndex`** so questions span the full episode), prioritizing questions unseen by that student and then least-recently seen, with shuffled options.
    - Submissions are graded strictly against the open session's 10 questions (`sessionId` required; expired, reused, or foreign-question submissions are rejected).
    - Passing requires **10/10 (`100%`)**. Answer keys and transcript evidence are never returned by any student endpoint.
-   - Failed attempts start a server-enforced retry cooldown (`app.quiz.retry-cooldown-seconds`, default 10 minutes). Students can report a flawed question from the failed-attempt screen; if an admin edits or retires that question, the reporting student's cooldown is cleared immediately.
+   - Failed attempts start a server-enforced retry cooldown (`app.quiz.retry-cooldown-seconds`, default 10 minutes). Students can report a flawed question from the failed-attempt screen (`POST /api/quiz/{episodeId}/report`), which immediately retires the reported question (`RETIRED`, `active = false`), logs the report for admin review, and clears the student's retry cooldown so they can retry immediately with a fresh draw.
 
 5. **Pass Rule: Immediate Reward & Reading List**
    - Scoring `10/10` on the MCQ session unlocks **1 fixed `APPROVED` open question** assigned to that student and episode.
@@ -59,7 +59,7 @@
 - **Frontend**: Vanilla HTML5, CSS3, and JavaScript (`src/main/resources/static` and `src/main/resources/private-hq`), self-hosted SIL OFL Arabic `.woff2` fonts (`Amiri`, `Cairo`), strict `textContent` / DOM rendering (`innerHTML` is never used).
 - **External APIs**:
   - **YouTube Data API v3** (`X-Goog-Api-Key` request header only).
-  - **Google Gemini (`gemini-2.5-flash`)** (`x-goog-api-key` request header only; structured JSON output) with optional **OpenAI-compatible fallback** (`FALLBACK_AI_API_KEY`) and automatic YouTube caption extraction.
+  - **Anthropic Claude (`claude-sonnet-5-5`)** (`x-api-key` request header only) and **Google Gemini (`gemini-3.8-flash`)** (`x-goog-api-key` request header only; `thinkingLevel` normalized strictly to `low`/`medium`/`high`) for cross-model writing, verification, and blind testing, with optional **OpenAI-compatible fallback** (`FALLBACK_AI_API_KEY`).
 - **Container**: Multi-stage `Dockerfile` running as non-root `appuser` on Eclipse Temurin 21 Alpine.
 
 ---
@@ -76,9 +76,12 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 | `ADMIN_USERNAME` | **Yes** | `admin` | Administrator username synced on startup. |
 | `ADMIN_PASSWORD` | **Yes** | Random logged | Administrator password (**>= 12 characters** in `prod`; BCrypt-hashed on startup). |
 | `ADMIN_SECRET_PATH` | **Yes** | Dev-only slug | Private URL slug for the Admin Command Center (must not be blank or `turath-hq` in `prod`). |
-| `GEMINI_API_KEY` | **Yes** | Empty | Google Gemini API key (`gemini-2.5-flash`) for video-grounded question bank generation. |
-| `GEMINI_MODEL` | **Yes** | `gemini-2.5-flash` (override via env var) | Gemini model name configured on the server (`maxOutputTokens` defaulted to `16384` with resilient truncated-JSON repair). |
-| `FALLBACK_AI_API_KEY` | Optional | Empty | Optional OpenAI-compatible API key used automatically for text-only Pass 1 / Pass 2 generation if Gemini returns `400`/`403`/`429`/`5xx` or is disabled. |
+| `GEMINI_API_KEY` | **Yes** | Empty | Google Gemini API key (`x-goog-api-key` header only) for question bank generation, verification, and blind testing. |
+| `GEMINI_MODEL` | **Yes** | `gemini-3.8-flash` | Gemini model name configured on the server (`thinkingLevel` normalized to `low`/`medium`/`high` — never `minimal`). |
+| `ANTHROPIC_API_KEY` | Optional | Empty | Anthropic Claude API key (`x-api-key` header only) for cross-model Pass 1 writing / Pass 2 verification. |
+| `CLAUDE_MODEL` | Optional | `claude-sonnet-5-5` | Anthropic Claude model name used by `ClaudeClient`. |
+| `AUTO_QUIZ_GENERATION_ENABLED` | Optional | `true` | Master toggle (`app.quiz.auto-generation.enabled`) for automatic background quiz generation on student watch/retry. |
+| `FALLBACK_AI_API_KEY` | Optional | Empty | Optional OpenAI-compatible API key used automatically for text-only generation if primary providers fail (`400`/`403`/`429`/`5xx`). |
 | `FALLBACK_AI_BASE_URL` | Optional | `https://api.openai.com/v1` | Base URL for the optional OpenAI-compatible fallback provider (`/chat/completions`). |
 | `FALLBACK_AI_MODEL` | Optional | `gpt-4.1` | Model identifier sent to the optional OpenAI-compatible fallback provider. |
 | `YOUTUBE_API_KEY` | **Yes** | Empty | YouTube Data API v3 key for course playlist preview and import. |
@@ -101,19 +104,20 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 6. After approving question banks for the episodes, click **Publish** (`POST /api/admin/courses/{id}/publish`) to make the course live in the Student Catalog.
 7. At any time later, click **Re-sync YouTube** (`POST /api/admin/courses/{id}/resync`) to safely append newly added playlist videos, update changed titles/durations, and mark removed videos inactive (`enabled = false`) **without deleting existing episodes, quizzes, student progress, or earned completion bonuses**.
 
-### 2. Video-Grounded Question Bank Generation & Jump-to-Moment
-1. Open the dedicated **🗂️ Question Bank** tab in the Admin Command Center (or click **🗂️ Bank** on any episode in **🎬 Courses**) and select an episode.
-2. Pasting a transcript is **optional**. Click **Generate from the YouTube video** (`POST /api/admin/episodes/{episodeId}/generate-bank`):
-   - Gemini analyzes the video directly using `file_data` with the YouTube URL and `MEDIA_RESOLUTION_LOW` (episodes longer than 35 minutes are split automatically into ~25-30 minute segments).
-   - Every generated question requires a valid `evidenceTimestamp` (seconds from video start) and an `evidence` quote/note.
-   - **Pass 1** produces candidate MCQs (~10+ per segment, up to ~30 total) and open explanation questions (~1+ per segment, up to ~3 total).
-   - **Pass 2** strictly verifies candidates against the video segment, enforces a max of 2 vocabulary questions, and removes same-concept / repeated-term duplicates.
-   - Manual admin runs save surviving items as **`DRAFT`** for review (automatic student-triggered watch/retry runs auto-approve verified items). When a transcript is pasted, saved, or auto-fetched from YouTube captions, both Pass 1 and Pass 2 run in text-only mode (skipping `file_data`), prioritizing >=60% cause-and-effect/chronology/reasoning MCQs with plausible episode distractors and multi-point open prompts; if Gemini text calls still fail (`400`/`403`/`429`/`5xx`), `FALLBACK_AI_API_KEY` completes generation automatically with secrets redacted from logs.
-   - Transient failures (429/503/timeouts) are retried automatically on the backend; any exhausted failure rolls back cleanly ("Nothing was saved") and renders a **Retry Generation** button in the Admin UI.
-3. Every draft and approved question card renders a clickable **Jump to moment (`M:SS`)** link (`https://www.youtube.com/watch?v={videoId}&t={sec}s`) alongside its evidence note for fast timestamp verification.
-4. Filter questions by status (`ALL`/`DRAFT`/`APPROVED`/`RETIRED`), type (`RECALL`/`REASONING`/`VOCABULARY`/`LISTENING`), or reported count; use **Bulk Approve All Drafts** (`POST /api/admin/episodes/{episodeId}/questions/bulk-approve`) once verified.
-5. Each episode requires **>= 10 `APPROVED` active MCQs** and **>= 1 `APPROVED` active open question** to appear as **Quiz Ready** to students.
-6. Use **Export Question Bank JSON** (`GET /api/admin/question-bank/export`) and **Import Question Bank JSON** (`POST /api/admin/question-bank/import`) for off-repo curriculum backups.
+### 2. Subtitle Upload (`.srt` / `.vtt`), Quality Gate, & Cross-Model Pipeline v2
+1. **Batch Subtitle Upload & Quality Gate**:
+   - In **🎬 Courses** (or **🗂️ Question Bank**), upload `.srt` / `.vtt` subtitle files (`POST /api/admin/transcripts/upload` or `/upload-multipart`, max 2 MB/file, strict UTF-8 validation, rolling VTT duplicate cleanup, and `[Music]`/`[Applause]` stripping).
+   - Preview matches by YouTube video ID or episode number (`confirmSave=false`), inspect the **Transcript Quality Gate** report (WPM vs duration, repeated lines, `[Music]` ratio, Arabic ratio `>= 50%`, duration coverage `>= 50%`), and click **Confirm & Save Matched Transcripts** (`confirmSave=true`) or **Use Anyway** (`POST /api/admin/episodes/{episodeId}/transcript/use-anyway`).
+2. **Async Cross-Model Generation & Blind Test (`GenerationJob`)**:
+   - Open **🗂️ Question Bank**, choose the **Primary Writer** (`Claude Writes → Gemini Verifies` or `Gemini Writes → Claude Verifies`), or test both API keys via **🔌 Test AI Keys** (`POST /api/admin/ai/test-connection`).
+   - Clicking **⚡ Generate Async Job** (`POST /api/admin/episodes/{episodeId}/generation-jobs`) returns `202 Accepted` immediately (`409 Conflict` if a job is already running for that episode) and runs a 3-pass pipeline across 25-minute (`1500s`) chunks marked with `[mm:ss]` timestamps every ~45 seconds:
+     - **Pass 1 (Writer)**: Generates candidate MCQs and open questions with timestamps validated inside the chunk and within 60s of a real `[mm:ss]` marker, plus option-length normalization so the correct answer is never the longest option.
+     - **Pass 2 (Cross-Model Verifier)**: The second model verifies every candidate against the chunk transcript.
+     - **Pass 3 (Blind Test Without Transcript)**: All MCQs in a chunk are tested in a single request **without the transcript** across up to 3 shuffled runs; any question answered right in >= 2 of 3 runs by general knowledge/eliminable distractors is dropped (if `< 20` MCQs survive across the episode, the least-guessable items are kept and `needsReview = true` is flagged).
+   - Use **⚖️ Compare Models (Set A / B)** (`POST /api/admin/episodes/{episodeId}/generation-jobs/compare`) to compare both writer directions side-by-side with model identities hidden until you pick a winner.
+3. **Review, Jump-to-Moment, & Backups**:
+   - Every question card renders a clickable **Jump to moment (`M:SS`)** link (`https://www.youtube.com/watch?v={videoId}&t={sec}s`) alongside its evidence quote.
+   - Filter by status (`ALL`/`DRAFT`/`APPROVED`/`RETIRED`/`NEEDS_REVIEW`), type, or reported count; use **Bulk Approve All Drafts** (`POST /api/admin/episodes/{episodeId}/questions/bulk-approve`) and **Export / Import Question Bank JSON** (`GET/POST /api/admin/question-bank/export|import`).
 
 ### 3. Written Reflections Reading List
 1. Open the **Written Reflections Reading List** (`GET /api/admin/open-answers?status=UNREAD`). An unread badge displays the count of unread submissions.
@@ -123,11 +127,8 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 ### 4. Student Account Management
 1. **Enable / Disable Account**: Administrators can toggle account status (`PUT /api/admin/students/{id}/enabled`). Disabling an account immediately revokes all active JWT tokens via `tokenVersion` bump and blocks sign-in.
 2. **Export History**: Export complete JSON history of a student (`GET /api/admin/students/{id}/export`), including attempts, claims, bonuses, payouts, and adjustments.
-
-3. **Permanent Deletion**: Permanently delete a student account (`DELETE /api/admin/students/{id}`) inside the confirmation modal only when all guards pass: target is a non-admin account (never the acting admin), `balanceOwed == 0.00` (check `earnings.balanceOwed` — if positive or overpaid negative, issue a payout or adjustment first), the student record JSON has been exported (`GET /api/admin/students/{id}/export`), and the exact username is typed for confirmation. Runs atomically in one transaction across all child tables and writes a clean `AUDIT [USER_DELETED]` entry.
-4. **Unlock Quiz Direct Override**: Next to any row in **Admin -> Students -> Per-Student Episode Access Overrides**, inspect each episode's Watch / Quiz Status and click **🔓 Unlock Quiz** (`POST /api/admin/students/{studentId}/episodes/{episodeId}/unlock-quiz`) to credit required watch time and unlock sequential quiz access immediately for students who watched directly on YouTube.com.
-
-
+3. **Permanent Deletion**: Permanently delete a student account (`DELETE /api/admin/students/{id}`) inside the confirmation modal only when all guards pass: target is a non-admin account (never the acting admin), `balanceOwed == 0.00`, the student record JSON has been exported, and the exact username is typed for confirmation.
+4. **Unlock Quiz Direct Override (Without Faking Watch Time)**: Next to any row in **Admin -> Students -> Per-Student Episode Access Overrides**, click **🔓 Unlock Quiz** (`POST /api/admin/students/{studentId}/episodes/{episodeId}/unlock-quiz` handled by `AdminStudentQuizUnlockController`) and confirm. This records `adminUnlockedAt`, `adminUnlockedBy`, and optional `adminUnlockReason`, unlocks the episode sequentially, and marks `quizUnlocked = true` **without modifying `verifiedWatchSeconds`** (actual watched seconds remain accurate).
 
 ### 5. Payouts Ledger & Balance Adjustments
 1. **Issue Payout**: Record payouts (`POST /api/admin/payouts`) to deduct from balance owed.
@@ -154,4 +155,4 @@ mvn spring-boot:run
 ## Project Rules, CI & Render Deployment
 - **Engineering Rules (`RULES.md` & `.agents/rules/turathtona.md` / `AGENTS.md`)**: Strict separation between frontend `pages/`, `components/`, and `data/` modules; backend `controller/`, `service/`, `repository/`, `model/`, and `config/`; files kept focused and under 300 lines; no `innerHTML`; server-side authority for rewards/balances/grading/watch time; unique `(HTTP method, path)` mappings.
 - **CI (`.github/workflows/ci.yml`)**: Runs `mvn clean test` on Java 21 Temurin for every push and pull request (`ContextAndRouteMappingTest` verifies Spring startup and unique endpoint mappings alongside all phase integration tests).
-- **Render Docker Deployment (`Dockerfile`)**: Multi-stage Maven + Eclipse Temurin 21 JRE image (`appuser` UID 10001 with `/bin/bash` shell and container-aware JVM memory flags). Recommend configuring Render Auto-Deploy **"After CI Checks Pass"** and setting all 8 required environment variables above before manual hard refresh (`Ctrl+Shift+R`).
+- **Render Docker Deployment (`Dockerfile`)**: Multi-stage Maven + Eclipse Temurin 21 JRE image (`appuser` UID 10001 with `/bin/bash` shell and container-aware JVM memory flags).

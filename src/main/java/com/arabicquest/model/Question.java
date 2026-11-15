@@ -1,3 +1,4 @@
+// JPA entity representing a multiple-choice question with status, chunkIndex, source tag, and timestamp.
 package com.arabicquest.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -46,6 +47,12 @@ public class Question {
 
     @Column(name = "report_count")
     private Integer reportCount = 0;
+
+    @Column(name = "chunk_index")
+    private Integer chunkIndex;
+
+    @Column(name = "source", length = 30)
+    private String source;
 
     @OneToMany(mappedBy = "question", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<QuestionOption> options = new ArrayList<>();
@@ -179,5 +186,21 @@ public class Question {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Integer getChunkIndex() {
+        return chunkIndex;
+    }
+
+    public void setChunkIndex(Integer chunkIndex) {
+        this.chunkIndex = chunkIndex;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
     }
 }

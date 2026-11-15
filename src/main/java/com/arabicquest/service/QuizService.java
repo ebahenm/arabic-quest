@@ -183,7 +183,7 @@ public class QuizService {
         );
     }
 
-    private List<Question> selectTenQuestionsForAttempt(
+    public List<Question> selectTenQuestionsForAttempt(
             User student,
             Episode episode,
             List<Question> approvedQuestions,
@@ -212,10 +212,18 @@ public class QuizService {
         seen.sort(Comparator.comparing(q -> exposureByQuestionId.get(q.getId()).getLastShownAt()));
 
         List<Question> chosen = new ArrayList<>(SESSION_QUESTION_COUNT);
+        Map<Integer, Integer> chunkCounts = new HashMap<>();
+        List<Question> chunkOverflow = new ArrayList<>();
         int drawnUnseenCount = 0;
         for (Question q : unseen) {
             if (chosen.size() >= SESSION_QUESTION_COUNT) break;
+            Integer ci = q.getChunkIndex();
+            if (ci != null && chunkCounts.getOrDefault(ci, 0) >= 3) {
+                chunkOverflow.add(q);
+                continue;
+            }
             chosen.add(q);
+            if (ci != null) chunkCounts.merge(ci, 1, Integer::sum);
             drawnUnseenCount++;
         }
         int remainingUnseen = Math.max(0, unseen.size() - drawnUnseenCount);
@@ -224,6 +232,16 @@ public class QuizService {
             autoQuizGenerationService.triggerTopUpIfUnseenLow(episode.getId(), remainingUnseen);
         }
         for (Question q : seen) {
+            if (chosen.size() >= SESSION_QUESTION_COUNT) break;
+            Integer ci = q.getChunkIndex();
+            if (ci != null && chunkCounts.getOrDefault(ci, 0) >= 3) {
+                chunkOverflow.add(q);
+                continue;
+            }
+            chosen.add(q);
+            if (ci != null) chunkCounts.merge(ci, 1, Integer::sum);
+        }
+        for (Question q : chunkOverflow) {
             if (chosen.size() >= SESSION_QUESTION_COUNT) break;
             chosen.add(q);
         }

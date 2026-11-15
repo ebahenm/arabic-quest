@@ -1,3 +1,4 @@
+// JPA entity representing an open-ended written reflection prompt for an episode.
 package com.arabicquest.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -34,6 +35,9 @@ public class OpenQuestion {
 
     @Column(name = "active", nullable = false)
     private Boolean active = true;
+
+    @Column(name = "source", length = 30)
+    private String source;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -125,5 +129,13 @@ public class OpenQuestion {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
     }
 }

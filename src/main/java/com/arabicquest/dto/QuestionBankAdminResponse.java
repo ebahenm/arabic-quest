@@ -1,3 +1,4 @@
+// Admin DTO for viewing an episode's MCQ and open-question bank with status, source tags, and chunkIndex.
 package com.arabicquest.dto;
 
 import com.arabicquest.model.OpenQuestion;
@@ -10,6 +11,7 @@ public record QuestionBankAdminResponse(
         String episodeTitle,
         String youtubeVideoId,
         boolean hasTranscript,
+        boolean needsReview,
         int approvedMcqCount,
         int draftMcqCount,
         int retiredMcqCount,
@@ -28,6 +30,8 @@ public record QuestionBankAdminResponse(
             boolean active,
             String evidence,
             Integer evidenceTimestamp,
+            Integer chunkIndex,
+            String source,
             int reportCount,
             List<OptionAdminItem> options
     ) {
@@ -41,6 +45,8 @@ public record QuestionBankAdminResponse(
                     q.isActive(),
                     q.getEvidence(),
                     q.getEvidenceTimestamp(),
+                    q.getChunkIndex(),
+                    q.getSource(),
                     q.getReportCount(),
                     q.getOptions().stream()
                             .map(o -> new OptionAdminItem(o.getId(), o.getOptionText(), Boolean.TRUE.equals(o.getIsCorrect())))
@@ -60,6 +66,7 @@ public record QuestionBankAdminResponse(
             String promptText,
             String evidence,
             Integer evidenceTimestamp,
+            String source,
             String status,
             boolean active
     ) {
@@ -69,6 +76,7 @@ public record QuestionBankAdminResponse(
                     oq.getPromptText(),
                     oq.getEvidence(),
                     oq.getEvidenceTimestamp(),
+                    oq.getSource(),
                     oq.getStatus().name(),
                     oq.isActive()
             );

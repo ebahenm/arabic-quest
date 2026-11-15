@@ -1,4 +1,4 @@
-// CRUD and moderation operations for episode MCQ and open-ended question banks.
+// CRUD and moderation operations for episode MCQ and open-ended question banks, including instant report retirement.
 package com.arabicquest.service;
 
 import com.arabicquest.dto.QuestionBankAdminResponse;
@@ -7,6 +7,7 @@ import com.arabicquest.dto.UpsertOpenQuestionRequest;
 import com.arabicquest.dto.UpsertQuestionRequest;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,8 +26,10 @@ public class QuestionBankService {
     private final QuizAttemptRepository quizAttemptRepository;
     private final UserRepository userRepository;
     private final WatchProgressService watchProgressService;
+    private final QuestionBankMutationHelper mutationHelper;
     private final SecureRandom secureRandom = new SecureRandom();
 
+    @Autowired
     public QuestionBankService(
             EpisodeRepository episodeRepository,
             QuizRepository quizRepository,
@@ -36,7 +39,8 @@ public class QuestionBankService {
             StudentQuestionExposureRepository exposureRepository,
             QuizAttemptRepository quizAttemptRepository,
             UserRepository userRepository,
-            WatchProgressService watchProgressService) {
+            WatchProgressService watchProgressService,
+            QuestionBankMutationHelper mutationHelper) {
         this.episodeRepository = episodeRepository;
         this.quizRepository = quizRepository;
         this.questionRepository = questionRepository;
@@ -46,6 +50,7 @@ public class QuestionBankService {
         this.quizAttemptRepository = quizAttemptRepository;
         this.userRepository = userRepository;
         this.watchProgressService = watchProgressService;
+        this.mutationHelper = mutationHelper;
     }
 
     @Transactional
@@ -68,26 +73,26 @@ public class QuestionBankService {
             throw new IllegalArgumentException("You can only report questions that appeared in your quiz attempt.");
         }
 
-        if (questionReportRepository.existsByStudentIdAndQuestionIdAndResolvedFalse(student.getId(), questionId)) {
-            return Map.of(
-                    "reported", true,
-                    "reportCount", question.getReportCount(),
-                    "message", "You have already reported this question. The admin will review it."
-            );
-        }
-
         String cleanReason = (req != null && req.reason() != null && !req.reason().isBlank())
                 ? req.reason().trim()
                 : null;
 
         question.setReportCount(question.getReportCount() + 1);
+        question.setStatus(QuestionStatus.RETIRED);
+        question.setActive(false);
         questionRepository.save(question);
-        questionReportRepository.save(new QuestionReport(student, episode, question, cleanReason));
+
+        QuestionReport report = new QuestionReport(student, episode, question, cleanReason);
+        report.setResolved(true);
+        questionReportRepository.save(report);
+        watchProgressService.resetRetryCooldownForStudent(student, episode);
 
         return Map.of(
                 "reported", true,
+                "retired", true,
+                "cooldownReset", true,
                 "reportCount", question.getReportCount(),
-                "message", "Question reported to admin. If edited or retired, your retry cooldown will reset immediately."
+                "message", "Question reported and immediately retired. Your retry cooldown has been reset."
         );
     }
 
@@ -119,10 +124,12 @@ public class QuestionBankService {
             else if (oq.getStatus() == QuestionStatus.DRAFT) draftOpen++;
         }
 
-        QuestionStatus targetStatus = parseStatusOrNull(statusFilter);
-        QuestionType targetType = parseTypeOrNull(typeFilter);
+        boolean needsReviewFilter = statusFilter != null && "NEEDS_REVIEW".equalsIgnoreCase(statusFilter.trim());
+        QuestionStatus targetStatus = QuestionBankMutationHelper.parseStatusOrNull(statusFilter);
+        QuestionType targetType = QuestionBankMutationHelper.parseTypeOrNull(typeFilter);
 
         List<QuestionBankAdminResponse.McqAdminItem> filteredQuestions = allQuestions.stream()
+                .filter(q -> !needsReviewFilter || ("AUTO".equalsIgnoreCase(q.getSource()) && q.getStatus() != QuestionStatus.RETIRED))
                 .filter(q -> targetStatus == null || q.getStatus() == targetStatus)
                 .filter(q -> targetType == null || q.getType() == targetType)
                 .filter(q -> !reportedOnly || q.getReportCount() > 0)
@@ -130,6 +137,7 @@ public class QuestionBankService {
                 .toList();
 
         List<QuestionBankAdminResponse.OpenQuestionAdminItem> filteredOpens = allOpens.stream()
+                .filter(oq -> !needsReviewFilter || ("AUTO".equalsIgnoreCase(oq.getSource()) && oq.getStatus() != QuestionStatus.RETIRED))
                 .filter(oq -> targetStatus == null || oq.getStatus() == targetStatus)
                 .map(QuestionBankAdminResponse.OpenQuestionAdminItem::from)
                 .toList();
@@ -141,6 +149,7 @@ public class QuestionBankService {
                 episode.getTitle(),
                 episode.getYoutubeVideoId(),
                 episode.getTranscriptText() != null && !episode.getTranscriptText().isBlank(),
+                episode.isNeedsReview(),
                 approvedMcq,
                 draftMcq,
                 retiredMcq,
@@ -154,7 +163,7 @@ public class QuestionBankService {
 
     @Transactional
     public QuestionBankAdminResponse.McqAdminItem createMcq(Long episodeId, UpsertQuestionRequest req) {
-        validateMcqRequest(req);
+        QuestionBankMutationHelper.validateMcqRequest(req);
         Episode episode = episodeRepository.findById(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
 
@@ -164,8 +173,8 @@ public class QuestionBankService {
 
         int nextOrder = quiz.getQuestions().size() + 1;
         Question q = new Question(quiz, req.questionText().trim(), nextOrder);
-        q.setType(parseTypeOrDefault(req.type()));
-        q.setStatus(req.status() != null ? parseStatusOrDefault(req.status(), QuestionStatus.APPROVED) : QuestionStatus.APPROVED);
+        q.setType(QuestionBankMutationHelper.parseTypeOrDefault(req.type()));
+        q.setStatus(req.status() != null ? QuestionBankMutationHelper.parseStatusOrDefault(req.status(), QuestionStatus.APPROVED) : QuestionStatus.APPROVED);
         q.setActive(req.active() == null || req.active());
         q.setEvidence(req.evidence() != null ? req.evidence().trim() : null);
         q.setEvidenceTimestamp(req.evidenceTimestamp());
@@ -177,32 +186,21 @@ public class QuestionBankService {
             q.getOptions().add(new QuestionOption(q, oi.optionText().trim(), Boolean.TRUE.equals(oi.isCorrect())));
         }
 
-        Question saved = questionRepository.save(q);
-        return QuestionBankAdminResponse.McqAdminItem.from(saved);
+        return QuestionBankAdminResponse.McqAdminItem.from(questionRepository.save(q));
     }
 
     @Transactional
     public QuestionBankAdminResponse.McqAdminItem updateMcq(Long questionId, UpsertQuestionRequest req) {
-        validateMcqRequest(req);
+        QuestionBankMutationHelper.validateMcqRequest(req);
         Question q = questionRepository.findByIdWithQuizAndEpisode(questionId)
                 .orElseThrow(() -> new IllegalArgumentException("Question not found"));
 
         q.setQuestionText(req.questionText().trim());
-        if (req.type() != null) {
-            q.setType(parseTypeOrDefault(req.type()));
-        }
-        if (req.status() != null) {
-            q.setStatus(parseStatusOrDefault(req.status(), q.getStatus()));
-        }
-        if (req.active() != null) {
-            q.setActive(req.active());
-        }
-        if (req.evidence() != null) {
-            q.setEvidence(req.evidence().trim());
-        }
-        if (req.evidenceTimestamp() != null) {
-            q.setEvidenceTimestamp(req.evidenceTimestamp());
-        }
+        if (req.type() != null) q.setType(QuestionBankMutationHelper.parseTypeOrDefault(req.type()));
+        if (req.status() != null) q.setStatus(QuestionBankMutationHelper.parseStatusOrDefault(req.status(), q.getStatus()));
+        if (req.active() != null) q.setActive(req.active());
+        if (req.evidence() != null) q.setEvidence(req.evidence().trim());
+        if (req.evidenceTimestamp() != null) q.setEvidenceTimestamp(req.evidenceTimestamp());
 
         q.getOptions().clear();
         List<UpsertQuestionRequest.OptionInput> shuffled = new ArrayList<>(req.options());
@@ -222,6 +220,9 @@ public class QuestionBankService {
                 .orElseThrow(() -> new IllegalArgumentException("Question not found"));
         q.setStatus(QuestionStatus.APPROVED);
         q.setActive(true);
+        if ("AUTO".equalsIgnoreCase(q.getSource())) {
+            q.setSource("ADMIN_REVIEWED");
+        }
         return QuestionBankAdminResponse.McqAdminItem.from(questionRepository.save(q));
     }
 
@@ -248,7 +249,6 @@ public class QuestionBankService {
                 approvedMcqs++;
             }
         }
-
         List<OpenQuestion> opens = openQuestionRepository.findByEpisodeIdOrderByIdAsc(episodeId);
         int approvedOpens = 0;
         for (OpenQuestion oq : opens) {
@@ -259,69 +259,27 @@ public class QuestionBankService {
                 approvedOpens++;
             }
         }
-
-        return Map.of(
-                "approvedMcqs", approvedMcqs,
-                "approvedOpenQuestions", approvedOpens
-        );
+        return Map.of("approvedMcqs", approvedMcqs, "approvedOpenQuestions", approvedOpens);
     }
 
     @Transactional
     public QuestionBankAdminResponse.OpenQuestionAdminItem createOpenQuestion(Long episodeId, UpsertOpenQuestionRequest req) {
-        Episode episode = episodeRepository.findById(episodeId)
-                .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
-        QuestionStatus status = req.status() != null
-                ? parseStatusOrDefault(req.status(), QuestionStatus.APPROVED)
-                : QuestionStatus.APPROVED;
-        OpenQuestion oq = new OpenQuestion(
-                episode,
-                req.promptText().trim(),
-                req.evidence() != null ? req.evidence().trim() : null,
-                req.evidenceTimestamp(),
-                status
-        );
-        if (req.active() != null) {
-            oq.setActive(req.active());
-        }
-        return QuestionBankAdminResponse.OpenQuestionAdminItem.from(openQuestionRepository.save(oq));
+        return mutationHelper.createOpenQuestion(episodeId, req);
     }
 
     @Transactional
     public QuestionBankAdminResponse.OpenQuestionAdminItem updateOpenQuestion(Long openQuestionId, UpsertOpenQuestionRequest req) {
-        OpenQuestion oq = openQuestionRepository.findById(openQuestionId)
-                .orElseThrow(() -> new IllegalArgumentException("Open question not found"));
-        oq.setPromptText(req.promptText().trim());
-        if (req.evidence() != null) {
-            oq.setEvidence(req.evidence().trim());
-        }
-        if (req.evidenceTimestamp() != null) {
-            oq.setEvidenceTimestamp(req.evidenceTimestamp());
-        }
-        if (req.status() != null) {
-            oq.setStatus(parseStatusOrDefault(req.status(), oq.getStatus()));
-        }
-        if (req.active() != null) {
-            oq.setActive(req.active());
-        }
-        return QuestionBankAdminResponse.OpenQuestionAdminItem.from(openQuestionRepository.save(oq));
+        return mutationHelper.updateOpenQuestion(openQuestionId, req);
     }
 
     @Transactional
     public QuestionBankAdminResponse.OpenQuestionAdminItem approveOpenQuestion(Long openQuestionId) {
-        OpenQuestion oq = openQuestionRepository.findById(openQuestionId)
-                .orElseThrow(() -> new IllegalArgumentException("Open question not found"));
-        oq.setStatus(QuestionStatus.APPROVED);
-        oq.setActive(true);
-        return QuestionBankAdminResponse.OpenQuestionAdminItem.from(openQuestionRepository.save(oq));
+        return mutationHelper.approveOpenQuestion(openQuestionId);
     }
 
     @Transactional
     public QuestionBankAdminResponse.OpenQuestionAdminItem retireOpenQuestion(Long openQuestionId) {
-        OpenQuestion oq = openQuestionRepository.findById(openQuestionId)
-                .orElseThrow(() -> new IllegalArgumentException("Open question not found"));
-        oq.setStatus(QuestionStatus.RETIRED);
-        oq.setActive(false);
-        return QuestionBankAdminResponse.OpenQuestionAdminItem.from(openQuestionRepository.save(oq));
+        return mutationHelper.retireOpenQuestion(openQuestionId);
     }
 
     private void resolveReportsAndResetStudentCooldowns(Question question) {
@@ -335,55 +293,5 @@ public class QuestionBankService {
             question.setReportCount(0);
             questionRepository.save(question);
         }
-    }
-
-    private void validateMcqRequest(UpsertQuestionRequest req) {
-        if (req.options() == null || req.options().size() != 4) {
-            throw new IllegalArgumentException("Each multiple-choice question must have exactly 4 options.");
-        }
-        int correct = 0;
-        for (UpsertQuestionRequest.OptionInput oi : req.options()) {
-            String t = oi.optionText() == null ? "" : oi.optionText().trim().toLowerCase(Locale.ROOT);
-            if (t.isEmpty()) {
-                throw new IllegalArgumentException("Option text must not be blank.");
-            }
-            if (t.contains("all of the above") || t.contains("none of the above")) {
-                throw new IllegalArgumentException("Options must not use 'all of the above' or 'none of the above'.");
-            }
-            if (Boolean.TRUE.equals(oi.isCorrect())) {
-                correct++;
-            }
-        }
-        if (correct != 1) {
-            throw new IllegalArgumentException("Each multiple-choice question must have exactly 1 correct option.");
-        }
-    }
-
-    private static QuestionStatus parseStatusOrNull(String raw) {
-        if (raw == null || raw.isBlank() || "ALL".equalsIgnoreCase(raw.trim())) return null;
-        try {
-            return QuestionStatus.valueOf(raw.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ex) {
-            return null;
-        }
-    }
-
-    private static QuestionStatus parseStatusOrDefault(String raw, QuestionStatus fallback) {
-        QuestionStatus s = parseStatusOrNull(raw);
-        return s != null ? s : fallback;
-    }
-
-    private static QuestionType parseTypeOrNull(String raw) {
-        if (raw == null || raw.isBlank() || "ALL".equalsIgnoreCase(raw.trim())) return null;
-        try {
-            return QuestionType.valueOf(raw.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ex) {
-            return null;
-        }
-    }
-
-    private static QuestionType parseTypeOrDefault(String raw) {
-        QuestionType t = parseTypeOrNull(raw);
-        return t != null ? t : QuestionType.RECALL;
     }
 }

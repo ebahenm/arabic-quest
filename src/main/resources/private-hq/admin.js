@@ -1822,6 +1822,9 @@ async function setStudentEpisodeOverrideAction(studentId, episodeId, action) {
         let url;
         let method;
         if (action === 'unlock-quiz') {
+            if (typeof window.confirm === 'function' && !window.confirm('Unlock this episode quiz directly for the student without altering verified watch time?')) {
+                return;
+            }
             url = `/api/admin/students/${studentId}/episodes/${episodeId}/unlock-quiz`;
             method = 'POST';
         } else if (action === 'unlock') {

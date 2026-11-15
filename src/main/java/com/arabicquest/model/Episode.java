@@ -1,3 +1,4 @@
+// JPA entity representing a course episode with YouTube metadata, duration, and quiz readiness state.
 package com.arabicquest.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -47,6 +48,9 @@ public class Episode {
 
     @Column(name = "sort_order")
     private Integer sortOrder;
+
+    @Column(name = "needs_review")
+    private Boolean needsReview = false;
 
     @OneToOne(mappedBy = "episode", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
@@ -192,5 +196,13 @@ public class Episode {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public boolean isNeedsReview() {
+        return Boolean.TRUE.equals(needsReview);
+    }
+
+    public void setNeedsReview(Boolean needsReview) {
+        this.needsReview = needsReview;
     }
 }

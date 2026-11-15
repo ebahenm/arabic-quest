@@ -253,7 +253,8 @@ public class WatchProgressService {
             WatchSession session = sessionsByEp.get(ep.getId());
             int verifiedSecs = epPassed ? requiredSecs
                     : (session != null ? Math.min(requiredSecs, session.getVerifiedWatchSeconds()) : 0);
-            boolean epQuizUnlocked = epPassed || requiredSecs == 0 || verifiedSecs >= requiredSecs;
+            boolean adminQuizUnlocked = session != null && session.isAdminUnlocked();
+            boolean epQuizUnlocked = epPassed || requiredSecs == 0 || verifiedSecs >= requiredSecs || adminQuizUnlocked;
             String watchQuizStatus = epPassed ? "PASSED"
                     : (epQuizUnlocked ? "QUIZ_UNLOCKED" : (verifiedSecs > 0 ? "WATCHING" : "NOT_STARTED"));
             EpisodeLockState lockState = evaluateSequentialLock(ep, courseEps, passedIds, ov, false);
@@ -298,6 +299,11 @@ public class WatchProgressService {
 
     @Transactional
     public Map<String, Object> unlockQuizForStudent(Long studentId, Long episodeId) {
+        return unlockQuizForStudent(studentId, episodeId, "admin", null);
+    }
+
+    @Transactional
+    public Map<String, Object> unlockQuizForStudent(Long studentId, Long episodeId, String adminUsername, String reason) {
         User student = userRepository.findById(studentId)
                 .orElseThrow(() -> new IllegalArgumentException("Student not found"));
         if (student.getRole() != Role.ROLE_STUDENT) {
@@ -310,9 +316,17 @@ public class WatchProgressService {
                 .orElseGet(() -> new WatchSession(student, episode, WatchMode.ARABIC_SUB));
         session.setLockedWatchMode(WatchMode.ARABIC_SUB);
         session.setModeLocked(false);
-        session.setVerifiedWatchSeconds(required);
-        session.setVideoEnded(true);
+        String actor = (adminUsername != null && !adminUsername.isBlank()) ? adminUsername.trim() : "admin";
+        String cleanReason = (reason != null && !reason.isBlank()) ? reason.trim() : session.getAdminUnlockReason();
+        if (session.getAdminUnlockedAt() == null) {
+            session.setAdminUnlockedAt(LocalDateTime.now());
+            session.setAdminUnlockedBy(actor);
+        }
+        session.setAdminUnlockReason(cleanReason);
         watchSessionRepository.save(session);
+        log.info("AUDIT [action=ADMIN_UNLOCK_QUIZ admin={} studentId={} student={} episodeId={} verifiedWatchSeconds={} reason={}]",
+                session.getAdminUnlockedBy(), studentId, student.getUsername(), episodeId,
+                session.getVerifiedWatchSeconds(), cleanReason != null ? cleanReason : "none");
 
         StudentEpisodeOverride override = studentEpisodeOverrideRepository
                 .findByStudentIdAndEpisodeId(studentId, episodeId).orElse(null);
@@ -330,9 +344,12 @@ public class WatchProgressService {
         return Map.of(
                 "studentId", studentId,
                 "episodeId", episodeId,
-                "verifiedWatchSeconds", required,
+                "verifiedWatchSeconds", session.getVerifiedWatchSeconds(),
                 "requiredWatchSeconds", required,
                 "quizUnlocked", true,
+                "adminUnlockedAt", session.getAdminUnlockedAt().toString(),
+                "adminUnlockedBy", session.getAdminUnlockedBy(),
+                "adminUnlockReason", session.getAdminUnlockReason() != null ? session.getAdminUnlockReason() : "",
                 "overrideState", currentOv != null ? currentOv.name() : "AUTO"
         );
     }
@@ -388,7 +405,7 @@ public class WatchProgressService {
 
         WatchSession session = opt.get();
         int verified = Math.min(required, session.getVerifiedWatchSeconds());
-        boolean unlocked = alreadyPassed || verified >= required;
+        boolean unlocked = alreadyPassed || verified >= required || session.isAdminUnlocked();
         boolean watchStarted = alreadyPassed || session.getLastHeartbeatAt() != null || verified > 0;
 
         return new WatchStatusResponse(
@@ -483,7 +500,7 @@ public class WatchProgressService {
         }
 
         long cooldown = alreadyPassed ? 0L : getRetryCooldownRemainingSeconds(student.getId(), episode.getId());
-        boolean unlocked = alreadyPassed || verified >= required;
+        boolean unlocked = alreadyPassed || verified >= required || session.isAdminUnlocked();
 
         return new WatchStatusResponse(
                 episode.getId(),
@@ -579,7 +596,7 @@ public class WatchProgressService {
         if (opt.isEmpty()) {
             return false;
         }
-        return opt.get().getVerifiedWatchSeconds() >= required;
+        return opt.get().getVerifiedWatchSeconds() >= required || opt.get().isAdminUnlocked();
     }
 
     public WatchMode resolveEffectiveWatchMode(Long studentId, Long episodeId, WatchMode fallbackMode) {
