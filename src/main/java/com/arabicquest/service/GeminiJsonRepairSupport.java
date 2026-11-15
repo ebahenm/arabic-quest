@@ -31,10 +31,16 @@ public final class GeminiJsonRepairSupport {
     public static String stripCodeFences(String raw) {
         if (raw == null) return "";
         String s = raw.trim();
-        if (s.startsWith("```")) {
-            int firstNewline = s.indexOf('\n');
-            if (firstNewline >= 0) s = s.substring(firstNewline + 1);
-            if (s.endsWith("```")) s = s.substring(0, s.length() - 3);
+        int fenceOpen = s.indexOf("```");
+        if (fenceOpen >= 0) {
+            int firstNewline = s.indexOf('\n', fenceOpen);
+            int contentStart = firstNewline >= 0 ? firstNewline + 1 : fenceOpen + 3;
+            int fenceClose = s.lastIndexOf("```");
+            if (fenceClose > fenceOpen) {
+                s = s.substring(contentStart, fenceClose);
+            } else {
+                s = s.substring(contentStart);
+            }
         }
         return s.trim();
     }

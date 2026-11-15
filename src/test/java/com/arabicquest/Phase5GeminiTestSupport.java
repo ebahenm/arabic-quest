@@ -139,4 +139,63 @@ final class Phase5GeminiTestSupport {
                 .andExpect(status().isOk()).andReturn();
         return "Bearer " + mapper.readTree(login.getResponse().getContentAsString()).get("token").asText();
     }
+
+    static String buildRealisticMultiChunkArabicVttOver60Min() {
+        StringBuilder vtt = new StringBuilder("WEBVTT\n\n");
+        String[] sentences = {
+                "في هذه المحاضرة التاريخية المفصلة نستعرض نشأة الدواوين وتطور الإدارة المالية والسياسية في الحواضر الإسلامية الكبرى.",
+                "أنشأ الخليفة ديوان الخاتم في دمشق لحفظ الرسائل الرسمية ومنع تزوير الكتب السلطانية وضبط المراسلات بين الأقاليم.",
+                "شهدت حركة الترجمة في بيت الحكمة ببغداد نقلة نوعية في علوم الفلك والرياضيات والطب والبصريات والجغرافيا.",
+                "أسهم العلماء المسلمون في تطوير الإسطرلاب والأزياج الفلكية وقياس محيط الأرض بدقة عالية في مراصد سمرقند ودمشق.",
+                "ازدهرت التجارة البحرية والبرية وربطت القوافل بين قرطبة والقيروان والقاهرة ودمشق وبغداد وسمرقند عبر طرق محمية."
+        };
+        for (int sec = 15; sec <= 4020; sec += 45) {
+            int end = sec + 35;
+            int idx = (sec / 45);
+            vtt.append(formatVttTime(sec)).append(" --> ").append(formatVttTime(end)).append("\n");
+            vtt.append("القسم رقم ").append(idx).append(": ").append(sentences[idx % sentences.length])
+                    .append(" وكذلك ").append(sentences[(idx + 2) % sentences.length]).append("\n\n");
+        }
+        return vtt.toString();
+    }
+
+    static String buildMultiFormatPass1Json(ObjectMapper mapper, String prefix, int count, int opens) {
+        List<Map<String, Object>> mList = new ArrayList<>();
+        String[] markers = {"[01:00]", "02:30", "[26:00]", "28:15", "01:02:00", "[64:30]"};
+        for (int i = 0; i < count; i++) {
+            Map<String, Object> item = new java.util.LinkedHashMap<>();
+            item.put("questionText", prefix + " Why was the Registry of the Seal (ديوان الخاتم) established #" + i + "?");
+            item.put("type", "REASONING");
+            if (i == 0) {
+                item.put("evidence", "أنشأ الخليفة ديوان الخاتم في دمشق لحفظ الرسائل الرسمية");
+            } else {
+                item.put("evidence", "Historical evidence in English with Arabic term (بيت الحكمة) #" + i);
+                if (i % 2 == 1) item.put("evidenceMarker", markers[i % markers.length]);
+                else item.put("evidenceTimestamp", i == 2 ? "165" : 120 + i * 15);
+            }
+            String rightText = (i == 1)
+                    ? "To prevent forgery of official caliphal correspondence and seal state decrees in Damascus (ديوان الخاتم)"
+                    : prefix + " Correct historical explanation (الإدارة) " + i;
+            item.put("options", List.of(
+                    Map.of("optionText", rightText, "isCorrect", true),
+                    Map.of("optionText", prefix + " Distractor A (الخراج) " + i, "isCorrect", false),
+                    Map.of("optionText", prefix + " Distractor B (البريد) " + i, "isCorrect", false),
+                    Map.of("optionText", prefix + " Distractor C (الجند) " + i, "isCorrect", false)));
+            mList.add(item);
+        }
+        List<Map<String, Object>> oList = new ArrayList<>();
+        for (int i = 0; i < opens; i++) {
+            oList.add(Map.of(
+                    "promptText", prefix + " Explain how the House of Wisdom (بيت الحكمة) transformed astronomy and medicine #" + i + ".",
+                    "evidence", "شهدت حركة الترجمة في بيت الحكمة ببغداد نقلة نوعية (بيت الحكمة)",
+                    "evidenceMarker", "[01:45]"));
+        }
+        try { return mapper.writeValueAsString(Map.of("mcqs", mList, "openQuestions", oList)); }
+        catch (Exception e) { throw new RuntimeException(e); }
+    }
+
+    private static String formatVttTime(int totalSec) {
+        int h = totalSec / 3600, m = (totalSec % 3600) / 60, s = totalSec % 60;
+        return String.format("%02d:%02d:%02d.000", h, m, s);
+    }
 }

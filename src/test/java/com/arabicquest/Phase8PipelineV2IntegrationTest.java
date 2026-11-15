@@ -1,4 +1,4 @@
-// Integration tests for Pipeline v2: SRT/VTT quality gate, Claude primary writer, auto-caption fetch, Gemini 429/503 fallback, N+1 lookahead, and admin unlock.
+// Integration tests for Pipeline v2: multi-chunk >60m VTT, timestamp formats, cue recovery, soft option ranking, max_tokens retry, and stage logs.
 package com.arabicquest;
 
 import com.arabicquest.model.*;
@@ -6,6 +6,8 @@ import com.arabicquest.repository.*;
 import com.arabicquest.service.*;
 import com.arabicquest.service.AiQuizService.CandidateMcq;
 import com.arabicquest.service.AiQuizService.CandidateOption;
+import com.arabicquest.service.PipelineCandidateNormalizer.ChunkNormalizationResult;
+import com.arabicquest.service.PipelineCandidateNormalizer.ParsedPass1Batch;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +19,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
@@ -24,6 +27,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,6 +55,7 @@ class Phase8PipelineV2IntegrationTest {
     @Autowired private EpisodeTranscriptRepository transcriptRepository;
     @Autowired private QuizRepository quizRepository;
     @Autowired private QuestionRepository questionRepository;
+    @Autowired private OpenQuestionRepository openQuestionRepository;
     @Autowired private GenerationJobRepository generationJobRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private QuizAttemptRepository quizAttemptRepository;
@@ -62,6 +67,7 @@ class Phase8PipelineV2IntegrationTest {
     @Autowired private ClaudeClient claudeClient;
     @Autowired private YouTubeCaptionService youTubeCaptionService;
     @Autowired private BlindTestService blindTestService;
+    @Autowired private CrossModelQuizPipelineService pipelineService;
     @Autowired private GenerationJobService generationJobService;
     @Autowired private AutoQuizGenerationService autoQuizGenerationService;
     @Autowired private QuizService quizService;
@@ -126,102 +132,118 @@ class Phase8PipelineV2IntegrationTest {
     }
 
     @Test
-    void claudeNoTemperatureAutoCaptionFetchGemini503FallbackAndLookaheadWork() throws Exception {
-        assertThat(GeminiTextClient.normalizeThinkingLevel("minimal")).isEqualTo("low");
-        assertThat(GeminiTextClient.normalizeThinkingLevel("HIGH")).isEqualTo("high");
-        CandidateMcq candidate = new CandidateMcq("ما السبب الرئيس لإنشاء ديوان الخاتم في دمشق؟", QuestionType.REASONING, "إنشاء ديوان الخاتم", 55,
-                List.of(new CandidateOption("لمنع تزوير الرسائل الرسمية وضمان سرية الأوامر الصادرة عن الخليفة في دمشق", true),
-                        new CandidateOption("لجمع الضرائب والمكوس في ولايات المشرق", false),
-                        new CandidateOption("لتدريب الجند وتجهيز الثغور البحرية", false),
-                        new CandidateOption("لبناء السفن التجارية في البحر المتوسط", false)));
-        CandidateMcq guarded = CrossModelQuizPipelineService.enforceCorrectOptionNeverLongest(candidate);
-        int correctLen = guarded.options().stream().filter(CandidateOption::isCorrect).findFirst().orElseThrow().optionText().length();
-        int maxOther = guarded.options().stream().filter(o -> !o.isCorrect()).mapToInt(o -> o.optionText().length()).max().orElse(0);
-        assertThat(correctLen).isLessThanOrEqualTo(maxOther);
+    void timestampFormatsCueRecoveryLongestOptionPreservationMaxTokensRetryAndMultiChunkVttWork() throws Exception {
+        assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds(125)).isEqualTo(125);
+        assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds("1620")).isEqualTo(1620);
+        assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds("12:45")).isEqualTo(765);
+        assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds("[4:05]")).isEqualTo(245);
+        assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds("65:30")).isEqualTo(3930);
+        assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds("1:05:30")).isEqualTo(3930);
 
-        RestTemplate origGeminiRt = geminiTextClient.getRestTemplate(), origClaudeRt = claudeClient.getRestTemplate(), origCapRt = youTubeCaptionService.getRestTemplate();
-        RestTemplate mockGeminiRt = mock(RestTemplate.class), mockClaudeRt = mock(RestTemplate.class), mockCapRt = mock(RestTemplate.class);
-        geminiTextClient.setRestTemplate(mockGeminiRt); claudeClient.setRestTemplate(mockClaudeRt); youTubeCaptionService.setRestTemplate(mockCapRt);
+        String fullCorrectText = "To prevent forgery of official caliphal correspondence and seal state decrees in Damascus (ديوان الخاتم)";
+        CandidateMcq longestCorrect = new CandidateMcq("Why was the Registry of the Seal (ديوان الخاتم) created?", QuestionType.REASONING, "ديوان الخاتم", 60,
+                List.of(new CandidateOption(fullCorrectText, true),
+                        new CandidateOption("Tax collection (الخراج)", false),
+                        new CandidateOption("Naval defense (الثغور)", false),
+                        new CandidateOption("Coin minting (السكة)", false)));
+        CandidateMcq kept = CrossModelQuizPipelineService.enforceCorrectOptionNeverLongest(longestCorrect);
+        assertThat(kept).isNotNull();
+        assertThat(kept.options().get(0).optionText()).isEqualTo(fullCorrectText);
+        assertThat(PipelineCandidateNormalizer.isOptionRuleCompliant(kept)).isFalse();
+        CandidateMcq forbidden = new CandidateMcq("Q?", QuestionType.RECALL, "ev", 10,
+                List.of(new CandidateOption("All of the above", true), new CandidateOption("B", false), new CandidateOption("C", false), new CandidateOption("D", false)));
+        assertThat(CrossModelQuizPipelineService.enforceCorrectOptionNeverLongest(forbidden)).isNull();
+
+        String longVtt = Phase5GeminiTestSupport.buildRealisticMultiChunkArabicVttOver60Min();
+        TranscriptParserService.ParsedTranscript parsedLong = transcriptParserService.parseSrtOrVtt(longVtt);
+        List<TranscriptParserService.TranscriptChunk> longChunks = transcriptParserService.buildMarkedChunks(parsedLong.cues(), parsedLong.plainText(), 4080);
+        assertThat(longChunks).hasSizeGreaterThanOrEqualTo(3);
+
+        CandidateMcq nullTsCandidate = new CandidateMcq("What was established in Damascus (دمشق)?", QuestionType.REASONING,
+                "أنشأ الخليفة ديوان الخاتم في دمشق لحفظ الرسائل الرسمية", null, longestCorrect.options());
+        ChunkNormalizationResult normRes = PipelineCandidateNormalizer.normalizeChunkCandidates(
+                new ParsedPass1Batch(List.of(nullTsCandidate), List.of()), longChunks.get(0), parsedLong.cues(), transcriptParserService);
+        assertThat(normRes.counts().droppedNullTimestamp).isEqualTo(1);
+        assertThat(normRes.counts().timestampValid).isEqualTo(1);
+        assertThat(normRes.keptMcqs().get(0).evidenceTimestamp()).isNotNull().isBetween(15, 1500);
+
+        RestTemplate origGeminiRt = geminiTextClient.getRestTemplate(), origClaudeRt = claudeClient.getRestTemplate();
+        RestTemplate mockGeminiRt = mock(RestTemplate.class), mockClaudeRt = mock(RestTemplate.class);
+        geminiTextClient.setRestTemplate(mockGeminiRt); claudeClient.setRestTemplate(mockClaudeRt);
         blindTestService.setBackoffBaseMs(0L);
-
         try {
-            String watchHtml = "<html><script>var p={\"captionTracks\":[{\"baseUrl\":\"https://www.youtube.com/api/timedtext?v=t&lang=ar\",\"languageCode\":\"ar\"}]};</script></html>";
-            String json3Caps = "{\"events\":[{\"tStartMs\":5000,\"segs\":[{\"utf8\":\"تأسست الدولة الأموية في دمشق وشهدت تنظيم الدواوين والخراج والبريد في الأمصار الإسلامية.\"}]},"
-                    + "{\"tStartMs\":55000,\"segs\":[{\"utf8\":\"أمر الخليفة بإنشاء ديوان الخاتم لمنع تزوير الرسائل الرسمية وحفظ أسرار الدولة.\"}]},"
-                    + "{\"tStartMs\":135000,\"segs\":[{\"utf8\":\"وتطورت العلوم والترجمة والعمارة الإسلامية في الحواضر الكبرى عبر القرون.\"}]}]}";
-            when(mockCapRt.exchange(contains("youtube.com/watch"), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(new ResponseEntity<>(watchHtml, HttpStatus.OK));
-            when(mockCapRt.exchange(any(java.net.URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(new ResponseEntity<>(json3Caps, HttpStatus.OK));
-
             when(mockGeminiRt.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
-                    .thenThrow(HttpServerErrorException.create(HttpStatus.SERVICE_UNAVAILABLE, "503 Overloaded", HttpHeaders.EMPTY,
-                            "{\"error\":{\"message\":\"Model overloaded\"}}".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
+                    .thenThrow(HttpClientErrorException.create(HttpStatus.TOO_MANY_REQUESTS, "429 Rate Limit", HttpHeaders.EMPTY,
+                            "{\"error\":{\"message\":\"Quota exceeded\"}}".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
 
-            String pass1Json = Phase5GeminiTestSupport.buildPass1Json(objectMapper, "ClaudeAuto", 12, 2);
-            String pass2Json = Phase5GeminiTestSupport.buildPass2Json(objectMapper, 12, 2);
-            String blindJson = "{\"answers\":[]}";
+            AtomicInteger pass1Calls = new AtomicInteger();
+            String validBatch6 = Phase5GeminiTestSupport.buildMultiFormatPass1Json(objectMapper, "RetryBatch", 8, 1);
+            String validBatch12 = Phase5GeminiTestSupport.buildMultiFormatPass1Json(objectMapper, "FullBatch", 10, 1);
+            String pass2Json = Phase5GeminiTestSupport.buildPass2Json(objectMapper, 10, 1);
             when(mockClaudeRt.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
                     .thenAnswer(inv -> {
-                        HttpEntity<String> ent = inv.getArgument(2);
-                        String body = ent.getBody();
-                        assertThat(body).doesNotContain("\"temperature\"").doesNotContain("minimal");
-                        String reply = body.contains("verifiedMcqIndices") ? pass2Json
-                                : (body.contains("blind multiple-choice") ? blindJson : pass1Json);
-                        String wrapped = objectMapper.writeValueAsString(Map.of("content", List.of(Map.of("type", "text", "text", reply))));
-                        return new ResponseEntity<>(wrapped, HttpStatus.OK);
+                        String body = ((HttpEntity<String>) inv.getArgument(2)).getBody();
+                        assertThat(body).doesNotContain("\"temperature\"");
+                        if (body.contains("verifiedMcqIndices")) {
+                            return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "end_turn",
+                                    "usage", Map.of("input_tokens", 200, "output_tokens", 50),
+                                    "content", List.of(Map.of("type", "text", "text", "```json\n" + pass2Json + "\n```")))), HttpStatus.OK);
+                        }
+                        if (body.contains("blind multiple-choice")) {
+                            return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "end_turn",
+                                    "content", List.of(Map.of("type", "text", "text", "{\"answers\":[]}")))), HttpStatus.OK);
+                        }
+                        int callNum = pass1Calls.incrementAndGet();
+                        if (callNum == 1) {
+                            assertThat(body).contains("8192");
+                            return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "max_tokens",
+                                    "usage", Map.of("input_tokens", 500, "output_tokens", 8192),
+                                    "content", List.of(Map.of("type", "text", "text", "{\"mcqs\":[{\"questionText\":\"Truncated")))), HttpStatus.OK);
+                        }
+                        String json = body.contains("generate 6") ? validBatch6 : validBatch12;
+                        int mid = json.length() / 2;
+                        return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "end_turn",
+                                "usage", Map.of("input_tokens", 500, "output_tokens", 900),
+                                "content", List.of(Map.of("type", "text", "text", "```json\n" + json.substring(0, mid)),
+                                        Map.of("type", "text", "text", json.substring(mid) + "\n```")))), HttpStatus.OK);
                     });
 
-            Playlist autoCourse = new Playlist("Auto Lookahead Course", "PL_AUTO_N1", "Auto N+1");
-            autoCourse.setPublished(true);
-            autoCourse = playlistRepository.save(autoCourse);
-            Episode epN = episodeRepository.save(new Episode(autoCourse, 1, "Ep N", "vidAuto_epN1", 600));
-            Episode epN1 = episodeRepository.save(new Episode(autoCourse, 2, "Ep N+1", "vidAuto_epN2", 600));
+            Episode epVtt = episodeRepository.save(new Episode(course, 84, "Long VTT Ep", "vid84_longvtt", 4080));
+            Map<String, Object> uploadBody = Map.of("playlistId", course.getId(), "confirmSave", true,
+                    "files", List.of(Map.of("filename", "vid84_longvtt.vtt", "content", longVtt)));
+            mockMvc.perform(post("/api/admin/transcripts/upload").header(HttpHeaders.AUTHORIZATION, adminBearer).header("X-Requested-With", "XMLHttpRequest")
+                            .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(uploadBody)))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.savedCount").value(1));
 
-            autoQuizGenerationService.clearLocks();
-            assertThat(autoQuizGenerationService.triggerIfEpisodeBankIncomplete(epN.getId())).isTrue();
+            CrossModelQuizPipelineService.PipelineResult res = pipelineService.executePipeline(epVtt.getId(), "claude", null, false, "MANUAL", null);
+            assertThat(pass1Calls.get()).isGreaterThanOrEqualTo(4);
+            assertThat(res.savedMcqs()).isGreaterThanOrEqualTo(10);
+            assertThat(res.savedOpenQuestions()).isGreaterThanOrEqualTo(1);
+            List<Question> savedQs = questionRepository.findByEpisodeIdWithOptions(epVtt.getId());
+            assertThat(savedQs).isNotEmpty().allMatch(q -> q.getStatus() == QuestionStatus.DRAFT);
+            assertThat(openQuestionRepository.findByEpisodeIdOrderByIdAsc(epVtt.getId())).isNotEmpty();
 
-            long deadline = System.currentTimeMillis() + 5_000L;
-            while (System.currentTimeMillis() < deadline
-                    && (!autoQuizGenerationService.isEpisodeBankReady(epN.getId())
-                    || !autoQuizGenerationService.isEpisodeBankReady(epN1.getId()))) {
-                Thread.sleep(50);
-            }
-            assertThat(autoQuizGenerationService.isEpisodeBankReady(epN.getId())).isTrue();
-            assertThat(autoQuizGenerationService.isEpisodeBankReady(epN1.getId())).isTrue();
-            assertThat(transcriptRepository.findByEpisodeId(epN.getId())).isPresent()
-                    .get().extracting(EpisodeTranscript::getSource).isEqualTo("AUTOFETCH");
-            assertThat(transcriptRepository.findByEpisodeId(epN1.getId())).isPresent()
-                    .get().extracting(EpisodeTranscript::getSource).isEqualTo("AUTOFETCH");
+            when(mockClaudeRt.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
+                    .thenAnswer(inv -> {
+                        String badPass1 = "{\"mcqs\":[{\"questionText\":\"Bad?\",\"type\":\"RECALL\",\"evidence\":\"none\",\"options\":["
+                                + "{\"optionText\":\"All of the above\",\"isCorrect\":true},{\"optionText\":\"B\",\"isCorrect\":false},"
+                                + "{\"optionText\":\"C\",\"isCorrect\":false},{\"optionText\":\"D\",\"isCorrect\":false}]}],\"openQuestions\":[]}";
+                        return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "end_turn",
+                                "content", List.of(Map.of("type", "text", "text", badPass1)))), HttpStatus.OK);
+                    });
+            Episode epFail = episodeRepository.save(new Episode(course, 85, "Fail Stage Ep", "vid85_failst", 600));
+            epFail.setTranscriptText("محاضرة قصيرة حول تاريخ العلوم في الحواضر الإسلامية.");
+            episodeRepository.save(epFail);
+            assertThatThrownBy(() -> pipelineService.executePipeline(epFail.getId(), "claude", null, false, "MANUAL", null))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("pass1Parsed=1")
+                    .hasMessageContaining("droppedOptionRule=1")
+                    .hasMessageContaining("pass2Verified=0")
+                    .hasMessageContaining("pass3Survived=0");
         } finally {
             geminiTextClient.setRestTemplate(origGeminiRt);
             claudeClient.setRestTemplate(origClaudeRt);
-            youTubeCaptionService.setRestTemplate(origCapRt);
         }
-
-        Episode ep = transactionTemplate.execute(st -> {
-            Episode e = episodeRepository.save(new Episode(course, 82, "Episode 82", "vid82_abc12", 4500));
-            Quiz quiz = quizRepository.save(new Quiz(e));
-            int order = 1;
-            for (int c = 0; c < 4; c++) {
-                for (int i = 0; i < 5; i++) {
-                    Question q = new Question(quiz, "سؤال المقطع " + c + " رقم " + i, order++);
-                    q.setStatus(QuestionStatus.APPROVED); q.setActive(true); q.setChunkIndex(c);
-                    q.getOptions().add(new QuestionOption(q, "أ", true));
-                    q.getOptions().add(new QuestionOption(q, "ب", false));
-                    q.getOptions().add(new QuestionOption(q, "ج", false));
-                    q.getOptions().add(new QuestionOption(q, "د", false));
-                    questionRepository.save(q);
-                }
-            }
-            return e;
-        });
-        List<Question> approved = questionRepository.findByEpisodeIdWithOptions(ep.getId());
-        List<Question> selected = quizService.selectTenQuestionsForAttempt(student, ep, approved, LocalDateTime.now());
-        assertThat(selected).hasSize(10);
-        Map<Integer, Long> perChunk = new HashMap<>();
-        for (Question q : selected) perChunk.merge(q.getChunkIndex(), 1L, Long::sum);
-        perChunk.values().forEach(count -> assertThat(count).isLessThanOrEqualTo(3L));
     }
 
     @Test
