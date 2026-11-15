@@ -1,6 +1,7 @@
-// Runs Pass 1 writer, Pass 2 cross-model verifier, timestamp/option guards, Pass 3 blind test, and atomic question persistence.
+// Runs Pass 1 writer, Pass 2 cross-model verifier, timestamp/option guards, Pass 3 blind test, and automatic caption acquisition.
 package com.arabicquest.service;
 
+import com.arabicquest.config.TooManyRequestsException;
 import com.arabicquest.dto.QuestionBankAdminResponse;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
@@ -32,6 +34,7 @@ public class CrossModelQuizPipelineService {
     private final QuestionRepository questionRepository;
     private final OpenQuestionRepository openQuestionRepository;
     private final TranscriptParserService transcriptParserService;
+    private final TranscriptQualityGate transcriptQualityGate;
     private final GeminiTextClient geminiTextClient;
     private final ClaudeClient claudeClient;
     private final BlindTestService blindTestService;
@@ -44,17 +47,42 @@ public class CrossModelQuizPipelineService {
             EpisodeRepository episodeRepository, EpisodeTranscriptRepository transcriptRepository,
             QuizRepository quizRepository, QuestionRepository questionRepository,
             OpenQuestionRepository openQuestionRepository, TranscriptParserService transcriptParserService,
-            GeminiTextClient geminiTextClient, ClaudeClient claudeClient,
-            BlindTestService blindTestService, AiQuizService aiQuizService, ObjectMapper objectMapper) {
+            TranscriptQualityGate transcriptQualityGate, GeminiTextClient geminiTextClient,
+            ClaudeClient claudeClient, BlindTestService blindTestService,
+            AiQuizService aiQuizService, ObjectMapper objectMapper) {
         this.episodeRepository = episodeRepository; this.transcriptRepository = transcriptRepository;
         this.quizRepository = quizRepository; this.questionRepository = questionRepository;
         this.openQuestionRepository = openQuestionRepository; this.transcriptParserService = transcriptParserService;
-        this.geminiTextClient = geminiTextClient; this.claudeClient = claudeClient;
-        this.blindTestService = blindTestService; this.aiQuizService = aiQuizService; this.objectMapper = objectMapper;
+        this.transcriptQualityGate = transcriptQualityGate; this.geminiTextClient = geminiTextClient;
+        this.claudeClient = claudeClient; this.blindTestService = blindTestService;
+        this.aiQuizService = aiQuizService; this.objectMapper = objectMapper;
     }
 
     public record PipelineResult(int savedMcqs, int savedOpenQuestions, String writerModelUsed, String verifierModelUsed,
                                  boolean blindTestCompleted, boolean needsReview, boolean autoApproved) {}
+
+    @Transactional
+    public Optional<EpisodeTranscript> autoAcquireTranscriptIfMissing(Episode episode) {
+        if (episode == null || episode.getId() == null) return Optional.empty();
+        Optional<EpisodeTranscript> existing = transcriptRepository.findByEpisodeId(episode.getId());
+        if (existing.isPresent()) return existing;
+        Optional<String> rawOpt = aiQuizService.getYouTubeCaptionService().fetchCaptionsTranscript(episode.getYoutubeVideoId());
+        if (rawOpt.isEmpty() || rawOpt.get().isBlank()) return Optional.empty();
+        try {
+            TranscriptParserService.ParsedTranscript parsed = transcriptParserService.parseSrtOrVtt(rawOpt.get());
+            if (parsed.plainText().isBlank()) return Optional.empty();
+            TranscriptQualityGate.QualityAssessment qa = transcriptQualityGate.evaluate(parsed, episode.getDurationSeconds());
+            EpisodeTranscript entity = new EpisodeTranscript();
+            entity.setEpisode(episode); entity.setSource("AUTOFETCH");
+            entity.setCuesJson(transcriptParserService.toCuesJson(parsed.cues()));
+            entity.setPlainText(parsed.plainText()); entity.setWordCount(parsed.wordCount());
+            entity.setQualityStatus(qa.status()); entity.setQualityReport(transcriptQualityGate.toReportJson(qa));
+            entity.setUseAnyway(!qa.passed()); entity.setUploadedAt(LocalDateTime.now());
+            entity = transcriptRepository.save(entity);
+            episode.setTranscriptText(parsed.plainText()); episodeRepository.save(episode);
+            return Optional.of(entity);
+        } catch (Exception ex) { return Optional.empty(); }
+    }
 
     @Transactional
     public PipelineResult executePipeline(
@@ -62,16 +90,26 @@ public class CrossModelQuizPipelineService {
             boolean autoTriggered, String sourceTag, BiConsumer<String, Integer> progressCallback) {
         Episode episode = episodeRepository.findById(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found: " + episodeId));
-        boolean useClaudeWriter = isClaudeRequested(requestedWriter) && claudeClient.isConfigured();
-        boolean useClaudeVerifier = !useClaudeWriter && claudeClient.isConfigured();
+        boolean explicitGemini = requestedWriter != null && requestedWriter.toLowerCase(Locale.ROOT).contains("gemini");
+        boolean useClaudeWriter = claudeClient.isConfigured() && (!explicitGemini || !geminiTextClient.isConfigured());
+        boolean useClaudeVerifier = !geminiTextClient.isConfigured() || (!useClaudeWriter && claudeClient.isConfigured());
         String writerModelName = useClaudeWriter ? claudeClient.getModel() : geminiTextClient.getModel();
         String verifierModelName = useClaudeVerifier ? claudeClient.getModel() : geminiTextClient.getModel();
 
         List<TranscriptChunk> chunks = resolveUsableTranscriptChunks(episode, optionalTranscriptOverride);
         if (chunks.isEmpty()) {
-            if (progressCallback != null) progressCallback.accept("VIDEO_FALLBACK", 30);
-            AiQuizService.GeneratedBankSummary v = aiQuizService.generateQuestionBankForEpisode(null, episodeId, null, false, false);
-            return new PipelineResult(v.savedDraftMcqs(), v.savedDraftOpenQuestions(), writerModelName, verifierModelName, false, false, false);
+            try {
+                if (progressCallback != null) progressCallback.accept("VIDEO_FALLBACK", 30);
+                AiQuizService.GeneratedBankSummary v = aiQuizService.generateQuestionBankForEpisode(null, episodeId, null, autoTriggered, false);
+                return new PipelineResult(v.savedDraftMcqs(), v.savedDraftOpenQuestions(), writerModelName, verifierModelName, false, false, autoTriggered);
+            } catch (Exception videoEx) {
+                Optional<EpisodeTranscript> fallbackEt = transcriptRepository.findByEpisodeId(episode.getId());
+                if (fallbackEt.isPresent() && fallbackEt.get().getPlainText() != null && !fallbackEt.get().getPlainText().isBlank()) {
+                    EpisodeTranscript et = fallbackEt.get();
+                    chunks = transcriptParserService.buildMarkedChunks(
+                            transcriptParserService.fromCuesJson(et.getCuesJson()), et.getPlainText(), episode.getDurationSeconds());
+                } else throw videoEx;
+            }
         }
 
         List<BlindTestedCandidate> allTestedMcqs = new ArrayList<>();
@@ -116,15 +154,9 @@ public class CrossModelQuizPipelineService {
         PipelineResult resA = executePipeline(episodeId, claudeSetA ? "claude" : "gemini", null, false, "SET_A", null);
         PipelineResult resB = executePipeline(episodeId, claudeSetA ? "gemini" : "claude", null, false, "SET_B", null);
         hiddenCompareModelsByEpisode.put(episodeId, Map.of("SET_A", resA.writerModelUsed(), "SET_B", resB.writerModelUsed()));
-
         List<Question> all = questionRepository.findByEpisodeIdWithOptions(episodeId);
-        List<QuestionBankAdminResponse.McqAdminItem> setA = all.stream()
-                .filter(q -> "SET_A".equals(q.getSource()) && q.getStatus() == QuestionStatus.DRAFT)
-                .map(QuestionBankAdminResponse.McqAdminItem::from).toList();
-        List<QuestionBankAdminResponse.McqAdminItem> setB = all.stream()
-                .filter(q -> "SET_B".equals(q.getSource()) && q.getStatus() == QuestionStatus.DRAFT)
-                .map(QuestionBankAdminResponse.McqAdminItem::from).toList();
-
+        List<QuestionBankAdminResponse.McqAdminItem> setA = all.stream().filter(q -> "SET_A".equals(q.getSource()) && q.getStatus() == QuestionStatus.DRAFT).map(QuestionBankAdminResponse.McqAdminItem::from).toList();
+        List<QuestionBankAdminResponse.McqAdminItem> setB = all.stream().filter(q -> "SET_B".equals(q.getSource()) && q.getStatus() == QuestionStatus.DRAFT).map(QuestionBankAdminResponse.McqAdminItem::from).toList();
         return Map.of("episodeId", episodeId, "setA", setA, "setB", setB, "modelsHidden", true,
                 "costWarning", "Compare Models runs both writer pipelines (Set A and Set B) and doubles token usage.");
     }
@@ -136,15 +168,9 @@ public class CrossModelQuizPipelineService {
         int approved = 0, retired = 0;
         for (Question q : questionRepository.findByEpisodeIdWithOptions(episodeId)) {
             if (winner.equals(q.getSource())) {
-                q.setStatus(QuestionStatus.APPROVED);
-                q.setActive(true);
-                questionRepository.save(q);
-                approved++;
+                q.setStatus(QuestionStatus.APPROVED); q.setActive(true); questionRepository.save(q); approved++;
             } else if (loser.equals(q.getSource())) {
-                q.setStatus(QuestionStatus.RETIRED);
-                q.setActive(false);
-                questionRepository.save(q);
-                retired++;
+                q.setStatus(QuestionStatus.RETIRED); q.setActive(false); questionRepository.save(q); retired++;
             }
         }
         Map<String, String> revealed = hiddenCompareModelsByEpisode.getOrDefault(
@@ -157,8 +183,7 @@ public class CrossModelQuizPipelineService {
         int maxDistractorLen = 0, correctLen = 0;
         for (CandidateOption o : mcq.options()) {
             String t = o.optionText() != null ? o.optionText().trim() : "";
-            if (t.isEmpty() || t.toLowerCase(Locale.ROOT).contains("all of the above")
-                    || t.toLowerCase(Locale.ROOT).contains("none of the above")) return null;
+            if (t.isEmpty() || t.toLowerCase(Locale.ROOT).contains("all of the above") || t.toLowerCase(Locale.ROOT).contains("none of the above")) return null;
             if (o.isCorrect()) correctLen = t.length();
             else maxDistractorLen = Math.max(maxDistractorLen, t.length());
         }
@@ -166,9 +191,7 @@ public class CrossModelQuizPipelineService {
         List<CandidateOption> adjusted = new ArrayList<>(4);
         for (CandidateOption o : mcq.options()) {
             String t = o.optionText().trim();
-            if (o.isCorrect() && t.length() > maxDistractorLen && maxDistractorLen >= 10) {
-                t = t.substring(0, maxDistractorLen).trim();
-            }
+            if (o.isCorrect() && t.length() > maxDistractorLen && maxDistractorLen >= 10) t = t.substring(0, maxDistractorLen).trim();
             adjusted.add(new CandidateOption(t, o.isCorrect()));
         }
         return new CandidateMcq(mcq.questionText(), mcq.type(), mcq.evidence(), mcq.evidenceTimestamp(), adjusted);
@@ -179,16 +202,13 @@ public class CrossModelQuizPipelineService {
             return transcriptParserService.buildMarkedChunks(List.of(), overrideText, episode.getDurationSeconds());
         }
         Optional<EpisodeTranscript> opt = transcriptRepository.findByEpisodeId(episode.getId());
+        if (opt.isEmpty() && (episode.getTranscriptText() == null || episode.getTranscriptText().isBlank())) opt = autoAcquireTranscriptIfMissing(episode);
         if (opt.isPresent()) {
             EpisodeTranscript et = opt.get();
-            if (!et.isUsableForGeneration()) return List.of();
-            List<Cue> cues = transcriptParserService.fromCuesJson(et.getCuesJson());
-            return transcriptParserService.buildMarkedChunks(cues, et.getPlainText(), episode.getDurationSeconds());
+            return et.isUsableForGeneration() ? transcriptParserService.buildMarkedChunks(transcriptParserService.fromCuesJson(et.getCuesJson()), et.getPlainText(), episode.getDurationSeconds()) : List.of();
         }
-        if (episode.getTranscriptText() != null && !episode.getTranscriptText().isBlank()) {
-            return transcriptParserService.buildMarkedChunks(List.of(), episode.getTranscriptText(), episode.getDurationSeconds());
-        }
-        return List.of();
+        return (episode.getTranscriptText() != null && !episode.getTranscriptText().isBlank())
+                ? transcriptParserService.buildMarkedChunks(List.of(), episode.getTranscriptText(), episode.getDurationSeconds()) : List.of();
     }
 
     private List<CandidateMcq> runPass2Verification(
@@ -202,23 +222,14 @@ public class CrossModelQuizPipelineService {
             List<CandidateMcq> keptMcqs = new ArrayList<>();
             JsonNode mArr = root.path("verifiedMcqIndices");
             if (mArr.isArray()) {
-                for (JsonNode n : mArr) {
-                    int idx = n.asInt(-1);
-                    if (idx >= 0 && idx < mcqs.size()) keptMcqs.add(mcqs.get(idx));
-                }
+                for (JsonNode n : mArr) { int idx = n.asInt(-1); if (idx >= 0 && idx < mcqs.size()) keptMcqs.add(mcqs.get(idx)); }
             } else keptMcqs.addAll(mcqs);
             JsonNode oArr = root.path("verifiedOpenIndices");
             if (oArr.isArray()) {
-                for (JsonNode n : oArr) {
-                    int idx = n.asInt(-1);
-                    if (idx >= 0 && idx < opens.size()) verifiedOpensOut.add(opens.get(idx));
-                }
+                for (JsonNode n : oArr) { int idx = n.asInt(-1); if (idx >= 0 && idx < opens.size()) verifiedOpensOut.add(opens.get(idx)); }
             } else verifiedOpensOut.addAll(opens);
             return keptMcqs.isEmpty() ? mcqs : keptMcqs;
-        } catch (Exception ex) {
-            verifiedOpensOut.addAll(opens);
-            return mcqs;
-        }
+        } catch (Exception ex) { verifiedOpensOut.addAll(opens); return mcqs; }
     }
 
     private int persistMcqsAndOpens(Episode episode, List<BlindTestedCandidate> selectedMcqs,
@@ -231,29 +242,36 @@ public class CrossModelQuizPipelineService {
             if (c.type() == QuestionType.VOCABULARY && ++vocabCount > 2) continue;
             Question q = new Question(quiz, c.questionText(), order++);
             q.setType(c.type() != null ? c.type() : QuestionType.REASONING);
-            q.setStatus(status);
-            q.setActive(status == QuestionStatus.APPROVED);
-            q.setEvidence(c.evidence());
-            q.setEvidenceTimestamp(c.evidenceTimestamp());
-            q.setChunkIndex(btc.chunkIndex());
-            q.setSource(source);
+            q.setStatus(status); q.setActive(status == QuestionStatus.APPROVED);
+            q.setEvidence(c.evidence()); q.setEvidenceTimestamp(c.evidenceTimestamp());
+            q.setChunkIndex(btc.chunkIndex()); q.setSource(source);
             for (CandidateOption co : c.options()) q.getOptions().add(new QuestionOption(q, co.optionText(), co.isCorrect()));
             questionRepository.save(q);
             saved++;
         }
         for (CandidateOpen co : opens) {
             OpenQuestion oq = new OpenQuestion(episode, co.promptText(), co.evidence(), co.evidenceTimestamp(), status);
-            oq.setActive(status == QuestionStatus.APPROVED);
-            oq.setSource(source);
+            oq.setActive(status == QuestionStatus.APPROVED); oq.setSource(source);
             openQuestionRepository.save(oq);
         }
         return saved;
     }
 
     private String callModel(boolean useClaude, String systemPrompt, String userPrompt) {
-        return (useClaude && claudeClient.isConfigured())
-                ? claudeClient.callMessagesJson(systemPrompt, userPrompt, 4096)
-                : geminiTextClient.callTextJson(systemPrompt, userPrompt);
+        if (useClaude && claudeClient.isConfigured()) return claudeClient.callMessagesJson(systemPrompt, userPrompt, 4096);
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                return geminiTextClient.callTextJson(systemPrompt, userPrompt);
+            } catch (Exception ex) {
+                String msg = ex.getMessage() != null ? ex.getMessage() : "";
+                boolean retryable = (ex instanceof TooManyRequestsException) || msg.contains("429") || msg.contains("503") || msg.contains("HTTP 5");
+                if (retryable && attempt == 1) continue;
+                if (claudeClient.isConfigured()) return claudeClient.callMessagesJson(systemPrompt, userPrompt, 4096);
+                if (ex instanceof RuntimeException re) throw re;
+                throw new IllegalStateException(ex);
+            }
+        }
+        throw new IllegalStateException("AI model call failed.");
     }
 
     private record ParsedCandidates(List<CandidateMcq> mcqs, List<CandidateOpen> opens) {}
@@ -264,9 +282,7 @@ public class CrossModelQuizPipelineService {
             List<CandidateMcq> mcqs = new ArrayList<>();
             for (JsonNode qn : root.path("mcqs")) {
                 List<CandidateOption> opts = new ArrayList<>();
-                for (JsonNode on : qn.path("options")) {
-                    opts.add(new CandidateOption(on.path("optionText").asText(""), on.path("isCorrect").asBoolean(false)));
-                }
+                for (JsonNode on : qn.path("options")) opts.add(new CandidateOption(on.path("optionText").asText(""), on.path("isCorrect").asBoolean(false)));
                 QuestionType type = QuestionBankMutationHelper.parseTypeOrDefault(qn.path("type").asText("REASONING"));
                 Integer ts = qn.hasNonNull("evidenceTimestamp") ? Integer.valueOf(qn.get("evidenceTimestamp").asInt()) : null;
                 mcqs.add(new CandidateMcq(qn.path("questionText").asText(""), type, qn.path("evidence").asText(""), ts, opts));
@@ -280,9 +296,5 @@ public class CrossModelQuizPipelineService {
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to parse Pass 1 JSON: " + ex.getMessage());
         }
-    }
-
-    private static boolean isClaudeRequested(String model) {
-        return model != null && model.toLowerCase(Locale.ROOT).contains("claude");
     }
 }

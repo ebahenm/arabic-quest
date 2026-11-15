@@ -121,9 +121,10 @@ public class GenerationJobService {
             }
             Episode ep = episodeRepository.findById(episodeId)
                     .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
+            String defaultModel = claudeClient.isConfigured() ? claudeClient.getModel() : geminiTextClient.getModel();
             String model = (writerModel != null && !writerModel.isBlank())
                     ? writerModel.trim()
-                    : geminiTextClient.getModel();
+                    : defaultModel;
             GenerationJob job = new GenerationJob(ep, model, autoTriggered);
             return jobRepository.save(job);
         });

@@ -147,7 +147,15 @@ public class BlindTestService {
                 }
                 return parseAnswersMap(rawJson);
             } catch (TooManyRequestsException ex) {
-                if (attempt == maxAttempts) throw ex;
+                if (attempt == maxAttempts) {
+                    if (!useClaude && claudeClient.isConfigured()) {
+                        log.warn("Gemini blind test rate-limited (429); falling back to Claude.");
+                        return parseAnswersMap(claudeClient.callMessagesJson(
+                                "You are taking a blind multiple-choice test without any source transcript. Output strict JSON only.",
+                                prompt, 1024));
+                    }
+                    throw ex;
+                }
                 sleepQuietly(backoffBaseMs * attempt);
             } catch (RuntimeException ex) {
                 String msg = ex.getMessage() != null ? ex.getMessage() : "";
@@ -155,6 +163,12 @@ public class BlindTestService {
                 if (retryable5xx && attempt < maxAttempts) {
                     sleepQuietly(backoffBaseMs * attempt);
                     continue;
+                }
+                if (!useClaude && claudeClient.isConfigured()) {
+                    log.warn("Gemini blind test failed ({}); falling back to Claude.", msg);
+                    return parseAnswersMap(claudeClient.callMessagesJson(
+                            "You are taking a blind multiple-choice test without any source transcript. Output strict JSON only.",
+                            prompt, 1024));
                 }
                 throw ex;
             }

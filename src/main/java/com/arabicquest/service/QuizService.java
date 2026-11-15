@@ -394,6 +394,9 @@ public class QuizService {
         quizAttemptRepository.save(attempt);
 
         if (passed) {
+            if (autoQuizGenerationService != null) {
+                autoQuizGenerationService.triggerIfEpisodeBankIncomplete(episode.getId());
+            }
             OpenQuestionStudentResponse openQ = openAnswerReviewService.assignOrGetOpenQuestion(
                     student, episode, effectiveWatchMode);
             BigDecimal potentialRate = openAnswerReviewService.resolveEpisodeRewardRate(episode, effectiveWatchMode);

@@ -128,6 +128,32 @@ public class TranscriptParserService {
                 }
             }
         }
+        if (cues.isEmpty()) {
+            Pattern bracketTime = Pattern.compile("^\\[(?:(\\d+):)?(\\d{1,2}):(\\d{2})]\\s*(.*)$");
+            for (String rawLine : lines) {
+                String subLine = rawLine.trim();
+                if (subLine.isEmpty()) continue;
+                rawLineCount++;
+                if (MUSIC_APPLAUSE.matcher(subLine).find()) musicApplauseCount++;
+                int sec = lastCueEndSeconds;
+                Matcher bm = bracketTime.matcher(subLine);
+                if (bm.matches()) {
+                    int h = bm.group(1) != null ? Integer.parseInt(bm.group(1)) : 0;
+                    sec = h * 3600 + Integer.parseInt(bm.group(2)) * 60 + Integer.parseInt(bm.group(3));
+                    subLine = bm.group(4).trim();
+                } else {
+                    sec = lastCueEndSeconds + 15;
+                }
+                String cleaned = stripRollingOverlap(lastCueFullText, stripFormatting(subLine));
+                if (!cleaned.isEmpty()) {
+                    cues.add(new Cue(sec, sec + 10, cleaned));
+                    lastCueEndSeconds = sec + 10;
+                    lastCueFullText = cleaned;
+                } else {
+                    duplicateLineCount++;
+                }
+            }
+        }
 
         StringBuilder plainBuilder = new StringBuilder();
         for (Cue cue : cues) {

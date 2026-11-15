@@ -84,7 +84,6 @@ public class ClaudeClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", getModel());
         body.put("max_tokens", Math.max(256, maxTokens));
-        body.put("temperature", 0.2);
         if (systemPrompt != null && !systemPrompt.isBlank()) {
             body.put("system", systemPrompt);
         }

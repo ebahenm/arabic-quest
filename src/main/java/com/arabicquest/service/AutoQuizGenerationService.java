@@ -1,11 +1,15 @@
-// Coordinates automatic background quiz generation with AUTO_QUIZ_GENERATION_ENABLED and a 3/day/episode limit.
+// Coordinates automatic background quiz generation with Episode N+1 lookahead, AUTO_QUIZ_GENERATION_ENABLED, and 3/day/episode limit.
 package com.arabicquest.service;
 
+import com.arabicquest.model.Episode;
 import com.arabicquest.model.QuestionStatus;
+import com.arabicquest.repository.EpisodeRepository;
+import com.arabicquest.repository.GenerationJobRepository;
 import com.arabicquest.repository.OpenQuestionRepository;
 import com.arabicquest.repository.QuestionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -13,6 +17,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -26,6 +31,9 @@ public class AutoQuizGenerationService {
 
     private final QuestionRepository questionRepository;
     private final OpenQuestionRepository openQuestionRepository;
+    private final EpisodeRepository episodeRepository;
+    private final GenerationJobRepository generationJobRepository;
+    private final ClaudeClient claudeClient;
     private final AiQuizService aiQuizService;
     private final AutoQuizAsyncWorker asyncWorker;
     private final ConcurrentHashMap<Long, AtomicBoolean> episodeLocks = new ConcurrentHashMap<>();
@@ -34,15 +42,30 @@ public class AutoQuizGenerationService {
     @Value("${AUTO_QUIZ_GENERATION_ENABLED:${app.quiz.auto-generate-enabled:true}}")
     private boolean autoGenerateEnabled = true;
 
+    @Autowired
+    public AutoQuizGenerationService(
+            QuestionRepository questionRepository,
+            OpenQuestionRepository openQuestionRepository,
+            EpisodeRepository episodeRepository,
+            GenerationJobRepository generationJobRepository,
+            ClaudeClient claudeClient,
+            @Lazy AiQuizService aiQuizService,
+            AutoQuizAsyncWorker asyncWorker) {
+        this.questionRepository = questionRepository;
+        this.openQuestionRepository = openQuestionRepository;
+        this.episodeRepository = episodeRepository;
+        this.generationJobRepository = generationJobRepository;
+        this.claudeClient = claudeClient;
+        this.aiQuizService = aiQuizService;
+        this.asyncWorker = asyncWorker;
+    }
+
     public AutoQuizGenerationService(
             QuestionRepository questionRepository,
             OpenQuestionRepository openQuestionRepository,
             @Lazy AiQuizService aiQuizService,
             AutoQuizAsyncWorker asyncWorker) {
-        this.questionRepository = questionRepository;
-        this.openQuestionRepository = openQuestionRepository;
-        this.aiQuizService = aiQuizService;
-        this.asyncWorker = asyncWorker;
+        this(questionRepository, openQuestionRepository, null, null, null, aiQuizService, asyncWorker);
     }
 
     public void setAutoGenerateEnabled(boolean enabled) {
@@ -69,17 +92,45 @@ public class AutoQuizGenerationService {
     }
 
     public boolean triggerIfEpisodeBankIncomplete(Long episodeId) {
+        boolean triggeredCurrent = triggerSingleEpisodeIfBankIncomplete(episodeId);
+        boolean triggeredAhead = triggerNextEpisodeLookahead(episodeId);
+        return triggeredCurrent || triggeredAhead;
+    }
+
+    public boolean triggerSingleEpisodeIfBankIncomplete(Long episodeId) {
         if (!canAttemptAutoGeneration(episodeId)) {
             return false;
         }
+        if (isEpisodeBankReady(episodeId)) {
+            return false;
+        }
+        return scheduleAsync(episodeId, false) != null;
+    }
+
+    public boolean triggerNextEpisodeLookahead(Long episodeId) {
+        if (!autoGenerateEnabled || episodeId == null || episodeRepository == null) {
+            return false;
+        }
+        Episode current = episodeRepository.findByIdWithPlaylist(episodeId).orElse(null);
+        if (current == null || current.getPlaylist() == null) {
+            return false;
+        }
+        List<Episode> courseEps = episodeRepository.findActiveByPlaylistIdOrderByEpisodeNumberAsc(current.getPlaylist().getId());
+        for (int i = 0; i < courseEps.size(); i++) {
+            if (courseEps.get(i).getId().equals(episodeId) && i + 1 < courseEps.size()) {
+                Episode nextEp = courseEps.get(i + 1);
+                return triggerSingleEpisodeIfBankIncomplete(nextEp.getId());
+            }
+        }
+        return false;
+    }
+
+    public boolean isEpisodeBankReady(Long episodeId) {
         long approvedMcqs = questionRepository.countByQuizEpisodeIdAndStatusAndActiveTrue(
                 episodeId, QuestionStatus.APPROVED);
         long approvedOpens = openQuestionRepository.countByEpisodeIdAndStatusAndActiveTrue(
                 episodeId, QuestionStatus.APPROVED);
-        if (approvedMcqs >= QuizService.SESSION_QUESTION_COUNT && approvedOpens >= 1L) {
-            return false;
-        }
-        return scheduleAsync(episodeId, false) != null;
+        return approvedMcqs >= QuizService.SESSION_QUESTION_COUNT && approvedOpens >= 1L;
     }
 
     public boolean triggerTopUpIfUnseenLow(Long episodeId, int unseenApprovedCount) {
@@ -102,8 +153,16 @@ public class AutoQuizGenerationService {
     }
 
     private boolean canAttemptAutoGeneration(Long episodeId) {
-        if (!autoGenerateEnabled || episodeId == null || !aiQuizService.isAiConfigured()) {
+        boolean anyAiConfigured = (aiQuizService != null && aiQuizService.isAiConfigured())
+                || (claudeClient != null && claudeClient.isConfigured());
+        if (!autoGenerateEnabled || episodeId == null || !anyAiConfigured) {
             return false;
+        }
+        if (generationJobRepository != null) {
+            long dbAutoToday = generationJobRepository.countAutoAttemptsSince(episodeId, LocalDate.now().atStartOfDay());
+            if (dbAutoToday >= MAX_DAILY_ATTEMPTS_PER_EPISODE) {
+                return false;
+            }
         }
         AtomicInteger counter = dailyAttemptCounts.computeIfAbsent(dailyKey(episodeId), k -> new AtomicInteger(0));
         return counter.get() < MAX_DAILY_ATTEMPTS_PER_EPISODE;

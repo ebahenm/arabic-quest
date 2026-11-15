@@ -341,6 +341,9 @@ public class WatchProgressService {
                 currentOv = StudentEpisodeOverride.OverrideState.UNLOCKED;
             }
         }
+        if (autoQuizGenerationService != null) {
+            autoQuizGenerationService.triggerIfEpisodeBankIncomplete(episode.getId());
+        }
         return Map.of(
                 "studentId", studentId,
                 "episodeId", episodeId,
