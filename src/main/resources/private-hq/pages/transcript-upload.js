@@ -6,9 +6,7 @@
 
     function mountTranscriptUploadPanel() {
         const qbankPanel = document.getElementById('tab-panel-question-bank');
-        if (!qbankPanel || document.getElementById('transcript-upload-card')) {
-            return;
-        }
+        if (!qbankPanel || document.getElementById('transcript-upload-card')) return;
 
         const card = document.createElement('div');
         card.id = 'transcript-upload-card';
@@ -108,16 +106,11 @@
         card.appendChild(epStatusBox);
 
         const cards = qbankPanel.querySelectorAll('.admin-card-section');
-        if (cards.length >= 2) {
-            qbankPanel.insertBefore(card, cards[1]);
-        } else {
-            qbankPanel.appendChild(card);
-        }
+        if (cards.length >= 2) qbankPanel.insertBefore(card, cards[1]);
+        else qbankPanel.appendChild(card);
 
         const epSelect = document.getElementById('ai-episode-select');
-        if (epSelect) {
-            epSelect.addEventListener('change', () => refreshSelectedEpisodeTranscriptStatus());
-        }
+        if (epSelect) epSelect.addEventListener('change', () => refreshSelectedEpisodeTranscriptStatus());
     }
 
     function setFeedback(text, isError) {
@@ -129,27 +122,19 @@
     }
 
     async function readFilesAsPayload(fileList) {
-        if (!fileList || fileList.length === 0) {
-            throw new Error('Select at least one .srt or .vtt file first.');
-        }
-        if (fileList.length > MAX_FILES) {
-            throw new Error(`Maximum ${MAX_FILES} files allowed per bulk upload.`);
-        }
+        if (!fileList || fileList.length === 0) throw new Error('Select at least one .srt or .vtt file first.');
+        if (fileList.length > MAX_FILES) throw new Error(`Maximum ${MAX_FILES} files allowed per bulk upload.`);
         const items = [];
         for (let i = 0; i < fileList.length; i++) {
             const f = fileList[i];
-            if (f.size > MAX_FILE_BYTES) {
-                throw new Error(`File "${f.name}" exceeds the 2 MB limit.`);
-            }
+            if (f.size > MAX_FILE_BYTES) throw new Error(`File "${f.name}" exceeds the 2 MB limit.`);
             const buf = await f.arrayBuffer();
             const decoder = new TextDecoder('utf-8', { fatal: true });
-            let content;
             try {
-                content = decoder.decode(buf);
+                items.push({ fileName: f.name, content: decoder.decode(buf) });
             } catch (e) {
                 throw new Error(`File "${f.name}" is not valid UTF-8 text.`);
             }
-            items.push({ fileName: f.name, content: content });
         }
         return items;
     }
@@ -166,16 +151,10 @@
             }
             const playlistId = courseSelect && courseSelect.value ? Number(courseSelect.value) : null;
             const episodeId = epSelect && epSelect.value ? Number(epSelect.value) : null;
-
             const res = await apiFetch('/api/admin/transcripts/upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    playlistId: playlistId,
-                    episodeId: episodeId,
-                    confirmSave: Boolean(confirmSave),
-                    files: pendingUploadFiles
-                })
+                body: JSON.stringify({ playlistId, episodeId, confirmSave: Boolean(confirmSave), files: pendingUploadFiles })
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -191,9 +170,7 @@
                 await refreshSelectedEpisodeTranscriptStatus();
             } else {
                 setFeedback(`Preview ready: ${matchedCount} matched, ${data.rejectedCount ?? 0} rejected/ambiguous. Confirm below to save.`, matchedCount === 0);
-                if (confirmBtn) {
-                    confirmBtn.style.display = matchedCount > 0 ? 'inline-flex' : 'none';
-                }
+                if (confirmBtn) confirmBtn.style.display = matchedCount > 0 ? 'inline-flex' : 'none';
             }
         } catch (err) {
             setFeedback(err.message || 'Failed to read or upload transcript files.', true);
@@ -211,23 +188,15 @@
             const tr = document.createElement('tr');
             const tdFile = document.createElement('td');
             tdFile.textContent = r.fileName || '';
-
             const tdEp = document.createElement('td');
-            tdEp.textContent = r.episodeTitle
-                ? `Ep. ${r.episodeNumber ?? ''}: ${r.episodeTitle}`
-                : (r.matchStatus || 'UNMATCHED');
-
+            tdEp.textContent = r.episodeTitle ? `Ep. ${r.episodeNumber ?? ''}: ${r.episodeTitle}` : (r.matchStatus || 'UNMATCHED');
             const tdWords = document.createElement('td');
             tdWords.textContent = String(r.wordCount ?? 0);
-
             const tdStatus = document.createElement('td');
-            const reasons = Array.isArray(r.qualityReasons) && r.qualityReasons.length > 0
-                ? ' — ' + r.qualityReasons.join('; ')
-                : '';
+            const reasons = Array.isArray(r.qualityReasons) && r.qualityReasons.length > 0 ? ' — ' + r.qualityReasons.join('; ') : '';
             const savedTag = r.saved ? ' (SAVED)' : '';
             tdStatus.textContent = `${r.matchStatus || ''} / ${r.qualityStatus || ''}${savedTag}${reasons}`;
             tdStatus.style.color = r.qualityStatus === 'PASS' ? '#6ee7b7' : '#fca5a5';
-
             tr.appendChild(tdFile);
             tr.appendChild(tdEp);
             tr.appendChild(tdWords);
@@ -272,9 +241,7 @@
                 useBtn.textContent = 'Use anyway';
                 useBtn.addEventListener('click', async () => {
                     await apiFetch(`/api/admin/episodes/${encodeURIComponent(epSelect.value)}/transcript/use-anyway`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ useAnyway: true })
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ useAnyway: true })
                     });
                     await refreshSelectedEpisodeTranscriptStatus();
                 });
@@ -284,9 +251,7 @@
                 videoBtn.className = 'btn-ghost';
                 videoBtn.textContent = 'Generate from video with Gemini';
                 videoBtn.addEventListener('click', () => {
-                    if (typeof window.handleGenerateAiVideoQuiz === 'function') {
-                        window.handleGenerateAiVideoQuiz();
-                    }
+                    if (typeof window.handleGenerateAiVideoQuiz === 'function') window.handleGenerateAiVideoQuiz();
                 });
 
                 actions.appendChild(useBtn);

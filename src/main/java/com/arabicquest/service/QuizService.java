@@ -183,7 +183,7 @@ public class QuizService {
         );
     }
 
-    private List<Question> selectTenQuestionsForAttempt(
+    public List<Question> selectTenQuestionsForAttempt(
             User student,
             Episode episode,
             List<Question> approvedQuestions,

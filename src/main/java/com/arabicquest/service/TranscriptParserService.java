@@ -26,12 +26,10 @@ public class TranscriptParserService {
     public static final int MARKER_TOLERANCE_SECONDS = 60;
 
     private static final Pattern TIMECODE_LINE = Pattern.compile(
-            "^\\s*((?:\\d{1,2}:)?\\d{2}:\\d{2}[.,]\\d{1,3})\\s*-->\\s*((?:\\d{1,2}:)?\\d{2}:\\d{2}[.,]\\d{1,3}).*$"
-    );
+            "^\\s*((?:\\d{1,2}:)?\\d{2}:\\d{2}[.,]\\d{1,3})\\s*-->\\s*((?:\\d{1,2}:)?\\d{2}:\\d{2}[.,]\\d{1,3}).*$");
     private static final Pattern INLINE_TAGS = Pattern.compile("<[^>]*>|\\{\\\\[^}]*}");
     private static final Pattern MUSIC_APPLAUSE = Pattern.compile(
-            "(?i)\\[\\s*(?:music|applause|laughter|silence|موسيقى|تصفيق)\\s*]|\\(\\s*(?:music|applause)\\s*\\)|[♪♫]+"
-    );
+            "(?i)\\[\\s*(?:music|applause|laughter|silence|موسيقى|تصفيق)\\s*]|\\(\\s*(?:music|applause)\\s*\\)|[♪♫]+");
 
     private final ObjectMapper objectMapper;
 
@@ -42,22 +40,11 @@ public class TranscriptParserService {
     public record Cue(int startSeconds, int endSeconds, String text) {}
 
     public record ParsedTranscript(
-            List<Cue> cues,
-            String plainText,
-            int wordCount,
-            int rawLineCount,
-            int musicApplauseCount,
-            int duplicateLineCount,
-            int lastCueEndSeconds
-    ) {}
+            List<Cue> cues, String plainText, int wordCount, int rawLineCount,
+            int musicApplauseCount, int duplicateLineCount, int lastCueEndSeconds) {}
 
     public record TranscriptChunk(
-            int chunkIndex,
-            int startSeconds,
-            int endSeconds,
-            String markedText,
-            List<Integer> markerSeconds
-    ) {}
+            int chunkIndex, int startSeconds, int endSeconds, String markedText, List<Integer> markerSeconds) {}
 
     public String decodeStrictUtf8(byte[] bytes) {
         if (bytes == null || bytes.length == 0) {
@@ -77,10 +64,7 @@ public class TranscriptParserService {
         try {
             CharBuffer decoded = decoder.decode(ByteBuffer.wrap(bytes));
             String text = decoded.toString();
-            if (text.startsWith("\uFEFF")) {
-                text = text.substring(1);
-            }
-            return text;
+            return text.startsWith("\uFEFF") ? text.substring(1) : text;
         } catch (CharacterCodingException e) {
             throw new IllegalArgumentException("Invalid file encoding: transcript must be UTF-8 encoded.");
         }
@@ -90,16 +74,10 @@ public class TranscriptParserService {
         if (rawContent == null || rawContent.isBlank()) {
             throw new IllegalArgumentException("Transcript content is blank.");
         }
-        String normalized = rawContent.replace("\uFEFF", "").replace("\r\n", "\n").replace('\r', '\n');
-        String[] lines = normalized.split("\n");
-
+        String[] lines = rawContent.replace("\uFEFF", "").replace("\r\n", "\n").replace('\r', '\n').split("\n");
         List<Cue> cues = new ArrayList<>();
-        int rawLineCount = 0;
-        int musicApplauseCount = 0;
-        int duplicateLineCount = 0;
-        int lastCueEndSeconds = 0;
-        String lastKeptLine = "";
-        String lastCueFullText = "";
+        int rawLineCount = 0, musicApplauseCount = 0, duplicateLineCount = 0, lastCueEndSeconds = 0;
+        String lastKeptLine = "", lastCueFullText = "";
 
         int i = 0;
         while (i < lines.length) {
@@ -109,9 +87,7 @@ public class TranscriptParserService {
                 continue;
             }
             if (line.startsWith("NOTE") || line.startsWith("STYLE")) {
-                while (i < lines.length && !lines[i].trim().isEmpty()) {
-                    i++;
-                }
+                while (i < lines.length && !lines[i].trim().isEmpty()) i++;
                 continue;
             }
             Matcher tm = TIMECODE_LINE.matcher(line);
@@ -127,13 +103,9 @@ public class TranscriptParserService {
             List<String> cueCleanLines = new ArrayList<>();
             while (i < lines.length && !lines[i].trim().isEmpty()) {
                 String subLine = lines[i].trim();
-                if (TIMECODE_LINE.matcher(subLine).matches()) {
-                    break;
-                }
+                if (TIMECODE_LINE.matcher(subLine).matches()) break;
                 rawLineCount++;
-                if (MUSIC_APPLAUSE.matcher(subLine).find()) {
-                    musicApplauseCount++;
-                }
+                if (MUSIC_APPLAUSE.matcher(subLine).find()) musicApplauseCount++;
                 String cleaned = stripFormatting(subLine);
                 if (!cleaned.isEmpty()) {
                     if (cleaned.equalsIgnoreCase(lastKeptLine)) {
@@ -147,8 +119,7 @@ public class TranscriptParserService {
             }
 
             if (!cueCleanLines.isEmpty()) {
-                String joinedCue = String.join(" ", cueCleanLines).replaceAll("\\s+", " ").trim();
-                joinedCue = stripRollingOverlap(lastCueFullText, joinedCue);
+                String joinedCue = stripRollingOverlap(lastCueFullText, String.join(" ", cueCleanLines).replaceAll("\\s+", " ").trim());
                 if (!joinedCue.isEmpty()) {
                     cues.add(new Cue(startSec, endSec, joinedCue));
                     lastCueFullText = joinedCue;
@@ -160,23 +131,12 @@ public class TranscriptParserService {
 
         StringBuilder plainBuilder = new StringBuilder();
         for (Cue cue : cues) {
-            if (!plainBuilder.isEmpty()) {
-                plainBuilder.append(' ');
-            }
+            if (!plainBuilder.isEmpty()) plainBuilder.append(' ');
             plainBuilder.append(cue.text());
         }
         String plainText = plainBuilder.toString().replaceAll("\\s+", " ").trim();
-        int wordCount = countWords(plainText);
-
-        return new ParsedTranscript(
-                cues,
-                plainText,
-                wordCount,
-                rawLineCount,
-                musicApplauseCount,
-                duplicateLineCount,
-                lastCueEndSeconds
-        );
+        return new ParsedTranscript(cues, plainText, countWords(plainText), rawLineCount,
+                musicApplauseCount, duplicateLineCount, lastCueEndSeconds);
     }
 
     public List<TranscriptChunk> buildMarkedChunks(List<Cue> cues, String fallbackPlainText, int durationSeconds) {
@@ -184,11 +144,8 @@ public class TranscriptParserService {
         List<Cue> effectiveCues = (cues != null && !cues.isEmpty())
                 ? cues
                 : synthesizeCuesFromPlainText(fallbackPlainText, safeDuration);
-        if (effectiveCues.isEmpty()) {
-            return List.of();
-        }
-        int maxCueSec = effectiveCues.getLast().endSeconds();
-        int totalSec = Math.max(safeDuration, maxCueSec);
+        if (effectiveCues.isEmpty()) return List.of();
+        int totalSec = Math.max(safeDuration, effectiveCues.getLast().endSeconds());
         int numChunks = Math.max(1, (int) Math.ceil(totalSec / (double) CHUNK_DURATION_SECONDS));
 
         List<TranscriptChunk> chunks = new ArrayList<>();
@@ -211,27 +168,17 @@ public class TranscriptParserService {
                 }
             }
             String text = sb.toString().trim();
-            if (!text.isEmpty()) {
-                chunks.add(new TranscriptChunk(idx, cStart, cEnd, text, markers));
-            }
+            if (!text.isEmpty()) chunks.add(new TranscriptChunk(idx, cStart, cEnd, text, markers));
         }
         return chunks;
     }
 
     public boolean isTimestampValidForChunk(Integer evidenceTimestamp, TranscriptChunk chunk) {
-        if (evidenceTimestamp == null || chunk == null) {
-            return false;
-        }
-        if (evidenceTimestamp < chunk.startSeconds() || evidenceTimestamp > chunk.endSeconds()) {
-            return false;
-        }
-        if (chunk.markerSeconds() == null || chunk.markerSeconds().isEmpty()) {
-            return true;
-        }
+        if (evidenceTimestamp == null || chunk == null) return false;
+        if (evidenceTimestamp < chunk.startSeconds() || evidenceTimestamp > chunk.endSeconds()) return false;
+        if (chunk.markerSeconds() == null || chunk.markerSeconds().isEmpty()) return true;
         for (int marker : chunk.markerSeconds()) {
-            if (Math.abs(evidenceTimestamp - marker) <= MARKER_TOLERANCE_SECONDS) {
-                return true;
-            }
+            if (Math.abs(evidenceTimestamp - marker) <= MARKER_TOLERANCE_SECONDS) return true;
         }
         return false;
     }
@@ -245,9 +192,7 @@ public class TranscriptParserService {
     }
 
     public List<Cue> fromCuesJson(String json) {
-        if (json == null || json.isBlank()) {
-            return Collections.emptyList();
-        }
+        if (json == null || json.isBlank()) return Collections.emptyList();
         try {
             return objectMapper.readValue(json, new TypeReference<List<Cue>>() {});
         } catch (Exception e) {
@@ -257,31 +202,26 @@ public class TranscriptParserService {
 
     public static String formatMmSs(int totalSeconds) {
         int safe = Math.max(0, totalSeconds);
-        int mins = safe / 60;
-        int secs = safe % 60;
-        return String.format("%02d:%02d", mins, secs);
+        return String.format("%02d:%02d", safe / 60, safe % 60);
     }
 
     private static List<Cue> synthesizeCuesFromPlainText(String plainText, int durationSeconds) {
-        if (plainText == null || plainText.isBlank()) {
-            return List.of();
-        }
+        if (plainText == null || plainText.isBlank()) return List.of();
         String[] words = plainText.trim().split("\\s+");
         int stepWords = 60;
         int stepCount = Math.max(1, (int) Math.ceil(words.length / (double) stepWords));
         int secPerStep = Math.max(30, durationSeconds / stepCount);
         List<Cue> cues = new ArrayList<>();
         for (int s = 0; s < stepCount; s++) {
-            int from = s * stepWords;
-            int to = Math.min(words.length, (s + 1) * stepWords);
+            int from = s * stepWords, to = Math.min(words.length, (s + 1) * stepWords);
             StringBuilder part = new StringBuilder();
             for (int w = from; w < to; w++) {
                 if (!part.isEmpty()) part.append(' ');
                 part.append(words[w]);
             }
-            int start = Math.min(durationSeconds - 5, s * secPerStep);
-            int end = Math.min(durationSeconds, (s + 1) * secPerStep);
-            cues.add(new Cue(Math.max(0, start), Math.max(0, end), part.toString()));
+            int start = Math.max(0, Math.min(durationSeconds - 5, s * secPerStep));
+            int end = Math.max(0, Math.min(durationSeconds, (s + 1) * secPerStep));
+            cues.add(new Cue(start, end, part.toString()));
         }
         return cues;
     }
@@ -295,11 +235,8 @@ public class TranscriptParserService {
     private static String stripRollingOverlap(String prev, String curr) {
         if (prev == null || prev.isEmpty()) return curr;
         if (curr.equalsIgnoreCase(prev)) return "";
-        if (curr.startsWith(prev + " ")) {
-            return curr.substring(prev.length()).trim();
-        }
-        String[] prevWords = prev.split("\\s+");
-        String[] currWords = curr.split("\\s+");
+        if (curr.startsWith(prev + " ")) return curr.substring(prev.length()).trim();
+        String[] prevWords = prev.split("\\s+"), currWords = curr.split("\\s+");
         int maxOverlap = Math.min(prevWords.length, currWords.length);
         for (int k = maxOverlap; k >= 3; k--) {
             boolean match = true;
@@ -322,19 +259,14 @@ public class TranscriptParserService {
     }
 
     private static int parseTimestampToSeconds(String raw) {
-        String clean = raw.trim().replace(',', '.');
-        String[] parts = clean.split(":");
-        double secs = 0;
-        if (parts.length == 3) {
-            secs = Integer.parseInt(parts[0]) * 3600 + Integer.parseInt(parts[1]) * 60 + Double.parseDouble(parts[2]);
-        } else if (parts.length == 2) {
-            secs = Integer.parseInt(parts[0]) * 60 + Double.parseDouble(parts[1]);
-        }
+        String[] parts = raw.trim().replace(',', '.').split(":");
+        double secs = (parts.length == 3)
+                ? Integer.parseInt(parts[0]) * 3600 + Integer.parseInt(parts[1]) * 60 + Double.parseDouble(parts[2])
+                : (parts.length == 2 ? Integer.parseInt(parts[0]) * 60 + Double.parseDouble(parts[1]) : 0);
         return (int) Math.floor(secs);
     }
 
     private static int countWords(String text) {
-        if (text == null || text.isBlank()) return 0;
-        return text.trim().split("\\s+").length;
+        return (text == null || text.isBlank()) ? 0 : text.trim().split("\\s+").length;
     }
 }
