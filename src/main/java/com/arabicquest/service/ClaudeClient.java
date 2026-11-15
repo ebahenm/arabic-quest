@@ -24,6 +24,8 @@ public class ClaudeClient {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeClient.class);
     public static final String DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5";
+    public static final int CONNECT_TIMEOUT_MS = 15_000;
+    public static final int READ_TIMEOUT_MS = 120_000;
     private static final String MESSAGES_URL = "https://api.anthropic.com/v1/messages";
     private static final String ANTHROPIC_VERSION = "2023-06-01";
 
@@ -39,8 +41,8 @@ public class ClaudeClient {
     public ClaudeClient(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(15_000);
-        factory.setReadTimeout(90_000);
+        factory.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        factory.setReadTimeout(READ_TIMEOUT_MS);
         this.restTemplate = new RestTemplate(factory);
     }
 

@@ -20,6 +20,8 @@ public interface GenerationJobRepository extends JpaRepository<GenerationJob, Lo
 
     boolean existsByEpisodeIdAndStatusIn(Long episodeId, Collection<String> statuses);
 
+    List<GenerationJob> findByEpisodeIdAndStatusInOrderByCreatedAtDesc(Long episodeId, Collection<String> statuses);
+
     List<GenerationJob> findByStatusIn(Collection<String> statuses);
 
     List<GenerationJob> findByEpisodeIdOrderByCreatedAtDesc(Long episodeId);
