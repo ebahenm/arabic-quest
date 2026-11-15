@@ -45,6 +45,9 @@ public class GenerationJob {
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
@@ -59,13 +62,19 @@ public class GenerationJob {
         this.progress = 0;
         this.autoTriggered = autoTriggered;
         this.savedCount = 0;
-        this.createdAt = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+        this.createdAt = now;
+        this.updatedAt = now;
     }
 
     @PrePersist
     protected void onCreate() {
+        LocalDateTime now = LocalDateTime.now();
         if (this.createdAt == null) {
-            this.createdAt = LocalDateTime.now();
+            this.createdAt = now;
+        }
+        if (this.updatedAt == null) {
+            this.updatedAt = now;
         }
         if (this.status == null) {
             this.status = "QUEUED";
@@ -75,6 +84,13 @@ public class GenerationJob {
         }
         if (this.autoTriggered == null) {
             this.autoTriggered = false;
+        }
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        if (this.updatedAt == null) {
+            this.updatedAt = LocalDateTime.now();
         }
     }
 
@@ -98,6 +114,8 @@ public class GenerationJob {
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getStartedAt() { return startedAt; }
     public void setStartedAt(LocalDateTime startedAt) { this.startedAt = startedAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
     public LocalDateTime getCompletedAt() { return completedAt; }
     public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
 }

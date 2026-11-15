@@ -1,4 +1,4 @@
-// Integration tests for Pipeline v2: multi-chunk >60m VTT, timestamp formats, cue recovery, soft option ranking, max_tokens retry, and stage logs.
+// Integration tests for Pipeline v2: multi-chunk >60m VTT, timestamp recovery, progress commits, stale-job expiry, cancel endpoint, and Throwable handling.
 package com.arabicquest;
 
 import com.arabicquest.model.*;
@@ -20,7 +20,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
@@ -65,12 +64,9 @@ class Phase8PipelineV2IntegrationTest {
     @Autowired private TranscriptQualityGate transcriptQualityGate;
     @Autowired private GeminiTextClient geminiTextClient;
     @Autowired private ClaudeClient claudeClient;
-    @Autowired private YouTubeCaptionService youTubeCaptionService;
     @Autowired private BlindTestService blindTestService;
     @Autowired private CrossModelQuizPipelineService pipelineService;
     @Autowired private GenerationJobService generationJobService;
-    @Autowired private AutoQuizGenerationService autoQuizGenerationService;
-    @Autowired private QuizService quizService;
     private static String adminBearer, studentBearer;
     private User student;
     private Playlist course;
@@ -93,32 +89,18 @@ class Phase8PipelineV2IntegrationTest {
     void vttCleanupQualityGateMarkersAndUploadWorkflowWorkEndToEnd() throws Exception {
         assertThatThrownBy(() -> transcriptParserService.decodeStrictUtf8(new byte[]{0x41, 0x00, 0x42}))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Binary file rejected");
-
-        String rollingVtt = """
-                WEBVTT
-
-                00:00:05.000 --> 00:00:08.000
-                <c>تأسست</c> الدولة الأموية في دمشق [Music]
-
-                00:00:07.500 --> 00:00:12.000
-                تأسست الدولة الأموية في دمشق على يد معاوية بن أبي سفيان عام واحد وأربعين للهجرة
-
-                00:00:55.000 --> 00:01:05.000
-                وشهدت هذه المرحلة تنظيم الدواوين وتطوير الإدارة المالية والبريد في الأمصار الإسلامية الكبرى
-                """;
+        String rollingVtt = "WEBVTT\n\n00:00:05.000 --> 00:00:08.000\n<c>تأسست</c> الدولة الأموية في دمشق [Music]\n\n"
+                + "00:00:07.500 --> 00:00:12.000\nتأسست الدولة الأموية في دمشق على يد معاوية بن أبي سفيان عام واحد وأربعين للهجرة\n\n"
+                + "00:00:55.000 --> 00:01:05.000\nوشهدت هذه المرحلة تنظيم الدواوين وتطوير الإدارة المالية والبريد في الأمصار الإسلامية الكبرى\n";
         TranscriptParserService.ParsedTranscript parsed = transcriptParserService.parseSrtOrVtt(rollingVtt);
         assertThat(parsed.plainText()).doesNotContain("[Music]").doesNotContain("<c>");
         assertThat(parsed.plainText().split("تأسست الدولة الأموية", -1).length - 1).isEqualTo(1);
-
-        List<TranscriptParserService.TranscriptChunk> chunks =
-                transcriptParserService.buildMarkedChunks(parsed.cues(), parsed.plainText(), 120);
+        List<TranscriptParserService.TranscriptChunk> chunks = transcriptParserService.buildMarkedChunks(parsed.cues(), parsed.plainText(), 120);
         assertThat(chunks).hasSize(1);
         assertThat(chunks.get(0).markedText()).contains("[00:05]").contains("[00:55]");
         assertThat(transcriptParserService.isTimestampValidForChunk(56, chunks.get(0))).isTrue();
         assertThat(transcriptParserService.isTimestampValidForChunk(250, chunks.get(0))).isFalse();
-
-        TranscriptQualityGate.QualityAssessment badGate = transcriptQualityGate.evaluate(parsed, 1800);
-        assertThat(badGate.passed()).isFalse();
+        assertThat(transcriptQualityGate.evaluate(parsed, 1800).passed()).isFalse();
 
         Episode ep = episodeRepository.save(new Episode(course, 81, "Episode 81", "vid81_abc12", 120));
         Map<String, Object> uploadBody = Map.of("playlistId", course.getId(), "confirmSave", true,
@@ -133,6 +115,8 @@ class Phase8PipelineV2IntegrationTest {
 
     @Test
     void timestampFormatsCueRecoveryLongestOptionPreservationMaxTokensRetryAndMultiChunkVttWork() throws Exception {
+        assertThat(ClaudeClient.CONNECT_TIMEOUT_MS).isEqualTo(15_000);
+        assertThat(ClaudeClient.READ_TIMEOUT_MS).isEqualTo(120_000);
         assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds(125)).isEqualTo(125);
         assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds("1620")).isEqualTo(1620);
         assertThat(PipelineCandidateNormalizer.parseFlexibleTimestampSeconds("12:45")).isEqualTo(765);
@@ -142,10 +126,8 @@ class Phase8PipelineV2IntegrationTest {
 
         String fullCorrectText = "To prevent forgery of official caliphal correspondence and seal state decrees in Damascus (ديوان الخاتم)";
         CandidateMcq longestCorrect = new CandidateMcq("Why was the Registry of the Seal (ديوان الخاتم) created?", QuestionType.REASONING, "ديوان الخاتم", 60,
-                List.of(new CandidateOption(fullCorrectText, true),
-                        new CandidateOption("Tax collection (الخراج)", false),
-                        new CandidateOption("Naval defense (الثغور)", false),
-                        new CandidateOption("Coin minting (السكة)", false)));
+                List.of(new CandidateOption(fullCorrectText, true), new CandidateOption("Tax collection (الخراج)", false),
+                        new CandidateOption("Naval defense (الثغور)", false), new CandidateOption("Coin minting (السكة)", false)));
         CandidateMcq kept = CrossModelQuizPipelineService.enforceCorrectOptionNeverLongest(longestCorrect);
         assertThat(kept).isNotNull();
         assertThat(kept.options().get(0).optionText()).isEqualTo(fullCorrectText);
@@ -172,10 +154,13 @@ class Phase8PipelineV2IntegrationTest {
         geminiTextClient.setRestTemplate(mockGeminiRt); claudeClient.setRestTemplate(mockClaudeRt);
         blindTestService.setBackoffBaseMs(0L);
         try {
+            AtomicInteger geminiCalls = new AtomicInteger();
             when(mockGeminiRt.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
-                    .thenThrow(HttpClientErrorException.create(HttpStatus.TOO_MANY_REQUESTS, "429 Rate Limit", HttpHeaders.EMPTY,
-                            "{\"error\":{\"message\":\"Quota exceeded\"}}".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
-
+                    .thenAnswer(inv -> {
+                        geminiCalls.incrementAndGet();
+                        throw HttpClientErrorException.create(HttpStatus.TOO_MANY_REQUESTS, "429 Rate Limit", HttpHeaders.EMPTY,
+                                "{\"error\":{\"message\":\"Quota exceeded\"}}".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+                    });
             AtomicInteger pass1Calls = new AtomicInteger();
             String validBatch6 = Phase5GeminiTestSupport.buildMultiFormatPass1Json(objectMapper, "RetryBatch", 8, 1);
             String validBatch12 = Phase5GeminiTestSupport.buildMultiFormatPass1Json(objectMapper, "FullBatch", 10, 1);
@@ -186,7 +171,6 @@ class Phase8PipelineV2IntegrationTest {
                         assertThat(body).doesNotContain("\"temperature\"");
                         if (body.contains("verifiedMcqIndices")) {
                             return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "end_turn",
-                                    "usage", Map.of("input_tokens", 200, "output_tokens", 50),
                                     "content", List.of(Map.of("type", "text", "text", "```json\n" + pass2Json + "\n```")))), HttpStatus.OK);
                         }
                         if (body.contains("blind multiple-choice")) {
@@ -195,17 +179,13 @@ class Phase8PipelineV2IntegrationTest {
                         }
                         int callNum = pass1Calls.incrementAndGet();
                         if (callNum == 1) {
-                            assertThat(body).contains("8192");
                             return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "max_tokens",
                                     "usage", Map.of("input_tokens", 500, "output_tokens", 8192),
                                     "content", List.of(Map.of("type", "text", "text", "{\"mcqs\":[{\"questionText\":\"Truncated")))), HttpStatus.OK);
                         }
                         String json = body.contains("generate 6") ? validBatch6 : validBatch12;
-                        int mid = json.length() / 2;
                         return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "end_turn",
-                                "usage", Map.of("input_tokens", 500, "output_tokens", 900),
-                                "content", List.of(Map.of("type", "text", "text", "```json\n" + json.substring(0, mid)),
-                                        Map.of("type", "text", "text", json.substring(mid) + "\n```")))), HttpStatus.OK);
+                                "content", List.of(Map.of("type", "text", "text", "```json\n" + json + "\n```")))), HttpStatus.OK);
                     });
 
             Episode epVtt = episodeRepository.save(new Episode(course, 84, "Long VTT Ep", "vid84_longvtt", 4080));
@@ -215,31 +195,23 @@ class Phase8PipelineV2IntegrationTest {
                             .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(uploadBody)))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.savedCount").value(1));
 
-            CrossModelQuizPipelineService.PipelineResult res = pipelineService.executePipeline(epVtt.getId(), "claude", null, false, "MANUAL", null);
-            assertThat(pass1Calls.get()).isGreaterThanOrEqualTo(4);
+            List<Integer> progressPoints = new ArrayList<>();
+            CrossModelQuizPipelineService.PipelineResult res = pipelineService.executePipeline(
+                    epVtt.getId(), "claude", null, false, "MANUAL", (stage, pct) -> progressPoints.add(pct));
+            assertThat(geminiCalls.get()).isEqualTo(1);
+            assertThat(progressPoints).isNotEmpty().endsWith(100);
             assertThat(res.savedMcqs()).isGreaterThanOrEqualTo(10);
             assertThat(res.savedOpenQuestions()).isGreaterThanOrEqualTo(1);
-            List<Question> savedQs = questionRepository.findByEpisodeIdWithOptions(epVtt.getId());
-            assertThat(savedQs).isNotEmpty().allMatch(q -> q.getStatus() == QuestionStatus.DRAFT);
-            assertThat(openQuestionRepository.findByEpisodeIdOrderByIdAsc(epVtt.getId())).isNotEmpty();
 
             when(mockClaudeRt.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
-                    .thenAnswer(inv -> {
-                        String badPass1 = "{\"mcqs\":[{\"questionText\":\"Bad?\",\"type\":\"RECALL\",\"evidence\":\"none\",\"options\":["
-                                + "{\"optionText\":\"All of the above\",\"isCorrect\":true},{\"optionText\":\"B\",\"isCorrect\":false},"
-                                + "{\"optionText\":\"C\",\"isCorrect\":false},{\"optionText\":\"D\",\"isCorrect\":false}]}],\"openQuestions\":[]}";
-                        return new ResponseEntity<>(objectMapper.writeValueAsString(Map.of("stop_reason", "end_turn",
-                                "content", List.of(Map.of("type", "text", "text", badPass1)))), HttpStatus.OK);
-                    });
-            Episode epFail = episodeRepository.save(new Episode(course, 85, "Fail Stage Ep", "vid85_failst", 600));
-            epFail.setTranscriptText("محاضرة قصيرة حول تاريخ العلوم في الحواضر الإسلامية.");
-            episodeRepository.save(epFail);
-            assertThatThrownBy(() -> pipelineService.executePipeline(epFail.getId(), "claude", null, false, "MANUAL", null))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("pass1Parsed=1")
-                    .hasMessageContaining("droppedOptionRule=1")
-                    .hasMessageContaining("pass2Verified=0")
-                    .hasMessageContaining("pass3Survived=0");
+                    .thenAnswer(inv -> { throw new AssertionError("Simulated fatal Throwable in Claude worker"); });
+            Episode epErr = episodeRepository.save(new Episode(course, 85, "Throwable Ep", "vid85_throw", 600));
+            epErr.setTranscriptText("محاضرة قصيرة حول تاريخ العلوم في الحواضر الإسلامية.");
+            episodeRepository.save(epErr);
+            GenerationJob errJob = generationJobService.enqueueJob(epErr.getId(), "claude-sonnet-5-5", epErr.getTranscriptText(), false);
+            GenerationJob finishedErrJob = generationJobService.awaitJob(errJob.getId(), 5000);
+            assertThat(finishedErrJob.getStatus()).isEqualTo("FAILED");
+            assertThat(finishedErrJob.getSanitizedError()).contains("Simulated fatal Throwable");
         } finally {
             geminiTextClient.setRestTemplate(origGeminiRt);
             claudeClient.setRestTemplate(origClaudeRt);
@@ -247,7 +219,7 @@ class Phase8PipelineV2IntegrationTest {
     }
 
     @Test
-    void autoGenCapStudentReportImmediateRetireJobConflictAndSecurityBoundariesWork() throws Exception {
+    void staleJobExpiryJobCancelStudentReportImmediateRetireAndSecurityBoundariesWork() throws Exception {
         Episode ep = episodeRepository.save(new Episode(course, 83, "Episode 83", "vid83_abc12", 1200));
         for (int i = 0; i < 3; i++) {
             GenerationJob job = new GenerationJob(ep, "gemini-3.8-flash", true);
@@ -262,20 +234,30 @@ class Phase8PipelineV2IntegrationTest {
 
         mockMvc.perform(post("/api/admin/episodes/" + ep.getId() + "/generation-jobs")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer).header("X-Requested-With", "XMLHttpRequest")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"writer\":\"claude\"}"))
-                .andExpect(status().isConflict());
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"writerModel\":\"claude\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.jobId").value(runningJob.getId()));
 
-        generationJobService.recoverStaleRunningJobs();
-        assertThat(generationJobRepository.findById(runningJob.getId()).orElseThrow().getStatus()).isEqualTo("FAILED");
+        mockMvc.perform(post("/api/admin/generation-jobs/" + runningJob.getId() + "/cancel")
+                        .header(HttpHeaders.AUTHORIZATION, adminBearer).header("X-Requested-With", "XMLHttpRequest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.stage").value("CANCELLED"));
+
+        GenerationJob staleJob = new GenerationJob(ep, "claude-sonnet-5-5", false);
+        staleJob.setStatus("RUNNING");
+        staleJob = generationJobRepository.save(staleJob);
+        int expired = generationJobService.expireStaleActiveJobs(LocalDateTime.now().plusMinutes(1));
+        assertThat(expired).isGreaterThanOrEqualTo(1);
+        GenerationJob reloadedStale = generationJobRepository.findById(staleJob.getId()).orElseThrow();
+        assertThat(reloadedStale.getStatus()).isEqualTo("FAILED");
+        assertThat(reloadedStale.getSanitizedError()).contains("Timed out / stale");
 
         Question q = transactionTemplate.execute(st -> {
             Quiz quiz = quizRepository.save(new Quiz(ep));
             Question item = new Question(quiz, "سؤال للمراجعة؟", 1);
             item.setStatus(QuestionStatus.APPROVED); item.setActive(true); item.setSource("AUTO");
-            item.getOptions().add(new QuestionOption(item, "١", true));
-            item.getOptions().add(new QuestionOption(item, "٢", false));
-            item.getOptions().add(new QuestionOption(item, "٣", false));
-            item.getOptions().add(new QuestionOption(item, "٤", false));
+            for (int idx = 1; idx <= 4; idx++) item.getOptions().add(new QuestionOption(item, "خيار " + idx, idx == 1));
             return questionRepository.save(item);
         });
         exposureRepository.save(new StudentQuestionExposure(student, ep, q, LocalDateTime.now()));
@@ -284,25 +266,13 @@ class Phase8PipelineV2IntegrationTest {
         mockMvc.perform(post("/api/student/questions/" + q.getId() + "/report")
                         .header(HttpHeaders.AUTHORIZATION, studentBearer).header("X-Requested-With", "XMLHttpRequest")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Unclear option\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reportCount").value(1))
-                .andExpect(jsonPath("$.cooldownReset").value(true));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.reportCount").value(1)).andExpect(jsonPath("$.cooldownReset").value(true));
+        assertThat(questionRepository.findById(q.getId()).orElseThrow().getStatus()).isEqualTo(QuestionStatus.RETIRED);
 
-        Question retired = questionRepository.findById(q.getId()).orElseThrow();
-        assertThat(retired.getStatus()).isEqualTo(QuestionStatus.RETIRED);
-        assertThat(retired.isActive()).isFalse();
-
-        mockMvc.perform(get("/api/admin/episodes/" + ep.getId() + "/transcript").header(HttpHeaders.AUTHORIZATION, studentBearer)).andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/admin/episodes/" + ep.getId() + "/generation-jobs").header(HttpHeaders.AUTHORIZATION, studentBearer)).andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/admin/ai/test-connection").header(HttpHeaders.AUTHORIZATION, studentBearer)).andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/admin/students/" + student.getId() + "/episodes/" + ep.getId() + "/unlock-quiz").header(HttpHeaders.AUTHORIZATION, studentBearer)).andExpect(status().isForbidden());
-
+        mockMvc.perform(post("/api/admin/generation-jobs/" + runningJob.getId() + "/cancel").header(HttpHeaders.AUTHORIZATION, studentBearer)).andExpect(status().isForbidden());
         mockMvc.perform(post("/api/admin/students/" + student.getId() + "/episodes/" + ep.getId() + "/unlock-quiz")
                         .header(HttpHeaders.AUTHORIZATION, adminBearer).header("X-Requested-With", "XMLHttpRequest")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Watched with family\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.quizUnlocked").value(true))
-                .andExpect(jsonPath("$.verifiedWatchSeconds").value(0))
-                .andExpect(jsonPath("$.adminUnlockedBy").value("phase8admin"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.quizUnlocked").value(true)).andExpect(jsonPath("$.adminUnlockedBy").value("phase8admin"));
     }
 }

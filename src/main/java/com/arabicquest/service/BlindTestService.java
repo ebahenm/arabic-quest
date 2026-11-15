@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class BlindTestService {
@@ -66,12 +67,23 @@ public class BlindTestService {
             List<CandidateMcq> chunkCandidates,
             int chunkIndex,
             boolean useClaudeAsBlindTester) {
+        return runBlindTestForChunk(chunkCandidates, chunkIndex, useClaudeAsBlindTester, null);
+    }
+
+    public List<BlindTestedCandidate> runBlindTestForChunk(
+            List<CandidateMcq> chunkCandidates,
+            int chunkIndex,
+            boolean useClaudeAsBlindTester,
+            AtomicBoolean geminiUnavailableForJob) {
         if (chunkCandidates == null || chunkCandidates.isEmpty()) {
             return List.of();
         }
         int n = chunkCandidates.size();
         int[] rightCounts = new int[n];
         int runs = Math.max(1, Math.min(3, blindTestRuns));
+        AtomicBoolean effectiveGeminiUnavailable = geminiUnavailableForJob != null
+                ? geminiUnavailableForJob
+                : new AtomicBoolean(false);
 
         for (int run = 0; run < runs; run++) {
             List<List<CandidateOption>> shuffledPerQuestion = new ArrayList<>(n);
@@ -91,7 +103,8 @@ public class BlindTestService {
                 }
             }
 
-            Map<Integer, Integer> modelPicks = callBlindTesterWithBackoff(prompt.toString(), useClaudeAsBlindTester);
+            boolean useClaudeThisRun = useClaudeAsBlindTester || effectiveGeminiUnavailable.get();
+            Map<Integer, Integer> modelPicks = callBlindTesterFastFallback(prompt.toString(), useClaudeThisRun, effectiveGeminiUnavailable);
             for (int qIdx = 0; qIdx < n; qIdx++) {
                 Integer pickedIdx = modelPicks.get(qIdx);
                 List<CandidateOption> opts = shuffledPerQuestion.get(qIdx);
@@ -136,47 +149,35 @@ public class BlindTestService {
         return new EpisodeBlindTestOutcome(kept, true, survivors.size());
     }
 
-    private Map<Integer, Integer> callBlindTesterWithBackoff(String prompt, boolean useClaude) {
-        int maxAttempts = 3;
+    private Map<Integer, Integer> callBlindTesterFastFallback(
+            String prompt, boolean useClaude, AtomicBoolean geminiUnavailableForJob) {
+        String sysPrompt = "You are taking a blind multiple-choice test without any source transcript. Output strict JSON only.";
+        if ((useClaude || geminiUnavailableForJob.get()) && claudeClient.isConfigured()) {
+            return parseAnswersMap(claudeClient.callMessagesJson(sysPrompt, prompt, 1024));
+        }
+        int maxAttempts = claudeClient.isConfigured() ? 1 : 3;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                String rawJson;
-                if (useClaude && claudeClient.isConfigured()) {
-                    rawJson = claudeClient.callMessagesJson(
-                            "You are taking a blind multiple-choice test without any source transcript. Output strict JSON only.",
-                            prompt,
-                            1024
-                    );
-                } else {
-                    rawJson = geminiTextClient.callTextJson(
-                            "You are taking a blind multiple-choice test without any source transcript. Output strict JSON only.",
-                            prompt
-                    );
-                }
-                return parseAnswersMap(rawJson);
+                return parseAnswersMap(geminiTextClient.callTextJson(sysPrompt, prompt));
             } catch (TooManyRequestsException ex) {
-                if (attempt == maxAttempts) {
-                    if (!useClaude && claudeClient.isConfigured()) {
-                        log.warn("Gemini blind test rate-limited (429); falling back to Claude.");
-                        return parseAnswersMap(claudeClient.callMessagesJson(
-                                "You are taking a blind multiple-choice test without any source transcript. Output strict JSON only.",
-                                prompt, 1024));
-                    }
-                    throw ex;
+                if (claudeClient.isConfigured()) {
+                    geminiUnavailableForJob.set(true);
+                    log.warn("Gemini blind test rate-limited (429); marking Gemini unavailable for job and switching to Claude.");
+                    return parseAnswersMap(claudeClient.callMessagesJson(sysPrompt, prompt, 1024));
                 }
+                if (attempt == maxAttempts) throw ex;
                 sleepQuietly(backoffBaseMs * attempt);
             } catch (RuntimeException ex) {
                 String msg = ex.getMessage() != null ? ex.getMessage() : "";
+                if (claudeClient.isConfigured()) {
+                    geminiUnavailableForJob.set(true);
+                    log.warn("Gemini blind test failed ({}); marking Gemini unavailable for job and switching to Claude.", msg);
+                    return parseAnswersMap(claudeClient.callMessagesJson(sysPrompt, prompt, 1024));
+                }
                 boolean retryable5xx = msg.contains("HTTP 5") || msg.contains("500") || msg.contains("502") || msg.contains("503");
                 if (retryable5xx && attempt < maxAttempts) {
                     sleepQuietly(backoffBaseMs * attempt);
                     continue;
-                }
-                if (!useClaude && claudeClient.isConfigured()) {
-                    log.warn("Gemini blind test failed ({}); falling back to Claude.", msg);
-                    return parseAnswersMap(claudeClient.callMessagesJson(
-                            "You are taking a blind multiple-choice test without any source transcript. Output strict JSON only.",
-                            prompt, 1024));
                 }
                 throw ex;
             }

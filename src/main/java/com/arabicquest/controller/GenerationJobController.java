@@ -1,4 +1,4 @@
-// Admin REST controller for async quiz generation jobs, Retry, and Compare Models (Set A vs Set B).
+// Admin REST controller for async quiz generation jobs, Cancel, Retry, and Compare Models (Set A vs Set B).
 package com.arabicquest.controller;
 
 import com.arabicquest.model.GenerationJob;
@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,10 +45,7 @@ public class GenerationJobController {
             GenerationJob job = jobService.enqueueJob(episodeId, writer, transcript, false);
             return ResponseEntity.status(HttpStatus.ACCEPTED).body(jobService.toJobDto(job));
         } catch (DuplicateEpisodeJobException dup) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "error", dup.getMessage(),
-                    "episodeId", episodeId
-            ));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(buildConflictBody(episodeId, dup));
         }
     }
 
@@ -68,6 +66,12 @@ public class GenerationJobController {
         return ResponseEntity.ok(jobService.toJobDto(job));
     }
 
+    @PostMapping("/generation-jobs/{jobId}/cancel")
+    public ResponseEntity<Map<String, Object>> cancelGenerationJob(@PathVariable Long jobId) {
+        GenerationJob cancelled = jobService.cancelJob(jobId);
+        return ResponseEntity.ok(jobService.toJobDto(cancelled));
+    }
+
     @PostMapping("/episodes/{episodeId}/generation-jobs/{jobId}/retry")
     public ResponseEntity<Map<String, Object>> retryFailedJob(
             @PathVariable Long episodeId,
@@ -77,10 +81,7 @@ public class GenerationJobController {
             GenerationJob next = jobService.enqueueJob(episodeId, prev.getWriterModel(), null, false);
             return ResponseEntity.status(HttpStatus.ACCEPTED).body(jobService.toJobDto(next));
         } catch (DuplicateEpisodeJobException dup) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "error", dup.getMessage(),
-                    "episodeId", episodeId
-            ));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(buildConflictBody(episodeId, dup));
         }
     }
 
@@ -96,6 +97,16 @@ public class GenerationJobController {
             @RequestBody ChooseCompareSetRequest request) {
         String chosen = request != null ? request.chosenSet() : "SET_A";
         return ResponseEntity.ok(pipelineService.chooseComparedSet(episodeId, chosen));
+    }
+
+    private Map<String, Object> buildConflictBody(Long episodeId, DuplicateEpisodeJobException dup) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", dup.getMessage());
+        body.put("episodeId", episodeId);
+        if (dup.getActiveJobId() != null) {
+            body.put("jobId", dup.getActiveJobId());
+        }
+        return body;
     }
 
     private void enforceCompareRateLimit(String key) {
