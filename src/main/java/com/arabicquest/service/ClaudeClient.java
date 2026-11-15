@@ -72,7 +72,17 @@ public class ClaudeClient {
         return apiKey != null && !apiKey.isBlank();
     }
 
+    public record ClaudeMessageResponse(String text, String stopReason, int inputTokens, int outputTokens) {
+        public boolean isMaxTokensTruncated() {
+            return "max_tokens".equalsIgnoreCase(stopReason);
+        }
+    }
+
     public String callMessagesJson(String systemPrompt, String userPrompt, int maxTokens) {
+        return callMessagesDetailed(systemPrompt, userPrompt, maxTokens).text();
+    }
+
+    public ClaudeMessageResponse callMessagesDetailed(String systemPrompt, String userPrompt, int maxTokens) {
         if (!isConfigured()) {
             throw new IllegalStateException("ANTHROPIC_API_KEY is not configured.");
         }
@@ -97,7 +107,10 @@ public class ClaudeClient {
                     new HttpEntity<>(reqJson, headers),
                     String.class
             );
-            return extractTextFromResponse(res.getBody());
+            ClaudeMessageResponse parsed = extractMessageResponse(res.getBody());
+            log.info("Claude API response (model={}, stop_reason={}, input_tokens={}, output_tokens={})",
+                    getModel(), parsed.stopReason(), parsed.inputTokens(), parsed.outputTokens());
+            return parsed;
         } catch (HttpStatusCodeException ex) {
             int code = ex.getStatusCode().value();
             String detail = AiErrorSanitizer.extractProviderErrorDetail(ex, apiKey);
@@ -154,11 +167,15 @@ public class ClaudeClient {
         }
     }
 
-    private String extractTextFromResponse(String responseBody) throws Exception {
+    private ClaudeMessageResponse extractMessageResponse(String responseBody) throws Exception {
         if (responseBody == null || responseBody.isBlank()) {
             throw new IllegalStateException("Empty response from Claude API.");
         }
         JsonNode root = objectMapper.readTree(responseBody);
+        String stopReason = root.path("stop_reason").asText("end_turn");
+        JsonNode usage = root.path("usage");
+        int inputTokens = usage.path("input_tokens").asInt(0);
+        int outputTokens = usage.path("output_tokens").asInt(0);
         JsonNode content = root.path("content");
         if (content.isArray() && !content.isEmpty()) {
             StringBuilder sb = new StringBuilder();
@@ -168,7 +185,8 @@ public class ClaudeClient {
                 }
             }
             if (!sb.isEmpty()) {
-                return GeminiJsonRepairSupport.stripCodeFences(sb.toString());
+                String cleanText = GeminiJsonRepairSupport.stripCodeFences(sb.toString());
+                return new ClaudeMessageResponse(cleanText, stopReason, inputTokens, outputTokens);
             }
         }
         throw new IllegalStateException("Claude response contained no text blocks.");

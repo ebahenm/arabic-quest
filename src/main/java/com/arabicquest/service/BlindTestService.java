@@ -112,18 +112,26 @@ public class BlindTestService {
     }
 
     public EpisodeBlindTestOutcome applySurvivalAndFallback(List<BlindTestedCandidate> allTested, int targetCount) {
-        List<BlindTestedCandidate> survivors = allTested.stream()
-                .filter(BlindTestedCandidate::survivedBlindTest)
-                .toList();
+        Comparator<BlindTestedCandidate> softRankOrder = Comparator
+                .comparing((BlindTestedCandidate c) -> PipelineCandidateNormalizer.isOptionRuleCompliant(c.candidate()) ? 0 : 1)
+                .thenComparing(c -> c.candidate().evidenceTimestamp() != null ? 0 : 1);
 
+        List<BlindTestedCandidate> survivors = new ArrayList<>(allTested.stream()
+                .filter(BlindTestedCandidate::survivedBlindTest)
+                .toList());
+        survivors.sort(softRankOrder);
+
+        boolean anyNonCompliant = allTested.stream()
+                .anyMatch(c -> !PipelineCandidateNormalizer.isOptionRuleCompliant(c.candidate()));
         if (survivors.size() >= MIN_SURVIVAL_THRESHOLD) {
-            return new EpisodeBlindTestOutcome(survivors, false, survivors.size());
+            return new EpisodeBlindTestOutcome(survivors, anyNonCompliant, survivors.size());
         }
 
         int limit = Math.max(MIN_SURVIVAL_THRESHOLD, targetCount);
         List<BlindTestedCandidate> ranked = new ArrayList<>(allTested);
         ranked.sort(Comparator.comparingInt(BlindTestedCandidate::wrongGuesses).reversed()
-                .thenComparingInt(BlindTestedCandidate::correctGuesses));
+                .thenComparingInt(BlindTestedCandidate::correctGuesses)
+                .thenComparing(softRankOrder));
         List<BlindTestedCandidate> kept = ranked.subList(0, Math.min(limit, ranked.size()));
         return new EpisodeBlindTestOutcome(kept, true, survivors.size());
     }
