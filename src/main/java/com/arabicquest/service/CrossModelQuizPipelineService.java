@@ -1,7 +1,6 @@
 // Runs Pass 1 writer, Pass 2 cross-model verifier, timestamp/option guards, Pass 3 blind test, and automatic caption acquisition.
 package com.arabicquest.service;
 
-import com.arabicquest.config.TooManyRequestsException;
 import com.arabicquest.dto.QuestionBankAdminResponse;
 import com.arabicquest.model.*;
 import com.arabicquest.repository.*;
@@ -88,7 +87,8 @@ public class CrossModelQuizPipelineService {
         boolean explicitGemini = requestedWriter != null && requestedWriter.toLowerCase(Locale.ROOT).contains("gemini");
         boolean useClaudeWriter = claudeClient.isConfigured() && (!explicitGemini || !geminiTextClient.isConfigured());
         boolean useClaudeVerifier = !geminiTextClient.isConfigured() || (!useClaudeWriter && claudeClient.isConfigured());
-        AtomicBoolean geminiUnavailable = new AtomicBoolean(!geminiTextClient.isConfigured());
+        AtomicBoolean geminiUnavailable = new AtomicBoolean(false);
+        AtomicBoolean claudeUnavailable = new AtomicBoolean(false);
         String writerModelName = useClaudeWriter ? claudeClient.getModel() : geminiTextClient.getModel();
         String verifierModelName = useClaudeVerifier ? claudeClient.getModel() : geminiTextClient.getModel();
 
@@ -121,18 +121,18 @@ public class CrossModelQuizPipelineService {
             int p3Pct = totalChunks == 1 ? 65 : 10 + ((i * 75) + 50) / totalChunks;
             int donePct = totalChunks == 1 ? 85 : 10 + ((i + 1) * 75) / totalChunks;
             if (progressCallback != null) progressCallback.accept(chunkLabel + " • PASS_1_WRITER", p1Pct);
-            ParsedPass1Batch pass1 = runPass1WithRetryOnTruncation(useClaudeWriter, geminiUnavailable, episode, chunk);
+            ParsedPass1Batch pass1 = runPass1WithRetryOnTruncation(useClaudeWriter, geminiUnavailable, claudeUnavailable, episode, chunk);
             ChunkNormalizationResult norm = PipelineCandidateNormalizer.normalizeChunkCandidates(pass1, chunk, episodeCues, transcriptParserService);
             if (norm.softFlaggedOptionCount() > 0 || norm.unverifiedTimestampCount() > 0) anySoftFlagged = true;
             List<CandidateMcq> verifiedChunkMcqs = List.of();
             if (!norm.keptMcqs().isEmpty() || !norm.keptOpens().isEmpty()) {
                 if (progressCallback != null) progressCallback.accept(chunkLabel + " • PASS_2_VERIFIER", p2Pct);
-                verifiedChunkMcqs = runPass2Verification(useClaudeVerifier || geminiUnavailable.get(), geminiUnavailable, chunk.markedText(), norm.keptMcqs(), norm.keptOpens(), allVerifiedOpens);
+                verifiedChunkMcqs = runPass2Verification(useClaudeVerifier, geminiUnavailable, claudeUnavailable, chunk.markedText(), norm.keptMcqs(), norm.keptOpens(), allVerifiedOpens);
             }
             norm.counts().pass2Verified = verifiedChunkMcqs.size();
             if (!verifiedChunkMcqs.isEmpty()) {
                 if (progressCallback != null) progressCallback.accept(chunkLabel + " • PASS_3_BLIND_TEST", p3Pct);
-                List<BlindTestedCandidate> chunkTested = blindTestService.runBlindTestForChunk(verifiedChunkMcqs, chunk.chunkIndex(), useClaudeVerifier || geminiUnavailable.get(), geminiUnavailable);
+                List<BlindTestedCandidate> chunkTested = blindTestService.runBlindTestForChunk(verifiedChunkMcqs, chunk.chunkIndex(), useClaudeVerifier, geminiUnavailable, claudeUnavailable);
                 norm.counts().pass3Survived = (int) chunkTested.stream().filter(BlindTestedCandidate::survivedBlindTest).count();
                 allTestedMcqs.addAll(chunkTested);
             }
@@ -154,7 +154,9 @@ public class CrossModelQuizPipelineService {
         String effectiveSource = autoTriggered ? "AUTO" : (sourceTag != null ? sourceTag : "MANUAL");
         int savedMcqs = persistResultsTransactionally(episodeId, needsReview, outcome.selectedQuestions(), allVerifiedOpens, targetStatus, effectiveSource);
         if (progressCallback != null) progressCallback.accept("COMPLETED", 100);
-        return new PipelineResult(savedMcqs, allVerifiedOpens.size(), writerModelName, verifierModelName, true, needsReview, autoApproveNow);
+        String effectiveWriter = claudeUnavailable.get() ? geminiTextClient.getModel() : (geminiUnavailable.get() ? claudeClient.getModel() : writerModelName);
+        String effectiveVerifier = claudeUnavailable.get() ? geminiTextClient.getModel() : (geminiUnavailable.get() ? claudeClient.getModel() : verifierModelName);
+        return new PipelineResult(savedMcqs, allVerifiedOpens.size(), effectiveWriter, effectiveVerifier, true, needsReview, autoApproveNow);
     }
 
     public Map<String, Object> compareModelsForEpisode(Long episodeId) {
@@ -186,10 +188,12 @@ public class CrossModelQuizPipelineService {
         return PipelineCandidateNormalizer.enforceOptionHardRulesOnly(mcq);
     }
 
-    private ParsedPass1Batch runPass1WithRetryOnTruncation(boolean useClaudeWriter, AtomicBoolean geminiUnavailable, Episode episode, TranscriptChunk chunk) {
+    private ParsedPass1Batch runPass1WithRetryOnTruncation(
+            boolean useClaudeWriter, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable,
+            Episode episode, TranscriptChunk chunk) {
         String pass1User = "Episode #" + episode.getEpisodeNumber() + ": " + episode.getTitle() + "\nChunk #" + chunk.chunkIndex() + " [" + chunk.startSeconds() + "s - " + chunk.endSeconds() + "s]\n"
                 + "Set \"evidenceMarker\" to the exact [mm:ss] marker from <episode_transcript> where each fact appears.\n<episode_transcript>\n" + chunk.markedText() + "\n</episode_transcript>";
-        ClaudeMessageResponse firstResp = callModelDetailed(useClaudeWriter, geminiUnavailable, AiPromptTemplates.pass1TranscriptSystemInstruction(12, 2), pass1User, PASS1_MAX_TOKENS);
+        ClaudeMessageResponse firstResp = callModelDetailed(useClaudeWriter, geminiUnavailable, claudeUnavailable, AiPromptTemplates.pass1TranscriptSystemInstruction(12, 2), pass1User, PASS1_MAX_TOKENS);
         if (!firstResp.isMaxTokensTruncated()) {
             try {
                 ParsedPass1Batch parsed = PipelineCandidateNormalizer.parsePass1Node(GeminiJsonRepairSupport.parseLenientJson(objectMapper, firstResp.text()));
@@ -200,7 +204,7 @@ public class CrossModelQuizPipelineService {
         } else {
             log.warn("Pass 1 chunk #{} hit stop_reason=max_tokens (output_tokens={}); retrying smaller batch (6+1).", chunk.chunkIndex(), firstResp.outputTokens());
         }
-        ClaudeMessageResponse retryResp = callModelDetailed(useClaudeWriter, geminiUnavailable, AiPromptTemplates.pass1TranscriptSystemInstruction(6, 1), pass1User, PASS1_MAX_TOKENS);
+        ClaudeMessageResponse retryResp = callModelDetailed(useClaudeWriter, geminiUnavailable, claudeUnavailable, AiPromptTemplates.pass1TranscriptSystemInstruction(6, 1), pass1User, PASS1_MAX_TOKENS);
         try {
             return PipelineCandidateNormalizer.parsePass1Node(GeminiJsonRepairSupport.parseLenientJson(objectMapper, retryResp.text()));
         } catch (Exception ex) {
@@ -229,12 +233,12 @@ public class CrossModelQuizPipelineService {
     }
 
     private List<CandidateMcq> runPass2Verification(
-            boolean useClaudeVerifier, AtomicBoolean geminiUnavailable, String markedTranscript, List<CandidateMcq> mcqs,
-            List<CandidateOpen> opens, List<CandidateOpen> verifiedOpensOut) {
+            boolean useClaudeVerifier, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable,
+            String markedTranscript, List<CandidateMcq> mcqs, List<CandidateOpen> opens, List<CandidateOpen> verifiedOpensOut) {
         try {
             String user = "<episode_transcript>\n" + markedTranscript + "\n</episode_transcript>\n<candidates>\n"
                     + objectMapper.writeValueAsString(Map.of("mcqs", mcqs, "openQuestions", opens)) + "\n</candidates>";
-            String raw = callModelDetailed(useClaudeVerifier, geminiUnavailable, AiPromptTemplates.pass2TranscriptSystemInstruction(), user, 4096).text();
+            String raw = callModelDetailed(useClaudeVerifier, geminiUnavailable, claudeUnavailable, AiPromptTemplates.pass2TranscriptSystemInstruction(), user, 4096).text();
             JsonNode root = GeminiJsonRepairSupport.parseLenientJson(objectMapper, raw);
             JsonNode mArr = root.path("verifiedMcqIndices"), oArr = root.path("verifiedOpenIndices");
             if (!mArr.isArray() && !oArr.isArray()) {
@@ -248,6 +252,9 @@ public class CrossModelQuizPipelineService {
             else verifiedOpensOut.addAll(opens);
             return keptMcqs;
         } catch (Exception ex) {
+            if (claudeUnavailable.get() && geminiUnavailable.get()) {
+                throw (ex instanceof RuntimeException re) ? re : new IllegalStateException(ex);
+            }
             log.warn("Pass 2 response could not be parsed; keeping all {} MCQ and {} open candidates: {}", mcqs.size(), opens.size(), ex.getMessage());
             verifiedOpensOut.addAll(opens); return mcqs;
         }
@@ -280,19 +287,11 @@ public class CrossModelQuizPipelineService {
         return count != null ? count : 0;
     }
 
-    private ClaudeMessageResponse callModelDetailed(boolean useClaude, AtomicBoolean geminiUnavailable, String systemPrompt, String userPrompt, int maxTokens) {
-        if ((useClaude || geminiUnavailable.get()) && claudeClient.isConfigured()) return claudeClient.callMessagesDetailed(systemPrompt, userPrompt, maxTokens);
-        int maxAttempts = claudeClient.isConfigured() ? 1 : 2;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            try { return new ClaudeMessageResponse(geminiTextClient.callTextJson(systemPrompt, userPrompt), "STOP", 0, 0); }
-            catch (Exception ex) {
-                String msg = ex.getMessage() != null ? ex.getMessage() : "";
-                if (claudeClient.isConfigured()) { geminiUnavailable.set(true); log.warn("Gemini call failed ({}); switching job to Claude.", msg); return claudeClient.callMessagesDetailed(systemPrompt, userPrompt, maxTokens); }
-                if (((ex instanceof TooManyRequestsException) || msg.contains("429") || msg.contains("503") || msg.contains("HTTP 5")) && attempt < maxAttempts) continue;
-                if (ex instanceof RuntimeException re) throw re;
-                throw new IllegalStateException(ex);
-            }
-        }
-        throw new IllegalStateException("AI model call failed.");
+    private ClaudeMessageResponse callModelDetailed(
+            boolean useClaude, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable,
+            String systemPrompt, String userPrompt, int maxTokens) {
+        return PipelineModelFallbackHelper.callModelDetailed(
+                claudeClient, geminiTextClient, useClaude, geminiUnavailable, claudeUnavailable,
+                systemPrompt, userPrompt, maxTokens, 2, 0L);
     }
 }
