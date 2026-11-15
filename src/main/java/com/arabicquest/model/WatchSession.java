@@ -1,3 +1,4 @@
+// JPA entity storing a student's verified watch progress and optional admin quiz-unlock audit fields.
 package com.arabicquest.model;
 
 import jakarta.persistence.*;
@@ -39,6 +40,15 @@ public class WatchSession {
 
     @Column(name = "video_ended", nullable = false)
     private Boolean videoEnded = false;
+
+    @Column(name = "admin_unlocked_at")
+    private LocalDateTime adminUnlockedAt;
+
+    @Column(name = "admin_unlocked_by", length = 100)
+    private String adminUnlockedBy;
+
+    @Column(name = "admin_unlock_reason", length = 500)
+    private String adminUnlockReason;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -130,5 +140,33 @@ public class WatchSession {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public boolean isAdminUnlocked() {
+        return adminUnlockedAt != null;
+    }
+
+    public LocalDateTime getAdminUnlockedAt() {
+        return adminUnlockedAt;
+    }
+
+    public void setAdminUnlockedAt(LocalDateTime adminUnlockedAt) {
+        this.adminUnlockedAt = adminUnlockedAt;
+    }
+
+    public String getAdminUnlockedBy() {
+        return adminUnlockedBy;
+    }
+
+    public void setAdminUnlockedBy(String adminUnlockedBy) {
+        this.adminUnlockedBy = adminUnlockedBy;
+    }
+
+    public String getAdminUnlockReason() {
+        return adminUnlockReason;
+    }
+
+    public void setAdminUnlockReason(String adminUnlockReason) {
+        this.adminUnlockReason = adminUnlockReason;
     }
 }

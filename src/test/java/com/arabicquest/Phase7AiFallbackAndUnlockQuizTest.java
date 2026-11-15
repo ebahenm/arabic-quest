@@ -222,7 +222,8 @@ class Phase7AiFallbackAndUnlockQuizTest {
                         .header(HttpHeaders.AUTHORIZATION, adminBearer).header("X-Requested-With", "XMLHttpRequest"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.episodeId").value(eps[1].getId()))
-                .andExpect(jsonPath("$.verifiedWatchSeconds").value(1800))
+                .andExpect(jsonPath("$.verifiedWatchSeconds").value(0))
+                .andExpect(jsonPath("$.adminUnlockedBy").value("phase7admin"))
                 .andExpect(jsonPath("$.requiredWatchSeconds").value(1800))
                 .andExpect(jsonPath("$.quizUnlocked").value(true))
                 .andExpect(jsonPath("$.overrideState").value("UNLOCKED"));

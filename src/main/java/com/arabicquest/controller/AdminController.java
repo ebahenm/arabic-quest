@@ -401,13 +401,6 @@ public class AdminController {
         ));
     }
 
-    @PostMapping("/students/{studentId}/episodes/{episodeId}/unlock-quiz")
-    public ResponseEntity<Map<String, Object>> unlockQuizForStudent(
-            @PathVariable Long studentId,
-            @PathVariable Long episodeId) {
-        return ResponseEntity.ok(watchProgressService.unlockQuizForStudent(studentId, episodeId));
-    }
-
     @DeleteMapping("/students/{studentId}/episodes/{episodeId}/override")
     public ResponseEntity<Map<String, Object>> clearEpisodeOverrideForStudent(
             @PathVariable Long studentId,
