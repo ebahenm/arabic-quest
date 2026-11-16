@@ -112,6 +112,15 @@ public class PortalRouteController {
                 .body(js);
     }
 
+    @GetMapping({"/admin-mobile.css", "/${ADMIN_SECRET_PATH}/admin-mobile.css"})
+    public ResponseEntity<String> serveAdminMobileCss() throws IOException {
+        String css = readResource("private-hq/admin-mobile.css");
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.valueOf("text/css;charset=UTF-8"))
+                .body(css);
+    }
+
     private String readResource(String classpathLocation) throws IOException {
         ClassPathResource resource = new ClassPathResource(classpathLocation);
         try (InputStream is = resource.getInputStream()) {

@@ -274,5 +274,10 @@ class Phase8PipelineV2IntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, adminBearer).header("X-Requested-With", "XMLHttpRequest")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Watched with family\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.quizUnlocked").value(true)).andExpect(jsonPath("$.adminUnlockedBy").value("phase8admin"));
+
+        mockMvc.perform(get("/mobile.css")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("100dvh")));
+        mockMvc.perform(get("/mobile-watch.js")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("innerHTML"))));
+        mockMvc.perform(get("/phase8-hq/admin-mobile.css")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString(".table-wrap")));
+        mockMvc.perform(get("/phase8-hq/modules/components/admin-mobile-cards.js")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("innerHTML"))));
     }
 }

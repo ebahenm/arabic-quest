@@ -303,6 +303,7 @@ function renderCourseCatalog() {
 
         const titleEl = document.createElement('h3');
         titleEl.className = 'course-card-title';
+        titleEl.dir = 'auto';
         titleEl.textContent = course.title;
         body.appendChild(titleEl);
 
@@ -519,7 +520,7 @@ function renderCourseSyllabus() {
         leftWrap.style.alignItems = 'center';
         leftWrap.style.gap = '0.9rem';
         leftWrap.style.flex = '1';
-        leftWrap.style.minWidth = '220px';
+        leftWrap.style.minWidth = '0';
 
         const pill = document.createElement('div');
         pill.className = 'ep-num-pill';
@@ -530,6 +531,7 @@ function renderCourseSyllabus() {
         const t = document.createElement('div');
         t.style.fontWeight = '700';
         t.style.fontSize = '0.96rem';
+        t.dir = 'auto';
         t.textContent = ep.title;
 
         const sub = document.createElement('div');
@@ -822,6 +824,7 @@ function renderEpisodeList() {
 
         const title = document.createElement('div');
         title.className = 'ep-title';
+        title.dir = 'auto';
         title.textContent = ep.title;
         info.appendChild(title);
 
@@ -1150,6 +1153,12 @@ function startLocalPlaybackMonitor() {
             state = ytPlayer.getPlayerState();
             curTime = Number(ytPlayer.getCurrentTime() || 0);
         } catch (_) {
+            return;
+        }
+
+        if (document.hidden) {
+            isPlayerCurrentlyPlaying = false;
+            lastPlayerTime = curTime;
             return;
         }
 
@@ -1578,6 +1587,7 @@ function renderQuizQuestions() {
 
         const heading = document.createElement('div');
         heading.className = 'question-heading';
+        heading.dir = 'auto';
         heading.textContent = `Question ${idx + 1} (${idx + 1}/${totalQ}): ${q.questionText}`;
         block.appendChild(heading);
 
@@ -1596,6 +1606,7 @@ function renderQuizQuestions() {
             radio.addEventListener('change', updateQuizAnsweredCounter);
 
             const span = document.createElement('span');
+            span.dir = 'auto';
             span.textContent = opt.optionText;
 
             label.appendChild(radio);
@@ -1614,8 +1625,10 @@ function updateOpenAnswerCharCount() {
     const textarea = document.getElementById('open-answer-textarea');
     const counter = document.getElementById('open-answer-char-count');
     if (!textarea || !counter) return;
-    const len = textarea.value.trim().length;
-    counter.textContent = `${len} / 2,000 characters (minimum 40)`;
+    const trimmed = textarea.value.trim();
+    const len = trimmed.length;
+    const words = trimmed ? trimmed.split(/\s+/).length : 0;
+    counter.textContent = `${words} word${words === 1 ? '' : 's'} • ${len} / 2,000 characters (minimum 40)`;
     counter.style.color = (len >= 40 && len <= 2000) ? '#6ee7b7' : 'var(--text-muted)';
 }
 

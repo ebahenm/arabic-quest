@@ -20,9 +20,11 @@
         });
         const card = el('div', {
             background: '#0f172a', border: '1px solid rgba(239, 68, 68, 0.5)',
-            borderRadius: '14px', maxWidth: '500px', width: '100%', padding: '1.5rem',
+            borderRadius: '14px', maxWidth: 'min(500px, calc(100vw - 1.5rem))',
+            maxHeight: 'calc(100dvh - 1.5rem)', overflowY: 'auto', width: '100%', padding: '1.25rem',
             boxShadow: '0 24px 48px rgba(0,0,0,0.6)', color: '#f8fafc'
         });
+        card.className = 'admin-modal-card';
 
         const title = el('h3', { color: '#fca5a5', marginBottom: '0.4rem', fontSize: '1.1rem' }, '🗑️ Permanently Delete Student');
         const subtitle = el('p', { color: '#cbd5e1', fontSize: '0.88rem', marginBottom: '1rem' });

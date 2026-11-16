@@ -31,9 +31,11 @@
             zIndex: '9999', padding: '1rem'
         });
         const card = document.createElement('div');
+        card.className = 'admin-modal-card';
         Object.assign(card.style, {
             background: '#0f172a', border: '1px solid rgba(245, 158, 11, 0.5)',
-            borderRadius: '14px', maxWidth: '440px', width: '100%', padding: '1.35rem', color: '#f8fafc'
+            borderRadius: '14px', maxWidth: 'min(440px, calc(100vw - 1.5rem))',
+            maxHeight: 'calc(100dvh - 1.5rem)', overflowY: 'auto', width: '100%', padding: '1.25rem', color: '#f8fafc'
         });
         const h3 = document.createElement('h3');
         h3.style.color = '#fcd34d';

@@ -1,0 +1,261 @@
+/* Admin HQ mobile responsive stylesheet (360px-430px portrait & landscape) loaded last on admin pages. */
+
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+}
+
+.app-layout,
+.content-area,
+.admin-tab-panel,
+.admin-card-section,
+.card-header-bar,
+.form-row,
+.form-row > *,
+.table-container,
+.table-wrap,
+.admin-action-bar,
+.admin-metrics-grid,
+.metric-card {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.table-wrap,
+.table-container {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.admin-tabs-nav {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    max-width: 100%;
+    gap: 0.45rem;
+    padding: 0.45rem;
+}
+
+.admin-tab-btn {
+    flex: 0 0 auto;
+    min-height: 44px;
+}
+
+.admin-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.82);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: max(0.75rem, env(safe-area-inset-top, 0px)) max(0.75rem, env(safe-area-inset-right, 0px)) max(0.75rem, env(safe-area-inset-bottom, 0px)) max(0.75rem, env(safe-area-inset-left, 0px));
+}
+
+.admin-modal-card {
+    background: #0f172a;
+    border-radius: 14px;
+    max-width: min(500px, calc(100vw - 1.5rem));
+    max-height: calc(100dvh - 1.5rem);
+    width: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 1.25rem;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.65);
+    color: #f8fafc;
+}
+
+@media (max-width: 768px) {
+    input,
+    textarea,
+    select,
+    .form-input,
+    .text-input,
+    .select-input {
+        font-size: 16px !important;
+        min-height: 44px;
+        max-width: 100%;
+    }
+
+    button,
+    .btn-primary,
+    .btn-ghost,
+    .btn-logout,
+    .btn-danger-outline,
+    .btn-beta-launch,
+    .btn-ai-generate,
+    .preset-btn,
+    .admin-tab-btn,
+    .auth-btn {
+        min-height: 44px;
+    }
+
+    header {
+        position: relative !important;
+        top: auto !important;
+        padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 0.85rem 0.75rem !important;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.65rem;
+    }
+
+    .admin-nav-actions {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.45rem;
+        width: 100%;
+    }
+
+    .admin-nav-actions > * {
+        width: 100%;
+        justify-content: center;
+        text-align: center;
+        min-width: 0;
+    }
+
+    .app-layout {
+        padding: 0.75rem 0.75rem 2.25rem !important;
+        gap: 1rem !important;
+    }
+
+    .admin-card-section,
+    .admin-action-bar {
+        padding: 1rem !important;
+    }
+
+    .admin-card-section div[style*="min-width"],
+    .admin-tab-panel div[style*="min-width"],
+    #form-balance-adjustment > *,
+    #form-edit-episode-inline > * {
+        min-width: 0 !important;
+        max-width: 100% !important;
+    }
+
+    .form-row {
+        grid-template-columns: 1fr !important;
+        gap: 0.75rem !important;
+    }
+
+    .form-row > * {
+        grid-column: 1 / -1 !important;
+        min-width: 0 !important;
+        width: 100% !important;
+    }
+
+    #admin-student-select,
+    #payout-amount,
+    #payout-note,
+    #adj-amount,
+    #adj-note,
+    #review-status-filter,
+    #qbank-filter-status,
+    #qbank-filter-type,
+    #audit-student-filter,
+    #input-import-qbank-file,
+    #input-transcript-files,
+    #ai-writer-model-select,
+    #yt-playlist-input,
+    #edit-ep-duration {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    #form-balance-adjustment,
+    #form-edit-episode-inline,
+    #pipeline-v2-toolbar {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+
+    #form-balance-adjustment button,
+    #form-edit-episode-inline button,
+    #pipeline-v2-toolbar > *,
+    #btn-run-ai {
+        width: 100% !important;
+        justify-content: center;
+    }
+
+    .admin-metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.65rem !important;
+    }
+
+    .table-wrap .data-table,
+    .table-container .data-table {
+        display: block;
+        width: 100%;
+    }
+
+    .table-wrap .data-table thead,
+    .table-container .data-table thead {
+        display: none;
+    }
+
+    .table-wrap .data-table tbody,
+    .table-container .data-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        padding: 0.65rem;
+    }
+
+    .table-wrap .data-table tbody tr,
+    .table-container .data-table tbody tr {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        background: var(--bg-subtle);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 0.75rem 0.85rem;
+    }
+
+    .table-wrap .data-table tbody td,
+    .table-container .data-table tbody td {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.65rem;
+        padding: 0.25rem 0 !important;
+        border-bottom: none !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        font-size: 0.84rem;
+        text-align: right;
+    }
+
+    .table-wrap .data-table tbody td::before,
+    .table-container .data-table tbody td::before {
+        content: attr(data-label);
+        font-weight: 700;
+        font-size: 0.74rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        text-align: left;
+        flex-shrink: 0;
+        max-width: 45%;
+    }
+
+    .table-wrap .data-table tbody td[colspan]::before,
+    .table-container .data-table tbody td[colspan]::before {
+        display: none;
+    }
+
+    #del-modal-totals {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        padding: 0.65rem !important;
+    }
+}
+
+@media (max-width: 420px) {
+    .admin-metrics-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
