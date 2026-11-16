@@ -516,6 +516,7 @@ function renderCourseSyllabus() {
         });
 
         const leftWrap = document.createElement('div');
+        leftWrap.className = 'syllabus-ep-main';
         leftWrap.style.display = 'flex';
         leftWrap.style.alignItems = 'center';
         leftWrap.style.gap = '0.9rem';
@@ -528,13 +529,16 @@ function renderCourseSyllabus() {
         leftWrap.appendChild(pill);
 
         const textWrap = document.createElement('div');
+        textWrap.className = 'syllabus-ep-text';
         const t = document.createElement('div');
+        t.className = 'syllabus-ep-title';
         t.style.fontWeight = '700';
         t.style.fontSize = '0.96rem';
         t.dir = 'auto';
         t.textContent = ep.title;
 
         const sub = document.createElement('div');
+        sub.className = 'syllabus-ep-sub';
         sub.style.fontSize = '0.78rem';
         sub.style.color = 'var(--text-muted)';
         sub.style.marginTop = '0.18rem';
