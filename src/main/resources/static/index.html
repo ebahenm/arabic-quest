@@ -12,7 +12,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     <meta name="theme-color" content="#0b1f33">
-    <link rel="stylesheet" href="/style.css?v=6">
+    <link rel="stylesheet" href="/style.css?v=8">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" defer></script>
     <style>
         .student-user-pill {
@@ -192,6 +192,7 @@
             }
         }
     </style>
+    <link id="mobile-css-link" rel="stylesheet" href="/mobile.css?v=8">
 </head>
 <body>
 
@@ -313,7 +314,7 @@
             <div id="syllabus-cover-box" class="course-cover-wrap" style="border-radius: var(--radius-md);"></div>
             <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap;">
-                    <h1 id="syllabus-course-title" style="font-size: 1.5rem; font-weight: 800; font-family: 'Cairo', 'Plus Jakarta Sans', sans-serif;">Course Title</h1>
+                    <h1 id="syllabus-course-title" dir="auto" style="font-size: 1.5rem; font-weight: 800; font-family: 'Cairo', 'Plus Jakarta Sans', sans-serif;">Course Title</h1>
                     <span id="syllabus-bonus-badge" class="quiz-pass-badge">🏆 +$100.00 Completion Bonus</span>
                 </div>
                 <p id="syllabus-course-desc" style="font-size: 0.9rem; color: var(--text-muted); line-height: 1.55;"></p>
@@ -357,7 +358,7 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="sidebar-title">
-                    <span id="sidebar-course-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Course Episodes</span>
+                    <span id="sidebar-course-title" dir="auto" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Course Episodes</span>
                     <span id="badge-course-count" style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">0/0</span>
                 </div>
 
@@ -386,7 +387,7 @@
                 <button type="button" class="btn-signout" onclick="showCourseCatalogView()">
                     📚 All Courses
                 </button>
-                <span id="episode-course-breadcrumb" style="font-size: 0.84rem; font-weight: 700; color: var(--text-muted);"></span>
+                <span id="episode-course-breadcrumb" dir="auto" style="font-size: 0.84rem; font-weight: 700; color: var(--text-muted);"></span>
             </div>
 
             <div id="episode-lock-toast" class="episode-lock-toast"></div>
@@ -395,7 +396,7 @@
                 <div class="mode-card-top">
                     <div class="mode-info">
                         <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
-                            <h2 id="current-episode-title" style="margin-bottom: 0;">Loading episode...</h2>
+                            <h2 id="current-episode-title" dir="auto" style="margin-bottom: 0;">Loading episode...</h2>
                             <span id="current-episode-state-badge" class="ep-badge-passed" style="display: none;">Available</span>
                         </div>
                         <p id="episode-header-subtitle">Watch the episode to unlock the 10-question mastery check and written reflection.</p>
@@ -484,10 +485,12 @@
                 <form id="quiz-form" onsubmit="handleQuizSubmit(event)">
                     <div id="questions-container"></div>
 
-                    <button type="submit" id="btn-submit-quiz" class="btn-primary" style="margin-top: 1.25rem;">
-                        <span>Submit 10 Answers</span>
-                        <span>➔</span>
-                    </button>
+                    <div class="quiz-submit-sticky-bar">
+                        <button type="submit" id="btn-submit-quiz" class="btn-primary" style="margin-top: 0;">
+                            <span>Submit 10 Answers</span>
+                            <span>➔</span>
+                        </button>
+                    </div>
                 </form>
             </section>
 
@@ -512,7 +515,7 @@
 
                 <div style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1rem;">
                     <div style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.3rem;">Reflection Prompt</div>
-                    <div id="open-q-prompt-text" style="font-size: 1rem; font-weight: 700; color: #f8fafc; line-height: 1.55;"></div>
+                    <div id="open-q-prompt-text" dir="auto" style="font-size: 1rem; font-weight: 700; color: #f8fafc; line-height: 1.55;"></div>
                 </div>
 
                 <form id="open-answer-form" onsubmit="handleOpenAnswerSubmit(event)">
@@ -548,6 +551,7 @@
         </div>
     </div>
 
-    <script src="/app.js?v=6"></script>
+    <script src="/app.js?v=8"></script>
+    <script src="/mobile-watch.js?v=8"></script>
 </body>
 </html>

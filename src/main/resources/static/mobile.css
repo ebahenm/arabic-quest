@@ -1,0 +1,162 @@
+/* Student mobile responsive stylesheet (360px-430px portrait & landscape) loaded last to override base style.css rules. */
+
+html, body { max-width: 100%; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+img, picture, video, iframe, canvas, svg { max-width: 100%; }
+
+.portal-container, .app-layout, .app-layout > *, .content-area, .sidebar,
+.course-catalog-grid, .course-catalog-card, .syllabus-hero-card, .syllabus-hero-card > *,
+.syllabus-ep-row, .syllabus-ep-row > *, .episode-card, .episode-card > *, .ep-info,
+.mode-card-stacked, .mode-card-top, .mode-info, .watch-progress-strip,
+.extension-support-banner, .vocab-drawer, .quiz-box, .question-block, .option-pill {
+    min-width: 0;
+}
+
+[dir="auto"], .course-card-title, .ep-title, #syllabus-course-title, #current-episode-title,
+#sidebar-course-title, #episode-course-breadcrumb, .question-heading, .option-pill span, #open-q-prompt-text {
+    unicode-bidi: plaintext;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.landing-hero {
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.auth-container {
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: max(1rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) max(1rem, env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
+}
+
+.course-catalog-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); }
+.vocab-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+
+.mobile-watch-notice {
+    display: none;
+    margin-top: 0.45rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: var(--radius-sm);
+    background: rgba(245, 158, 11, 0.16);
+    border: 1px solid rgba(245, 158, 11, 0.48);
+    color: #fde68a;
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.45;
+}
+.mobile-watch-notice.visible { display: block; }
+
+@media (max-width: 1024px) {
+    .app-layout { grid-template-columns: 1fr !important; padding: 1rem; gap: 1.15rem; }
+    .sidebar { position: static !important; height: auto !important; order: 2; width: 100%; }
+    .content-area { order: 1; width: 100%; }
+}
+
+@media (max-width: 860px) {
+    .syllabus-hero-card { grid-template-columns: 1fr !important; padding: 1.1rem; gap: 1rem; }
+}
+
+@media (max-width: 768px) {
+    input, textarea, select, .form-input, .text-input, .select-input, #open-answer-textarea {
+        font-size: 16px !important;
+    }
+
+    button, .btn-primary, .btn-signout, .beta-btn, .auth-btn, .landing-signin-btn,
+    .fav-filter-btn, .btn-yt-external, .btn-reset-mode, .option-pill {
+        min-height: 44px;
+    }
+
+    .fav-heart-btn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+
+    header#app-header {
+        position: relative;
+        padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 0.85rem 0.7rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.6rem;
+    }
+
+    .brand { gap: 0.65rem; }
+    .brand-title { font-size: 1.1rem; white-space: normal; line-height: 1.25; }
+    .header-actions { width: 100%; flex-direction: column; align-items: stretch; gap: 0.5rem; }
+
+    .earnings-strip {
+        width: 100%;
+        border-radius: var(--radius-md);
+        padding: 0.45rem 0.65rem;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.35rem;
+        text-align: center;
+    }
+
+    .earnings-metric { flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; font-size: 0.72rem; }
+    .earnings-metric strong { font-size: 0.86rem; }
+    .student-user-pill { width: 100%; justify-content: space-between; padding: 0.4rem 0.75rem; }
+
+    .beta-sandbox-bar { padding: 0.65rem 0.85rem; flex-direction: column; align-items: stretch; }
+    .beta-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 155px), 1fr)); width: 100%; gap: 0.45rem; }
+    .beta-btn { width: 100%; justify-content: center; text-align: center; display: inline-flex; align-items: center; }
+
+    .portal-container { padding: 1rem 0.85rem 2.25rem; }
+    .catalog-header h1 { font-size: 1.35rem; }
+    .course-catalog-grid { grid-template-columns: 1fr !important; gap: 1rem; }
+    .course-card-body { padding: 1rem; }
+
+    .syllabus-ep-row { padding: 0.85rem; flex-direction: column; align-items: stretch; gap: 0.65rem; min-height: 52px; }
+    .syllabus-ep-row > div:first-child { min-width: 0 !important; width: 100%; }
+    .syllabus-ep-rates { width: 100%; justify-content: space-between; }
+
+    .app-layout { padding: 0.75rem 0.75rem 2rem; gap: 0.9rem; }
+    .breadcrumb-nav-bar { gap: 0.45rem; }
+    .mode-card-stacked { padding: 0.95rem; }
+    #current-episode-title { font-size: 1.08rem; line-height: 1.4; }
+    #episode-reward-pill { width: 100%; justify-content: space-between; white-space: normal !important; }
+
+    .player-wrapper { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--radius-md); }
+    .watch-progress-strip { padding: 0.85rem 0.95rem; }
+
+    #sidebar-course-title, .ep-title, .ep-badge-passed, .ep-badge-locked,
+    .quiz-pass-badge, .btn-ai-auto-badge, .rate-chip {
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+    }
+
+    .episode-card { min-height: 52px; padding: 0.75rem 0.8rem; flex-wrap: wrap; }
+    .quiz-box { padding: 0.95rem; }
+    .quiz-header { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+    .question-block { padding: 0.9rem; }
+
+    .option-pill { width: 100%; min-height: 48px; padding: 0.75rem 0.85rem; align-items: flex-start; }
+    .option-pill input[type="radio"] { width: 20px; height: 20px; margin-top: 0.15rem; flex-shrink: 0; }
+
+    .quiz-submit-sticky-bar {
+        position: sticky;
+        bottom: 0;
+        z-index: 40;
+        background: rgba(16, 42, 67, 0.96);
+        backdrop-filter: blur(8px);
+        margin: 0.75rem -0.95rem -0.95rem;
+        padding: 0.65rem 0.95rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--border);
+        border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    }
+
+    body.keyboard-open .quiz-submit-sticky-bar {
+        position: static;
+        margin: 0.75rem 0 0;
+        padding: 0;
+        background: transparent;
+        border-top: none;
+    }
+
+    .google-btn-wrap { max-width: 100%; overflow-x: auto; }
+    .modal-dialog { width: calc(100% - 1.5rem); max-height: calc(100dvh - 1.5rem); overflow-y: auto; padding: 1.35rem 1rem; }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+    .landing-content-col { padding: 1rem 1.25rem; gap: 0.4rem; }
+    .landing-emblem-wrap, .landing-emblem-img { width: 64px; height: 64px; }
+    .landing-arabic-wordmark { font-size: 2.1rem; }
+}

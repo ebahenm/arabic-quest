@@ -11,7 +11,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     <meta name="theme-color" content="#0b1f33">
-    <link rel="stylesheet" href="/style.css?v=6">
+    <link rel="stylesheet" href="/style.css?v=8">
     <style>
         .admin-nav-actions {
             display: flex;
@@ -215,6 +215,7 @@
             cursor: pointer;
         }
     </style>
+    <link id="admin-mobile-css-link" rel="stylesheet" href="{{HQ_BASE_PATH}}/admin-mobile.css?v=8">
 </head>
 <body>
 
@@ -1047,13 +1048,14 @@
         </main>
     </div>
 
-    <script src="{{HQ_SCRIPT_PATH}}"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/data/admin-api.js"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/components/delete-student-modal.js"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/pages/students-management.js"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/pages/payouts-and-overview.js"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/pages/generation-job-ui.js"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/pages/question-bank-manager.js"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/pages/transcript-upload.js"></script>
+    <script src="{{HQ_SCRIPT_PATH}}?v=8"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/data/admin-api.js?v=8"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/components/delete-student-modal.js?v=8"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/components/admin-mobile-cards.js?v=8"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/students-management.js?v=8"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/payouts-and-overview.js?v=8"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/generation-job-ui.js?v=8"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/question-bank-manager.js?v=8"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/transcript-upload.js?v=8"></script>
 </body>
 </html>

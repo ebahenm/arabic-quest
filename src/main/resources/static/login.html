@@ -10,7 +10,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     <meta name="theme-color" content="#0b1f33">
-    <link rel="stylesheet" href="/style.css?v=6">
+    <link rel="stylesheet" href="/style.css?v=8">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         .auth-container {
@@ -184,6 +184,7 @@
             }
         }
     </style>
+    <link id="mobile-css-link" rel="stylesheet" href="/mobile.css?v=8">
 </head>
 <body>
 
@@ -301,9 +302,10 @@
                         auto_select: false
                     });
                     document.getElementById('google-auth-section').style.display = 'block';
+                    const btnWidth = Math.min(340, Math.max(240, (window.innerWidth || 360) - 64));
                     google.accounts.id.renderButton(
                         document.getElementById('google-btn-container'),
-                        { theme: 'outline', size: 'large', width: 340, text: 'signin_with' }
+                        { theme: 'outline', size: 'large', width: btnWidth, text: 'signin_with' }
                     );
                 } else if (attemptsLeft > 0) {
                     setTimeout(() => tryRender(attemptsLeft - 1), 250);
