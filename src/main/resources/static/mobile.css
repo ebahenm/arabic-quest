@@ -1,4 +1,4 @@
-/* Student mobile responsive stylesheet (360px-430px portrait & landscape) loaded last to override base style.css rules. */
+/* Student mobile responsive stylesheet (360px-430px portrait & landscape) loaded last after style.css. */
 
 html, body { max-width: 100%; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
 img, picture, video, iframe, canvas, svg { max-width: 100%; }
@@ -20,79 +20,59 @@ img, picture, video, iframe, canvas, svg { max-width: 100%; }
     overflow-wrap: break-word;
 }
 
-.landing-hero {
-    min-height: 100vh;
-    min-height: 100dvh;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
+.landing-hero { min-height: 100vh; min-height: 100dvh; padding-bottom: env(safe-area-inset-bottom, 0px); }
 .auth-container {
-    min-height: 100vh;
-    min-height: 100dvh;
+    min-height: 100vh; min-height: 100dvh;
     padding: max(1rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) max(1rem, env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
 }
-
 .course-catalog-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); }
 .vocab-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 
 .mobile-watch-notice {
-    display: none;
-    margin-top: 0.45rem;
-    padding: 0.65rem 0.85rem;
-    border-radius: var(--radius-sm);
-    background: rgba(245, 158, 11, 0.16);
-    border: 1px solid rgba(245, 158, 11, 0.48);
-    color: #fde68a;
-    font-size: 0.8rem;
-    font-weight: 700;
-    line-height: 1.45;
+    display: none; margin-top: 0.45rem; padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);
+    background: rgba(245, 158, 11, 0.16); border: 1px solid rgba(245, 158, 11, 0.48);
+    color: #fde68a; font-size: 0.8rem; font-weight: 700; line-height: 1.45;
 }
 .mobile-watch-notice.visible { display: block; }
 
+.quiz-empty-state {
+    background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 1.15rem; display: flex; flex-direction: column; gap: 0.75rem; align-items: flex-start;
+}
+.quiz-empty-title { font-size: 1rem; font-weight: 800; color: var(--brand-cream); }
+.quiz-empty-desc { font-size: 0.86rem; color: var(--text-muted); line-height: 1.5; }
+.quiz-not-ready-notice { display: none; }
+.quiz-not-ready-notice.visible { display: flex; }
+
+.mobile-ep-toolbar, .mobile-ep-toggle-btn { display: none; }
+
 @media (max-width: 1024px) {
-    .app-layout { grid-template-columns: 1fr !important; padding: 1rem; gap: 1.15rem; }
-    .sidebar { position: static !important; height: auto !important; order: 2; width: 100%; }
+    .app-layout { grid-template-columns: 1fr; padding: 1rem; gap: 1.15rem; }
+    .sidebar { position: static; height: auto; order: 2; width: 100%; }
     .content-area { order: 1; width: 100%; }
 }
 
 @media (max-width: 860px) {
-    .syllabus-hero-card { grid-template-columns: 1fr !important; padding: 1.1rem; gap: 1rem; }
+    .syllabus-hero-card { grid-template-columns: 1fr; padding: 1.1rem; gap: 1rem; }
 }
 
 @media (max-width: 768px) {
-    input, textarea, select, .form-input, .text-input, .select-input, #open-answer-textarea {
-        font-size: 16px !important;
-    }
-
+    input, textarea, select, .form-input, .text-input, .select-input, #open-answer-textarea { font-size: 16px; }
     button, .btn-primary, .btn-signout, .beta-btn, .auth-btn, .landing-signin-btn,
-    .fav-filter-btn, .btn-yt-external, .btn-reset-mode, .option-pill {
-        min-height: 44px;
-    }
-
+    .fav-filter-btn, .btn-yt-external, .btn-reset-mode, .option-pill { min-height: 44px; }
     .fav-heart-btn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; flex-shrink: 0; }
 
     header#app-header {
-        position: relative;
-        padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 0.85rem 0.7rem;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.6rem;
+        position: relative; padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 0.85rem 0.7rem;
+        flex-direction: column; align-items: stretch; gap: 0.6rem;
     }
-
     .brand { gap: 0.65rem; }
     .brand-title { font-size: 1.1rem; white-space: normal; line-height: 1.25; }
     .header-actions { width: 100%; flex-direction: column; align-items: stretch; gap: 0.5rem; }
-
     .earnings-strip {
-        width: 100%;
-        border-radius: var(--radius-md);
-        padding: 0.45rem 0.65rem;
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0.35rem;
-        text-align: center;
+        width: 100%; border-radius: var(--radius-md); padding: 0.45rem 0.65rem;
+        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; text-align: center;
     }
-
     .earnings-metric { flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; font-size: 0.72rem; }
     .earnings-metric strong { font-size: 0.86rem; }
     .student-user-pill { width: 100%; justify-content: space-between; padding: 0.4rem 0.75rem; }
@@ -103,150 +83,98 @@ img, picture, video, iframe, canvas, svg { max-width: 100%; }
 
     .portal-container { padding: 1rem 0.85rem 2.25rem; }
     .catalog-header h1 { font-size: 1.35rem; }
-    .course-catalog-grid { grid-template-columns: 1fr !important; gap: 1rem; }
+    .course-catalog-grid { grid-template-columns: 1fr; gap: 1rem; }
     .course-card-body { padding: 1rem; }
 
-    .syllabus-ep-row {
-        display: grid !important;
-        grid-template-columns: auto minmax(0, 1fr);
-        gap: 0.6rem 8px;
-        padding: 0.9rem 1rem;
-        height: auto !important;
-        min-height: 52px;
-        align-items: center;
+    .mobile-ep-toolbar {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        position: sticky; top: 0; z-index: 15; background: var(--bg-card);
+        padding: 0.45rem 0.2rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+    }
+    .mobile-ep-count { font-size: 0.78rem; color: var(--text-muted); font-weight: 700; }
+    .mobile-ep-jump-btn {
+        background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.45);
+        color: #6ee7b7; border-radius: var(--radius-sm); padding: 0.4rem 0.75rem;
+        font-size: 0.78rem; font-weight: 700; cursor: pointer; flex-shrink: 0;
+    }
+    .mobile-ep-toggle-btn {
+        display: flex; align-items: center; justify-content: center; width: 100%; margin-top: 0.65rem;
+        background: var(--bg-subtle); border: 1px solid var(--border); color: var(--brand-cream);
+        border-radius: var(--radius-md); padding: 0.65rem 1rem; font-size: 0.86rem; font-weight: 700; cursor: pointer;
     }
 
-    .syllabus-ep-row > .syllabus-ep-main,
-    .syllabus-ep-row > div:first-child {
-        display: contents !important;
+    .syllabus-episode-list, .episode-list {
+        display: flex; flex-direction: column; gap: 0; max-height: none; overflow-y: visible; padding-right: 0;
+    }
+    .syllabus-episode-list.mobile-list-expanded, .episode-list.mobile-list-expanded {
+        max-height: 70dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 4px;
     }
 
-    .syllabus-ep-text,
-    .syllabus-ep-row > div:first-child > div:last-child {
-        grid-row: 1;
-        grid-column: 1 / -1;
-        width: 100%;
-        min-width: 0;
-        height: auto;
+    /* Compact 2-row card (~90-110px): Row 1 [pill | 2-line title | heart], Row 2 [meta + pills] */
+    .syllabus-ep-row, .episode-card {
+        display: grid; grid-template-columns: 30px auto minmax(0, 1fr) 44px; grid-template-rows: auto auto;
+        align-items: center; height: auto; min-height: 44px; flex-shrink: 0; overflow: visible;
+        padding: 9px 10px; gap: 5px 8px; margin-bottom: 8px;
     }
-
-    .syllabus-ep-title,
-    .syllabus-ep-row > div:first-child > div:last-child > div:first-child {
-        width: 100%;
-        grid-column: 1 / -1;
-        height: auto;
-        white-space: normal !important;
-        word-break: normal !important;
-        overflow-wrap: break-word !important;
-        line-height: 1.5;
+    .syllabus-ep-row.mobile-ep-hidden, .episode-card.mobile-ep-hidden { display: none; }
+    .syllabus-ep-row.ep-jump-highlight, .episode-card.ep-jump-highlight {
+        border-color: var(--gold); box-shadow: 0 0 0 2px rgba(201, 162, 77, 0.55);
     }
+    .syllabus-ep-main, .syllabus-ep-text, .episode-card > .ep-info { display: contents; }
 
-    .syllabus-ep-sub {
-        width: 100%;
-        height: auto;
-        white-space: normal !important;
-        word-break: normal !important;
-        overflow-wrap: break-word !important;
+    .syllabus-ep-row .ep-num-pill, .episode-card > .ep-num-pill {
+        grid-column: 1; grid-row: 1; flex-shrink: 0; align-self: center;
     }
-
-    .syllabus-ep-row .ep-num-pill {
-        grid-row: 2;
-        grid-column: 1;
-        flex-shrink: 0;
+    .syllabus-ep-title, .episode-card .ep-title {
+        grid-column: 2 / 4; grid-row: 1; align-self: center; min-width: 0; width: 100%; height: auto;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        text-overflow: ellipsis; white-space: normal; word-break: normal; overflow-wrap: break-word;
+        font-size: 0.88rem; line-height: 1.32;
     }
-
+    .syllabus-ep-row > .fav-heart-btn, .episode-card > .fav-heart-btn {
+        grid-column: 4; grid-row: 1; justify-self: end; align-self: center; flex-shrink: 0;
+    }
+    .syllabus-ep-sub, .episode-card .ep-tag {
+        grid-column: 1 / 3; grid-row: 2; align-self: center; min-width: 0; max-width: 100%;
+        font-size: 0.74rem; white-space: normal; word-break: normal; overflow-wrap: break-word; line-height: 1.3;
+    }
     .syllabus-ep-rates {
-        grid-row: 2;
-        grid-column: 2;
-        width: 100%;
-        display: flex !important;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
+        grid-column: 3 / -1; grid-row: 2; align-self: center; min-width: 0;
+        display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px;
     }
-
-    .syllabus-ep-rates > * {
-        flex-shrink: 0;
+    .episode-card > .ep-badge-passed, .episode-card > .ep-badge-locked {
+        grid-column: 3 / -1; grid-row: 2; justify-self: end; align-self: center;
+        font-size: 0.68rem; padding: 0.18rem 0.5rem; max-width: 100%;
     }
-
-    .episode-card {
-        display: grid !important;
-        grid-template-columns: auto minmax(0, 1fr) auto;
-        gap: 0.55rem 8px;
-        padding: 0.85rem 0.95rem;
-        height: auto !important;
-        min-height: 52px;
-        align-items: center;
+    .syllabus-ep-rates .rate-chip, .syllabus-ep-rates .ep-badge-passed, .syllabus-ep-rates .ep-badge-locked {
+        font-size: 0.68rem; padding: 0.16rem 0.48rem; white-space: normal; word-break: normal; overflow-wrap: break-word;
     }
-
-    .episode-card > .ep-info {
-        grid-row: 1;
-        grid-column: 1 / -1;
-        width: 100%;
-        min-width: 0;
-        height: auto;
-        overflow: visible !important;
-    }
-
-    .episode-card .ep-title {
-        width: 100%;
-        grid-column: 1 / -1;
-        height: auto;
-        white-space: normal !important;
-        word-break: normal !important;
-        overflow-wrap: break-word !important;
-        text-overflow: clip !important;
-        overflow: visible !important;
-        line-height: 1.5;
-    }
-
-    .episode-card > .ep-num-pill { grid-row: 2; grid-column: 1; flex-shrink: 0; }
-    .episode-card > .ep-badge-passed,
-    .episode-card > .ep-badge-locked { grid-row: 2; grid-column: 2; justify-self: start; flex-shrink: 0; }
-    .episode-card > .fav-heart-btn { grid-row: 2; grid-column: 3; justify-self: end; flex-shrink: 0; }
 
     .app-layout { padding: 0.75rem 0.75rem 2rem; gap: 0.9rem; }
     .breadcrumb-nav-bar { gap: 0.45rem; }
     .mode-card-stacked { padding: 0.95rem; }
     #current-episode-title { font-size: 1.08rem; line-height: 1.4; }
-    #episode-reward-pill { width: 100%; justify-content: space-between; white-space: normal !important; }
-
+    #episode-reward-pill { width: 100%; justify-content: space-between; white-space: normal; }
     .player-wrapper { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--radius-md); }
     .watch-progress-strip { padding: 0.85rem 0.95rem; }
-
-    #sidebar-course-title, .ep-badge-passed, .ep-badge-locked,
-    .quiz-pass-badge, .btn-ai-auto-badge, .rate-chip {
-        white-space: normal !important;
-        word-break: normal !important;
-        overflow-wrap: break-word !important;
+    #sidebar-course-title, .quiz-pass-badge, .btn-ai-auto-badge {
+        white-space: normal; word-break: normal; overflow-wrap: break-word;
     }
 
     .quiz-box { padding: 0.95rem; }
     .quiz-header { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
     .question-block { padding: 0.9rem; }
-
     .option-pill { width: 100%; min-height: 48px; padding: 0.75rem 0.85rem; align-items: flex-start; }
     .option-pill input[type="radio"] { width: 20px; height: 20px; margin-top: 0.15rem; flex-shrink: 0; }
 
     .quiz-submit-sticky-bar {
-        position: sticky;
-        bottom: 0;
-        z-index: 40;
-        background: rgba(16, 42, 67, 0.96);
-        backdrop-filter: blur(8px);
-        margin: 0.75rem -0.95rem -0.95rem;
+        position: sticky; bottom: 0; z-index: 40; background: rgba(16, 42, 67, 0.96);
+        backdrop-filter: blur(8px); margin: 0.75rem -0.95rem -0.95rem;
         padding: 0.65rem 0.95rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
-        border-top: 1px solid var(--border);
-        border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+        border-top: 1px solid var(--border); border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     }
-
     body.keyboard-open .quiz-submit-sticky-bar {
-        position: static;
-        margin: 0.75rem 0 0;
-        padding: 0;
-        background: transparent;
-        border-top: none;
+        position: static; margin: 0.75rem 0 0; padding: 0; background: transparent; border-top: none;
     }
 
     .google-btn-wrap { max-width: 100%; overflow-x: auto; }

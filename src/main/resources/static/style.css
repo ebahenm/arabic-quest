@@ -298,6 +298,7 @@ header {
     justify-content: space-between;
     align-items: center;
     gap: 0.75rem;
+    flex-shrink: 0;
 }
 
 .episode-card:hover {
@@ -323,11 +324,12 @@ header {
     font-size: 0.82rem;
     font-weight: 700;
     color: var(--text-muted);
+    flex-shrink: 0;
 }
 
 .episode-card.active .ep-num-pill {
     background: var(--primary);
-    color: #064e3b;
+    color: var(--brand-cream);
 }
 
 .ep-info {
@@ -1020,8 +1022,8 @@ header {
     }
 
     .episode-list {
-        max-height: 280px;
-        overflow-y: auto;
+        max-height: none;
+        overflow-y: visible;
     }
 
     .mode-card {
@@ -1366,6 +1368,23 @@ header {
     cursor: pointer;
     transition: all 0.2s ease;
     flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
+.syllabus-ep-main {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    flex: 1;
+    min-width: 0;
+}
+
+#episode-reward-pill {
+    white-space: nowrap;
+}
+
+#open-answer-textarea {
+    font-size: 0.95rem;
 }
 
 .syllabus-ep-row:hover {
