@@ -12,7 +12,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     <meta name="theme-color" content="#0b1f33">
-    <link rel="stylesheet" href="/style.css?v=9">
+    <link rel="stylesheet" href="/style.css?v=10">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" defer></script>
     <style>
         .student-user-pill {
@@ -192,7 +192,7 @@
             }
         }
     </style>
-    <link id="mobile-css-link" rel="stylesheet" href="/mobile.css?v=9">
+    <link id="mobile-css-link" rel="stylesheet" href="/mobile.css?v=10">
 </head>
 <body>
 
@@ -402,7 +402,7 @@
                         <p id="episode-header-subtitle">Watch the episode to unlock the 10-question mastery check and written reflection.</p>
                     </div>
 
-                    <div id="episode-reward-pill" style="display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.65rem 1.05rem; border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.4); white-space: nowrap;">
+                    <div id="episode-reward-pill" style="display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.65rem 1.05rem; border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.4);">
                         <span style="font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 700;">Episode Reward</span>
                         <strong id="episode-reward-badge" style="font-size: 1.05rem; color: #fcd34d;">+$15.00</strong>
                     </div>
@@ -521,7 +521,7 @@
                 <form id="open-answer-form" onsubmit="handleOpenAnswerSubmit(event)">
                     <textarea id="open-answer-textarea" rows="5" minlength="40" maxlength="2000"
                         placeholder="Write your explanation in English (40 to 2,000 characters)..."
-                        style="width: 100%; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--bg-subtle); color: #f8fafc; font-family: inherit; font-size: 0.95rem; line-height: 1.55; resize: vertical;"></textarea>
+                        style="width: 100%; padding: 0.9rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--bg-subtle); color: #f8fafc; font-family: inherit; line-height: 1.55; resize: vertical;"></textarea>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
                         <span id="open-answer-char-count" style="font-size: 0.8rem; color: var(--text-muted);">0 / 2,000 characters (minimum 40)</span>
                         <button type="submit" id="btn-submit-open-answer" class="btn-primary">
@@ -551,7 +551,8 @@
         </div>
     </div>
 
-    <script src="/app.js?v=9"></script>
-    <script src="/mobile-watch.js?v=9"></script>
+    <script src="/quiz-empty-state.js?v=10"></script>
+    <script src="/app.js?v=10"></script>
+    <script src="/mobile-watch.js?v=10"></script>
 </body>
 </html>

@@ -517,11 +517,6 @@ function renderCourseSyllabus() {
 
         const leftWrap = document.createElement('div');
         leftWrap.className = 'syllabus-ep-main';
-        leftWrap.style.display = 'flex';
-        leftWrap.style.alignItems = 'center';
-        leftWrap.style.gap = '0.9rem';
-        leftWrap.style.flex = '1';
-        leftWrap.style.minWidth = '0';
 
         const pill = document.createElement('div');
         pill.className = 'ep-num-pill';
@@ -565,10 +560,10 @@ function renderCourseSyllabus() {
 
         rightWrap.appendChild(chipReward);
         rightWrap.appendChild(stateBadge);
-        rightWrap.appendChild(createFavoriteHeartButton(ep));
 
         row.appendChild(leftWrap);
         row.appendChild(rightWrap);
+        row.appendChild(createFavoriteHeartButton(ep));
         listEl.appendChild(row);
     });
 }
@@ -943,6 +938,10 @@ function applyWatchStatus(status, episodePassed) {
         quizSection.style.display = 'block';
     } else {
         quizSection.style.display = 'none';
+    }
+
+    if (window.QuizEmptyState && typeof window.QuizEmptyState.syncNotReadyBanner === 'function') {
+        window.QuizEmptyState.syncNotReadyBanner(currentEpisode, status, episodes, selectEpisode);
     }
 
     startCooldownTicker(status.retryCooldownRemainingSeconds || 0);
@@ -1557,11 +1556,15 @@ function renderQuizQuestions() {
     container.textContent = '';
 
     if (!currentQuiz || currentQuiz.ready === false || !currentQuiz.questions || currentQuiz.questions.length === 0) {
-        const p = document.createElement('p');
-        p.style.color = 'var(--text-muted)';
-        p.style.padding = '1rem';
-        p.textContent = (currentQuiz && currentQuiz.message) ? currentQuiz.message : 'Quiz not ready yet';
-        container.appendChild(p);
+        if (window.QuizEmptyState && typeof window.QuizEmptyState.renderIntoContainer === 'function') {
+            window.QuizEmptyState.renderIntoContainer(container, currentEpisode, episodes, selectEpisode);
+        } else {
+            const p = document.createElement('p');
+            p.style.color = 'var(--text-muted)';
+            p.style.padding = '1rem';
+            p.textContent = "This episode's quiz isn't ready yet";
+            container.appendChild(p);
+        }
         if (submitBtn) {
             submitBtn.style.display = 'none';
         }

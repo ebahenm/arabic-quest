@@ -138,6 +138,7 @@ public class SecurityConfig {
                     "/style.css",
                     "/mobile.css",
                     "/app.js",
+                    "/quiz-empty-state.js",
                     "/mobile-watch.js",
                     "/admin-mobile.css",
                     "/favicon.ico",
