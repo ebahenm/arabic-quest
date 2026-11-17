@@ -277,6 +277,7 @@ class Phase8PipelineV2IntegrationTest {
 
         mockMvc.perform(get("/mobile.css")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("100dvh")));
         mockMvc.perform(get("/quiz-empty-state.js")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("innerHTML"))));
+        mockMvc.perform(get("/mobile-episode-list.js")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("innerHTML"))));
         mockMvc.perform(get("/mobile-watch.js")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("innerHTML"))));
         mockMvc.perform(get("/phase8-hq/admin-mobile.css")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString(".table-wrap")));
         mockMvc.perform(get("/phase8-hq/modules/components/admin-mobile-cards.js")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("innerHTML"))));

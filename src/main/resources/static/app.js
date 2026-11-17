@@ -566,6 +566,9 @@ function renderCourseSyllabus() {
         row.appendChild(createFavoriteHeartButton(ep));
         listEl.appendChild(row);
     });
+    if (window.MobileEpisodeList && typeof window.MobileEpisodeList.enhanceSyllabusList === 'function') {
+        window.MobileEpisodeList.enhanceSyllabusList(visibleEpisodes, currentEpisode, currentCourse ? currentCourse.id : null);
+    }
 }
 
 function toggleSyllabusFavoritesFilter() {
@@ -852,6 +855,9 @@ function renderEpisodeList() {
 
         container.appendChild(card);
     });
+    if (window.MobileEpisodeList && typeof window.MobileEpisodeList.enhanceSidebarList === 'function') {
+        window.MobileEpisodeList.enhanceSidebarList(episodes, currentEpisode, currentCourse ? currentCourse.id : null);
+    }
 }
 
 function renderEpisodeHeader(ep) {

@@ -329,7 +329,7 @@ header {
 
 .episode-card.active .ep-num-pill {
     background: var(--primary);
-    color: #064e3b;
+    color: var(--brand-cream);
 }
 
 .ep-info {
