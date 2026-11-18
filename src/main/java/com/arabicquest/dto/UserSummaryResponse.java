@@ -1,3 +1,4 @@
+// Summary DTO for admin student directory listings including mustChangePassword and lastLoginAt.
 package com.arabicquest.dto;
 
 import com.arabicquest.model.User;
@@ -10,6 +11,8 @@ public record UserSummaryResponse(
         String role,
         boolean betaTester,
         boolean enabled,
+        boolean mustChangePassword,
+        LocalDateTime lastLoginAt,
         LocalDateTime createdAt
 ) {
     public static UserSummaryResponse from(User user) {
@@ -20,6 +23,8 @@ public record UserSummaryResponse(
                 user.getRole().name(),
                 user.hasBetaAccess(),
                 user.isEnabled(),
+                user.isMustChangePassword(),
+                user.getLastLoginAt(),
                 user.getCreatedAt()
         );
     }

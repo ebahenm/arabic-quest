@@ -40,6 +40,9 @@ public class Payout {
     @Column(name = "voided_at")
     private LocalDateTime voidedAt;
 
+    @Column(name = "payout_type", length = 20)
+    private String payoutType = "REGULAR";
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -151,5 +154,13 @@ public class Payout {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getPayoutType() {
+        return (payoutType == null || payoutType.isBlank()) ? "REGULAR" : payoutType;
+    }
+
+    public void setPayoutType(String payoutType) {
+        this.payoutType = (payoutType == null || payoutType.isBlank()) ? "REGULAR" : payoutType;
     }
 }

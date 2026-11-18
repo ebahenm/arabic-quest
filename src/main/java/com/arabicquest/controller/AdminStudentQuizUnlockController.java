@@ -1,7 +1,7 @@
 // Admin-only controller to unlock an episode's quiz for a student without faking watch seconds.
 package com.arabicquest.controller;
 
-import com.arabicquest.service.WatchProgressService;
+import com.arabicquest.service.AdminStudentToolsService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -13,10 +13,10 @@ import java.util.Map;
 @RequestMapping("/api/admin")
 public class AdminStudentQuizUnlockController {
 
-    private final WatchProgressService watchProgressService;
+    private final AdminStudentToolsService adminStudentToolsService;
 
-    public AdminStudentQuizUnlockController(WatchProgressService watchProgressService) {
-        this.watchProgressService = watchProgressService;
+    public AdminStudentQuizUnlockController(AdminStudentToolsService adminStudentToolsService) {
+        this.adminStudentToolsService = adminStudentToolsService;
     }
 
     public record UnlockQuizRequest(String reason) {}
@@ -29,6 +29,6 @@ public class AdminStudentQuizUnlockController {
             @RequestBody(required = false) UnlockQuizRequest request) {
         String adminUser = userDetails != null ? userDetails.getUsername() : "admin";
         String reason = request != null ? request.reason() : null;
-        return ResponseEntity.ok(watchProgressService.unlockQuizForStudent(studentId, episodeId, adminUser, reason));
+        return ResponseEntity.ok(adminStudentToolsService.unlockEpisodeQuiz(studentId, episodeId, adminUser, reason));
     }
 }

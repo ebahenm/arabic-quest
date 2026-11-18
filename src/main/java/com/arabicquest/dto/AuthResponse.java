@@ -1,3 +1,4 @@
+// Authentication response DTO including mustChangePassword flag for student login and session state.
 package com.arabicquest.dto;
 
 public class AuthResponse {
@@ -7,25 +8,31 @@ public class AuthResponse {
     private String role;
     private boolean defaultPasswordWarning;
     private boolean betaTester;
+    private boolean mustChangePassword;
 
     public AuthResponse() {
     }
 
     public AuthResponse(Long id, String username, String fullName, String role) {
-        this(id, username, fullName, role, false, false);
+        this(id, username, fullName, role, false, false, false);
     }
 
     public AuthResponse(Long id, String username, String fullName, String role, boolean defaultPasswordWarning) {
-        this(id, username, fullName, role, defaultPasswordWarning, false);
+        this(id, username, fullName, role, defaultPasswordWarning, false, false);
     }
 
     public AuthResponse(Long id, String username, String fullName, String role, boolean defaultPasswordWarning, boolean betaTester) {
+        this(id, username, fullName, role, defaultPasswordWarning, betaTester, false);
+    }
+
+    public AuthResponse(Long id, String username, String fullName, String role, boolean defaultPasswordWarning, boolean betaTester, boolean mustChangePassword) {
         this.id = id;
         this.username = username;
         this.fullName = fullName;
         this.role = role;
         this.defaultPasswordWarning = defaultPasswordWarning;
         this.betaTester = betaTester;
+        this.mustChangePassword = mustChangePassword;
     }
 
     public Long getId() {
@@ -74,5 +81,13 @@ public class AuthResponse {
 
     public void setBetaTester(boolean betaTester) {
         this.betaTester = betaTester;
+    }
+
+    public boolean isMustChangePassword() {
+        return mustChangePassword;
+    }
+
+    public void setMustChangePassword(boolean mustChangePassword) {
+        this.mustChangePassword = mustChangePassword;
     }
 }
