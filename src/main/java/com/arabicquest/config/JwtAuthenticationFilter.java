@@ -91,6 +91,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             );
                             auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                             SecurityContextHolder.getContext().setAuthentication(auth);
+                            if (user.isMustChangePassword() && isBlockedWhileMustChangePassword(request)) {
+                                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                                response.setContentType("application/json");
+                                response.setCharacterEncoding("UTF-8");
+                                response.getWriter().write("{\"error\":\"Password change required before continuing. Please change your temporary password.\",\"mustChangePassword\":true}");
+                                return;
+                            }
                         }
                     }
                 }
@@ -98,5 +105,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isBlockedWhileMustChangePassword(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri == null || !uri.startsWith("/api/")) {
+            return false;
+        }
+        return !uri.equals("/api/auth/change-password")
+                && !uri.equals("/api/auth/logout")
+                && !uri.equals("/api/auth/me")
+                && !uri.startsWith("/api/public/");
     }
 }

@@ -24,6 +24,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
 
@@ -222,20 +223,34 @@ public class AuthController {
         User user = userRepository.findByUsername(userDetails.getUsername())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
+        String clientIp = httpRequest.getRemoteAddr();
+        loginRateLimiter.checkAllowed(clientIp, user.getUsername());
+
         if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+            loginRateLimiter.recordFailure(clientIp, user.getUsername());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "Current password is incorrect"));
         }
 
-        if ("admin123".equals(request.newPassword()) || "learn123".equals(request.newPassword())) {
+        String newPw = request.newPassword();
+        if (newPw == null || newPw.length() < 8) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "Please choose a strong, non-default password"));
+                    .body(Map.of("error", "New password must be at least 8 characters"));
+        }
+        String lowerPw = newPw.toLowerCase();
+        if ("admin123".equals(lowerPw) || "learn123".equals(lowerPw)
+                || "password".equals(lowerPw) || "12345678".equals(lowerPw)
+                || newPw.equals(request.currentPassword())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "Please choose a strong, non-default password different from your current password"));
         }
 
-        user.setPassword(passwordEncoder.encode(request.newPassword()));
+        user.setPassword(passwordEncoder.encode(newPw));
         user.setCredentialsCustomized(true);
+        user.setMustChangePassword(false);
         user.incrementTokenVersion();
         userRepository.save(user);
+        loginRateLimiter.resetOnSuccess(clientIp, user.getUsername());
 
         String freshToken = jwtService.generateToken(user);
         ResponseCookie cookie = buildAuthCookie(freshToken, httpRequest);
@@ -337,11 +352,14 @@ public class AuthController {
                 user.getFullName(),
                 user.getRole().name(),
                 defaultPasswordWarning,
-                user.hasBetaAccess()
+                user.hasBetaAccess(),
+                user.isMustChangePassword()
         ));
     }
 
     private ResponseEntity<LoginResponse> buildAuthenticatedResponse(User user, HttpServletRequest httpRequest) {
+        user.setLastLoginAt(LocalDateTime.now());
+        userRepository.save(user);
         String jwt = jwtService.generateToken(user);
         ResponseCookie cookie = buildAuthCookie(jwt, httpRequest);
 
@@ -349,7 +367,8 @@ public class AuthController {
                 jwt,
                 user.getUsername(),
                 user.getFullName(),
-                user.getRole().name()
+                user.getRole().name(),
+                user.isMustChangePassword()
         );
 
         return ResponseEntity.ok()

@@ -33,6 +33,7 @@ public class PayoutService {
     private final WatchSessionRepository watchSessionRepository;
     private final EpisodeRepository episodeRepository;
     private final PlaylistRepository playlistRepository;
+    private final AdminAuditEventRepository adminAuditEventRepository;
 
     public PayoutService(
             UserRepository userRepository,
@@ -44,7 +45,8 @@ public class PayoutService {
             QuizAttemptRepository quizAttemptRepository,
             WatchSessionRepository watchSessionRepository,
             EpisodeRepository episodeRepository,
-            PlaylistRepository playlistRepository) {
+            PlaylistRepository playlistRepository,
+            AdminAuditEventRepository adminAuditEventRepository) {
         this.userRepository = userRepository;
         this.episodeRewardClaimRepository = episodeRewardClaimRepository;
         this.playlistBonusClaimRepository = playlistBonusClaimRepository;
@@ -55,6 +57,7 @@ public class PayoutService {
         this.watchSessionRepository = watchSessionRepository;
         this.episodeRepository = episodeRepository;
         this.playlistRepository = playlistRepository;
+        this.adminAuditEventRepository = adminAuditEventRepository;
     }
 
     @Transactional(readOnly = true)
@@ -92,17 +95,8 @@ public class PayoutService {
         }
 
         return new EarningsSummaryResponse(
-                student.getUsername(),
-                totalEarned,
-                pendingReviewAmount,
-                pendingReviewCount,
-                totalPaid,
-                balanceOwed,
-                passedEpisodes,
-                totalEpisodes,
-                bonusUnlocked,
-                bonusAmount
-        );
+                student.getUsername(), totalEarned, pendingReviewAmount, pendingReviewCount,
+                totalPaid, balanceOwed, passedEpisodes, totalEpisodes, bonusUnlocked, bonusAmount);
     }
 
     @Transactional
@@ -110,17 +104,52 @@ public class PayoutService {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Payout amount must be greater than $0.00");
         }
-
         User student = userRepository.findById(studentId)
                 .orElseThrow(() -> new IllegalArgumentException("Student not found with id: " + studentId));
-
         String cleanNote = (note != null && !note.isBlank()) ? note.trim() : "Cash/Transfer Payout";
         Payout payout = new Payout(student, amount, cleanNote);
         payout.setIsPaid(true);
         payout.setPaidAt(LocalDateTime.now());
         payout.setVoided(false);
-
+        payout.setPayoutType("REGULAR");
         return payoutRepository.save(payout);
+    }
+
+    @Transactional
+    public Payout markAsPaid(Long studentId, BigDecimal amount, String note, String payoutType, Boolean advanceConfirmed, String adminUsername) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Payout amount must be greater than $0.00");
+        }
+
+        User student = userRepository.findById(studentId)
+                .orElseThrow(() -> new IllegalArgumentException("Student not found with id: " + studentId));
+
+        EarningsSummaryResponse currentSummary = getStudentEarnings(student.getUsername());
+        BigDecimal currentOwed = currentSummary.getBalanceOwed().max(BigDecimal.ZERO);
+        boolean exceedsOwed = amount.compareTo(currentOwed) > 0;
+        if (exceedsOwed && Boolean.FALSE.equals(advanceConfirmed)) {
+            throw new IllegalArgumentException("Payout exceeds current balance owed ($" + currentOwed + "). Please confirm Advance Payment.");
+        }
+
+        String resolvedType = (exceedsOwed || "ADVANCE".equalsIgnoreCase(payoutType)) ? "ADVANCE" : "REGULAR";
+        String cleanNote = (note != null && !note.isBlank()) ? note.trim()
+                : ("ADVANCE".equals(resolvedType) ? "Advance / Prepaid Credit Payout" : "Cash/Transfer Payout");
+        Payout payout = new Payout(student, amount, cleanNote);
+        payout.setIsPaid(true);
+        payout.setPaidAt(LocalDateTime.now());
+        payout.setVoided(false);
+        payout.setPayoutType(resolvedType);
+
+        Payout saved = payoutRepository.save(payout);
+        String cleanAdmin = (adminUsername != null && !adminUsername.isBlank()) ? adminUsername.trim() : "admin";
+        adminAuditEventRepository.save(new AdminAuditEvent(
+                student.getId(),
+                student.getUsername(),
+                cleanAdmin,
+                "PAYOUT_" + resolvedType,
+                "Recorded $" + saved.getAmount() + " " + resolvedType + " payout (" + cleanNote + ")"
+        ));
+        return saved;
     }
 
     @Transactional
@@ -142,6 +171,13 @@ public class PayoutService {
         Payout saved = payoutRepository.save(payout);
         log.info("AUDIT [VOID_PAYOUT] payoutId={}, studentUsername={}, amount={}, admin={}, reason={}",
                 saved.getId(), saved.getStudent().getUsername(), saved.getAmount(), cleanAdmin, cleanReason);
+        adminAuditEventRepository.save(new AdminAuditEvent(
+                saved.getStudent().getId(),
+                saved.getStudent().getUsername(),
+                cleanAdmin,
+                "VOID_PAYOUT",
+                "Voided payout #" + saved.getId() + " ($" + saved.getAmount() + "): " + cleanReason
+        ));
         return saved;
     }
 
@@ -162,6 +198,13 @@ public class PayoutService {
         BalanceAdjustment saved = balanceAdjustmentRepository.save(adjustment);
         log.info("AUDIT [BALANCE_ADJUSTMENT] adjustmentId={}, studentUsername={}, amount={}, admin={}, note={}",
                 saved.getId(), student.getUsername(), saved.getAmount(), cleanAdmin, cleanNote);
+        adminAuditEventRepository.save(new AdminAuditEvent(
+                student.getId(),
+                student.getUsername(),
+                cleanAdmin,
+                "BALANCE_ADJUSTMENT",
+                "Recorded $" + saved.getAmount() + " balance adjustment: " + cleanNote
+        ));
         return saved;
     }
 
@@ -190,6 +233,12 @@ public class PayoutService {
         BigDecimal thirty = new BigDecimal("30.00");
         for (User student : students) {
             if (balanceAdjustmentRepository.existsByStudentIdAndNote(student.getId(), OLD_SYSTEM_ADJUSTMENT_NOTE)) {
+                continue;
+            }
+            boolean hasAdvancePayout = payoutRepository.findByStudentIdOrderByCreatedAtDesc(student.getId())
+                    .stream()
+                    .anyMatch(p -> !p.isVoided() && "ADVANCE".equalsIgnoreCase(p.getPayoutType()));
+            if (hasAdvancePayout) {
                 continue;
             }
             BigDecimal episodeEarned = episodeRewardClaimRepository.calculateTotalEpisodeRewardsByStudent(student.getId());

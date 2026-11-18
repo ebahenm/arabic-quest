@@ -1,3 +1,4 @@
+// Request DTO for recording a student payout (REGULAR or ADVANCE).
 package com.arabicquest.dto;
 
 import jakarta.validation.constraints.DecimalMin;
@@ -16,5 +17,13 @@ public record CreatePayoutRequest(
         BigDecimal amount,
 
         @Size(max = 255, message = "Note cannot exceed 255 characters")
-        String note
-) {}
+        String note,
+
+        String payoutType,
+
+        Boolean advanceConfirmed
+) {
+    public CreatePayoutRequest(Long studentId, BigDecimal amount, String note) {
+        this(studentId, amount, note, "REGULAR", null);
+    }
+}

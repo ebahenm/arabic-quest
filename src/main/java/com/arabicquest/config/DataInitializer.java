@@ -57,7 +57,7 @@ public class DataInitializer {
                         payoutRepository.backfillNullVoidedToFalse();
                         openAnswerReviewService.convertExistingPendingSubmissionsOnStartup();
                         String cleanAdmin = (adminUsername == null || adminUsername.isBlank()) ? "admin" : adminUsername.trim();
-                        payoutService.reconcileLegacyPaidThirtyNegativeBalances(cleanAdmin);
+                        // Legacy reconciliation removed from startup hook so advance payments never auto-add earnings.
                     });
                     return;
                 } catch (Exception ex) {

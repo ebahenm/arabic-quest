@@ -134,6 +134,9 @@ async function initApp() {
             return;
         }
         currentUser = await meRes.json();
+        if (window.StudentWallet && window.StudentWallet.checkMustChangePassword(currentUser)) {
+            return;
+        }
         hasBetaAccess = Boolean(currentUser.betaTester || currentUser.role === 'ROLE_ADMIN');
 
         if (isBetaRoute && !hasBetaAccess) {
@@ -670,20 +673,8 @@ async function fetchEarnings() {
         });
         if (res.ok) {
             const data = await res.json();
-            document.getElementById('val-earned').textContent = '$' + Number(data.totalEarned).toFixed(2);
-            const pendingEl = document.getElementById('val-pending-review');
-            if (pendingEl) {
-                pendingEl.textContent = '$' + Number(data.pendingReviewAmount || 0).toFixed(2);
-            }
-            document.getElementById('val-paid').textContent = '$' + Number(data.totalPaid).toFixed(2);
-            const owedEl = document.getElementById('val-owed');
-            const owedVal = Number(data.balanceOwed != null ? data.balanceOwed : 0);
-            if (owedVal < 0) {
-                owedEl.textContent = 'Overpaid by $' + Math.abs(owedVal).toFixed(2);
-                owedEl.style.color = '#ef4444';
-            } else {
-                owedEl.textContent = '$' + owedVal.toFixed(2);
-                owedEl.style.color = '';
+            if (window.StudentWallet) {
+                window.StudentWallet.renderEarningsStrip(data);
             }
 
             if (!currentCourse) {

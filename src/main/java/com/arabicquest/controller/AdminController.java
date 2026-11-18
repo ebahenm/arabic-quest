@@ -437,8 +437,13 @@ public class AdminController {
 
     @Transactional
     @PostMapping("/payouts")
-    public ResponseEntity<PayoutResponse> markPayoutJson(@Valid @RequestBody CreatePayoutRequest request) {
-        Payout payout = payoutService.markAsPaid(request.studentId(), request.amount(), request.note());
+    public ResponseEntity<PayoutResponse> markPayoutJson(
+            @Valid @RequestBody CreatePayoutRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String adminUser = userDetails != null ? userDetails.getUsername() : "admin";
+        Payout payout = payoutService.markAsPaid(
+                request.studentId(), request.amount(), request.note(),
+                request.payoutType(), request.advanceConfirmed(), adminUser);
         return ResponseEntity.ok(PayoutResponse.from(payout));
     }
 

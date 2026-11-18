@@ -1,3 +1,4 @@
+// Response DTO for payout ledger entries including payoutType (REGULAR or ADVANCE).
 package com.arabicquest.dto;
 
 import com.arabicquest.model.Payout;
@@ -13,6 +14,7 @@ public record PayoutResponse(
         Boolean isPaid,
         LocalDateTime paidAt,
         String note,
+        String payoutType,
         boolean voided,
         String voidReason,
         String voidedBy,
@@ -29,6 +31,7 @@ public record PayoutResponse(
                 p.getIsPaid(),
                 p.getPaidAt(),
                 p.getNote(),
+                p.getPayoutType(),
                 p.isVoided(),
                 p.getVoidReason(),
                 p.getVoidedBy(),

@@ -271,7 +271,8 @@
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 });
                 if (meRes.ok) {
-                    window.location.href = nextDest;
+                    const meData = await meRes.json().catch(() => ({}));
+                    window.location.href = meData.mustChangePassword ? '/change-password' : nextDest;
                     return;
                 }
             } catch (_) {}
@@ -336,7 +337,8 @@
                 });
 
                 if (res.ok) {
-                    window.location.href = getPostLoginDestination();
+                    const loginData = await res.json().catch(() => ({}));
+                    window.location.href = loginData.mustChangePassword ? '/change-password' : getPostLoginDestination();
                 } else {
                     const err = await res.json().catch(() => ({}));
                     showError(err.error || 'Invalid username or password');
@@ -368,7 +370,8 @@
                 });
 
                 if (res.ok) {
-                    window.location.href = getPostLoginDestination();
+                    const loginData = await res.json().catch(() => ({}));
+                    window.location.href = loginData.mustChangePassword ? '/change-password' : getPostLoginDestination();
                 } else {
                     const err = await res.json().catch(() => ({}));
                     showError(err.error || 'Google sign-in failed.');
