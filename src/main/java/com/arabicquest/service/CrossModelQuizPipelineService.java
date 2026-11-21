@@ -37,7 +37,8 @@ public class CrossModelQuizPipelineService {
     private final TranscriptQualityGate transcriptQualityGate; private final GeminiTextClient geminiTextClient;
     private final ClaudeClient claudeClient; private final BlindTestService blindTestService;
     private final AiQuizService aiQuizService; private final ObjectMapper objectMapper;
-    private final TransactionTemplate transactionTemplate; private final SecureRandom secureRandom = new SecureRandom();
+    private final TransactionTemplate transactionTemplate; private final WrittenTextSourceService writtenTextSourceService;
+    private final SecureRandom secureRandom = new SecureRandom();
     private final Map<Long, Map<String, String>> hiddenCompareModelsByEpisode = new ConcurrentHashMap<>();
 
     public CrossModelQuizPipelineService(
@@ -46,13 +47,15 @@ public class CrossModelQuizPipelineService {
             OpenQuestionRepository openQuestionRepository, TranscriptParserService transcriptParserService,
             TranscriptQualityGate transcriptQualityGate, GeminiTextClient geminiTextClient,
             ClaudeClient claudeClient, BlindTestService blindTestService,
-            AiQuizService aiQuizService, ObjectMapper objectMapper, TransactionTemplate transactionTemplate) {
+            AiQuizService aiQuizService, ObjectMapper objectMapper, TransactionTemplate transactionTemplate,
+            WrittenTextSourceService writtenTextSourceService) {
         this.episodeRepository = episodeRepository; this.transcriptRepository = transcriptRepository;
         this.quizRepository = quizRepository; this.questionRepository = questionRepository;
         this.openQuestionRepository = openQuestionRepository; this.transcriptParserService = transcriptParserService;
         this.transcriptQualityGate = transcriptQualityGate; this.geminiTextClient = geminiTextClient;
         this.claudeClient = claudeClient; this.blindTestService = blindTestService;
-        this.aiQuizService = aiQuizService; this.objectMapper = objectMapper; this.transactionTemplate = transactionTemplate;
+        this.aiQuizService = aiQuizService; this.objectMapper = objectMapper;
+        this.transactionTemplate = transactionTemplate; this.writtenTextSourceService = writtenTextSourceService;
     }
 
     public record PipelineResult(int savedMcqs, int savedOpenQuestions, String writerModelUsed, String verifierModelUsed,
@@ -92,13 +95,14 @@ public class CrossModelQuizPipelineService {
         String writerModelName = useClaudeWriter ? claudeClient.getModel() : geminiTextClient.getModel();
         String verifierModelName = useClaudeVerifier ? claudeClient.getModel() : geminiTextClient.getModel();
 
+        boolean isTextSource = writtenTextSourceService.isTextSource(episode.getId(), optionalTranscriptOverride);
         List<TranscriptChunk> chunks = resolveUsableTranscriptChunks(episode, optionalTranscriptOverride);
         if (chunks.isEmpty()) {
             Optional<EpisodeTranscript> fallbackEt = transcriptRepository.findByEpisodeId(episode.getId());
             if (fallbackEt.isPresent() && fallbackEt.get().getPlainText() != null && !fallbackEt.get().getPlainText().isBlank()) {
                 EpisodeTranscript et = fallbackEt.get();
-                chunks = transcriptParserService.buildMarkedChunks(
-                        transcriptParserService.fromCuesJson(et.getCuesJson()), et.getPlainText(), episode.getDurationSeconds());
+                chunks = et.isTextSource() ? writtenTextSourceService.buildChunksFromTranscript(et, episode.getDurationSeconds())
+                        : transcriptParserService.buildMarkedChunks(transcriptParserService.fromCuesJson(et.getCuesJson()), et.getPlainText(), episode.getDurationSeconds());
             } else {
                 if (progressCallback != null) progressCallback.accept("VIDEO_FALLBACK", 30);
                 AiQuizService.GeneratedBankSummary v = aiQuizService.generateQuestionBankForEpisode(null, episodeId, null, autoTriggered, false);
@@ -115,19 +119,20 @@ public class CrossModelQuizPipelineService {
 
         for (int i = 0; i < chunks.size(); i++) {
             TranscriptChunk chunk = chunks.get(i);
-            String chunkLabel = "Chunk " + (i + 1) + "/" + totalChunks;
+            String chunkLabel = (isTextSource ? "Section " : "Chunk ") + (i + 1) + "/" + totalChunks;
             int p1Pct = totalChunks == 1 ? 10 : 10 + (i * 75) / totalChunks;
             int p2Pct = totalChunks == 1 ? 40 : 10 + ((i * 75) + 25) / totalChunks;
             int p3Pct = totalChunks == 1 ? 65 : 10 + ((i * 75) + 50) / totalChunks;
             int donePct = totalChunks == 1 ? 85 : 10 + ((i + 1) * 75) / totalChunks;
             if (progressCallback != null) progressCallback.accept(chunkLabel + " • PASS_1_WRITER", p1Pct);
-            ParsedPass1Batch pass1 = runPass1WithRetryOnTruncation(useClaudeWriter, geminiUnavailable, claudeUnavailable, episode, chunk);
+            ParsedPass1Batch pass1 = runPass1WithRetryOnTruncation(useClaudeWriter, geminiUnavailable, claudeUnavailable, episode, chunk, isTextSource);
             ChunkNormalizationResult norm = PipelineCandidateNormalizer.normalizeChunkCandidates(pass1, chunk, episodeCues, transcriptParserService);
+            if (isTextSource) norm = writtenTextSourceService.applySectionStartDefaults(norm, chunk);
             if (norm.softFlaggedOptionCount() > 0 || norm.unverifiedTimestampCount() > 0) anySoftFlagged = true;
             List<CandidateMcq> verifiedChunkMcqs = List.of();
             if (!norm.keptMcqs().isEmpty() || !norm.keptOpens().isEmpty()) {
                 if (progressCallback != null) progressCallback.accept(chunkLabel + " • PASS_2_VERIFIER", p2Pct);
-                verifiedChunkMcqs = runPass2Verification(useClaudeVerifier, geminiUnavailable, claudeUnavailable, chunk.markedText(), norm.keptMcqs(), norm.keptOpens(), allVerifiedOpens);
+                verifiedChunkMcqs = runPass2Verification(useClaudeVerifier, geminiUnavailable, claudeUnavailable, chunk.markedText(), norm.keptMcqs(), norm.keptOpens(), allVerifiedOpens, isTextSource);
             }
             norm.counts().pass2Verified = verifiedChunkMcqs.size();
             if (!verifiedChunkMcqs.isEmpty()) {
@@ -190,26 +195,18 @@ public class CrossModelQuizPipelineService {
 
     private ParsedPass1Batch runPass1WithRetryOnTruncation(
             boolean useClaudeWriter, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable,
-            Episode episode, TranscriptChunk chunk) {
-        String pass1User = "Episode #" + episode.getEpisodeNumber() + ": " + episode.getTitle() + "\nChunk #" + chunk.chunkIndex() + " [" + chunk.startSeconds() + "s - " + chunk.endSeconds() + "s]\n"
-                + "Set \"evidenceMarker\" to the exact [mm:ss] marker from <episode_transcript> where each fact appears.\n<episode_transcript>\n" + chunk.markedText() + "\n</episode_transcript>";
-        ClaudeMessageResponse firstResp = callModelDetailed(useClaudeWriter, geminiUnavailable, claudeUnavailable, AiPromptTemplates.pass1TranscriptSystemInstruction(12, 2), pass1User, PASS1_MAX_TOKENS);
+            Episode episode, TranscriptChunk chunk, boolean isTextSource) {
+        String pass1User = writtenTextSourceService.buildPass1UserPrompt(isTextSource, episode, chunk);
+        ClaudeMessageResponse firstResp = callModelDetailed(useClaudeWriter, geminiUnavailable, claudeUnavailable, writtenTextSourceService.pass1SystemInstruction(isTextSource, 12, 2), pass1User, PASS1_MAX_TOKENS);
         if (!firstResp.isMaxTokensTruncated()) {
             try {
                 ParsedPass1Batch parsed = PipelineCandidateNormalizer.parsePass1Node(GeminiJsonRepairSupport.parseLenientJson(objectMapper, firstResp.text()));
                 if (!parsed.mcqs().isEmpty()) return parsed;
-            } catch (Exception ex) {
-                log.warn("Pass 1 chunk #{} JSON parse failed (stop_reason={}); retrying smaller batch (6+1): {}", chunk.chunkIndex(), firstResp.stopReason(), ex.getMessage());
-            }
-        } else {
-            log.warn("Pass 1 chunk #{} hit stop_reason=max_tokens (output_tokens={}); retrying smaller batch (6+1).", chunk.chunkIndex(), firstResp.outputTokens());
-        }
-        ClaudeMessageResponse retryResp = callModelDetailed(useClaudeWriter, geminiUnavailable, claudeUnavailable, AiPromptTemplates.pass1TranscriptSystemInstruction(6, 1), pass1User, PASS1_MAX_TOKENS);
-        try {
-            return PipelineCandidateNormalizer.parsePass1Node(GeminiJsonRepairSupport.parseLenientJson(objectMapper, retryResp.text()));
-        } catch (Exception ex) {
-            throw new IllegalStateException("Failed to parse Pass 1 JSON after smaller-batch retry: " + ex.getMessage());
-        }
+            } catch (Exception ex) { log.warn("Pass 1 chunk #{} JSON parse failed (stop_reason={}); retrying smaller batch (6+1): {}", chunk.chunkIndex(), firstResp.stopReason(), ex.getMessage()); }
+        } else { log.warn("Pass 1 chunk #{} hit stop_reason=max_tokens (output_tokens={}); retrying smaller batch (6+1).", chunk.chunkIndex(), firstResp.outputTokens()); }
+        ClaudeMessageResponse retryResp = callModelDetailed(useClaudeWriter, geminiUnavailable, claudeUnavailable, writtenTextSourceService.pass1SystemInstruction(isTextSource, 6, 1), pass1User, PASS1_MAX_TOKENS);
+        try { return PipelineCandidateNormalizer.parsePass1Node(GeminiJsonRepairSupport.parseLenientJson(objectMapper, retryResp.text())); }
+        catch (Exception ex) { throw new IllegalStateException("Failed to parse Pass 1 JSON after smaller-batch retry: " + ex.getMessage()); }
     }
 
     private List<Cue> resolveEpisodeCues(Episode episode, String overrideText) {
@@ -226,7 +223,9 @@ public class CrossModelQuizPipelineService {
         if (opt.isEmpty() && (episode.getTranscriptText() == null || episode.getTranscriptText().isBlank())) opt = autoAcquireTranscriptIfMissing(episode);
         if (opt.isPresent()) {
             EpisodeTranscript et = opt.get();
-            return et.isUsableForGeneration() ? transcriptParserService.buildMarkedChunks(transcriptParserService.fromCuesJson(et.getCuesJson()), et.getPlainText(), episode.getDurationSeconds()) : List.of();
+            if (!et.isUsableForGeneration()) return List.of();
+            return et.isTextSource() ? writtenTextSourceService.buildChunksFromTranscript(et, episode.getDurationSeconds())
+                    : transcriptParserService.buildMarkedChunks(transcriptParserService.fromCuesJson(et.getCuesJson()), et.getPlainText(), episode.getDurationSeconds());
         }
         return (episode.getTranscriptText() != null && !episode.getTranscriptText().isBlank())
                 ? transcriptParserService.buildMarkedChunks(List.of(), episode.getTranscriptText(), episode.getDurationSeconds()) : List.of();
@@ -234,11 +233,10 @@ public class CrossModelQuizPipelineService {
 
     private List<CandidateMcq> runPass2Verification(
             boolean useClaudeVerifier, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable,
-            String markedTranscript, List<CandidateMcq> mcqs, List<CandidateOpen> opens, List<CandidateOpen> verifiedOpensOut) {
+            String markedTranscript, List<CandidateMcq> mcqs, List<CandidateOpen> opens, List<CandidateOpen> verifiedOpensOut, boolean isTextSource) {
         try {
-            String user = "<episode_transcript>\n" + markedTranscript + "\n</episode_transcript>\n<candidates>\n"
-                    + objectMapper.writeValueAsString(Map.of("mcqs", mcqs, "openQuestions", opens)) + "\n</candidates>";
-            String raw = callModelDetailed(useClaudeVerifier, geminiUnavailable, claudeUnavailable, AiPromptTemplates.pass2TranscriptSystemInstruction(), user, 4096).text();
+            String user = writtenTextSourceService.buildPass2UserPrompt(isTextSource, markedTranscript, objectMapper.writeValueAsString(Map.of("mcqs", mcqs, "openQuestions", opens)));
+            String raw = callModelDetailed(useClaudeVerifier, geminiUnavailable, claudeUnavailable, writtenTextSourceService.pass2SystemInstruction(isTextSource), user, 4096).text();
             JsonNode root = GeminiJsonRepairSupport.parseLenientJson(objectMapper, raw);
             JsonNode mArr = root.path("verifiedMcqIndices"), oArr = root.path("verifiedOpenIndices");
             if (!mArr.isArray() && !oArr.isArray()) {

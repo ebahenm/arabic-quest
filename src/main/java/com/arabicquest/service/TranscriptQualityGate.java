@@ -16,6 +16,7 @@ public class TranscriptQualityGate {
     public static final double MAX_MUSIC_APPLAUSE_RATIO = 0.30;
     public static final double MIN_ARABIC_SCRIPT_RATIO = 0.50;
     public static final double MIN_COVERAGE_RATIO = 0.50;
+    public static final int MIN_TEXT_SOURCE_WORDS = 60;
 
     private final ObjectMapper objectMapper;
 
@@ -86,6 +87,37 @@ public class TranscriptQualityGate {
                 round2(musicRatio),
                 round2(arabicRatio),
                 round2(coverage)
+        );
+    }
+
+    public QualityAssessment evaluateWrittenTextSource(String plainText, int wordCount, int sectionCount) {
+        List<String> reasons = new ArrayList<>();
+        if (plainText == null || plainText.isBlank() || wordCount <= 0 || sectionCount <= 0) {
+            reasons.add("No valid written sections or text content found.");
+            return new QualityAssessment("FAIL", false, reasons, 0.0, 0.0, 0.0, 0.0, 1.0);
+        }
+        double arabicRatio = computeArabicScriptRatio(plainText);
+        if (wordCount < MIN_TEXT_SOURCE_WORDS) {
+            reasons.add(String.format(Locale.ROOT,
+                    "Written text source is too short: %d words (minimum %d words).",
+                    wordCount, MIN_TEXT_SOURCE_WORDS));
+        }
+        if (arabicRatio < MIN_ARABIC_SCRIPT_RATIO) {
+            reasons.add(String.format(Locale.ROOT,
+                    "Low expected-language (Arabic script) ratio: %.0f%% (minimum %.0f%%).",
+                    arabicRatio * 100.0, MIN_ARABIC_SCRIPT_RATIO * 100.0));
+        }
+        boolean passed = reasons.isEmpty();
+        // Words-per-minute and duration coverage checks are skipped for structured written text sources.
+        return new QualityAssessment(
+                passed ? "PASS" : "FAIL",
+                passed,
+                reasons,
+                0.0,
+                0.0,
+                0.0,
+                round2(arabicRatio),
+                1.0
         );
     }
 

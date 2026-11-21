@@ -111,6 +111,16 @@
                 body: JSON.stringify({ feedback: feedback || null })
             });
         },
+        importEpisodeTextSource(episodeId, text, sourceUrl, confirmSave) {
+            return jsonRequest(`/api/admin/episodes/${encodeURIComponent(episodeId)}/text-source`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, sourceUrl: sourceUrl || null, confirmSave: Boolean(confirmSave) })
+            });
+        },
+        fetchEpisodeTextSourceMeta(episodeId) {
+            return jsonRequest(`/api/admin/episodes/${encodeURIComponent(episodeId)}/text-source`);
+        },
         triggerJsonDownload
     };
 })();
