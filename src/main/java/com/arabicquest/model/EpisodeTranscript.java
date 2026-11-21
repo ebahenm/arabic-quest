@@ -41,6 +41,10 @@ public class EpisodeTranscript {
     @Column(name = "use_anyway", nullable = false)
     private Boolean useAnyway = false;
 
+    @JsonIgnore
+    @Column(name = "source_url", length = 1000)
+    private String sourceUrl;
+
     @Column(name = "uploaded_at", nullable = false)
     private LocalDateTime uploadedAt;
 
@@ -80,6 +84,10 @@ public class EpisodeTranscript {
         return "PASS".equalsIgnoreCase(qualityStatus) || Boolean.TRUE.equals(useAnyway);
     }
 
+    public boolean isTextSource() {
+        return "TEXT_SOURCE".equalsIgnoreCase(source);
+    }
+
     public Long getId() { return id; }
     public Episode getEpisode() { return episode; }
     public void setEpisode(Episode episode) { this.episode = episode; }
@@ -97,6 +105,8 @@ public class EpisodeTranscript {
     public void setQualityReport(String qualityReport) { this.qualityReport = qualityReport; }
     public boolean isUseAnyway() { return Boolean.TRUE.equals(useAnyway); }
     public void setUseAnyway(Boolean useAnyway) { this.useAnyway = useAnyway; }
+    public String getSourceUrl() { return sourceUrl; }
+    public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
     public LocalDateTime getUploadedAt() { return uploadedAt; }
     public void setUploadedAt(LocalDateTime uploadedAt) { this.uploadedAt = uploadedAt; }
 }

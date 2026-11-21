@@ -111,7 +111,7 @@ public class TranscriptController {
         boolean enable = body == null || !body.containsKey("useAnyway") || Boolean.TRUE.equals(body.get("useAnyway"));
         transcript.setUseAnyway(enable);
         transcriptRepository.save(transcript);
-        episode.setTranscriptText(transcript.isUsableForGeneration() ? transcript.getPlainText() : null);
+        episode.setTranscriptText((!transcript.isTextSource() && transcript.isUsableForGeneration()) ? transcript.getPlainText() : null);
         episodeRepository.save(episode);
         return ResponseEntity.ok(toStatusMap(transcript));
     }
