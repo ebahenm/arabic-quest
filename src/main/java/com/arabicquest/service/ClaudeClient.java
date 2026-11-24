@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -31,6 +32,7 @@ public class ClaudeClient {
 
     private final ObjectMapper objectMapper;
     private RestTemplate restTemplate;
+    private AiUsageGuard aiUsageGuard;
 
     @Value("${ANTHROPIC_API_KEY:}")
     private String apiKey;
@@ -48,6 +50,11 @@ public class ClaudeClient {
 
     public void setRestTemplate(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
+    }
+
+    @Autowired(required = false)
+    public void setAiUsageGuard(AiUsageGuard aiUsageGuard) {
+        this.aiUsageGuard = aiUsageGuard;
     }
 
     public RestTemplate getRestTemplate() {
@@ -88,6 +95,9 @@ public class ClaudeClient {
         if (!isConfigured()) {
             throw new IllegalStateException("ANTHROPIC_API_KEY is not configured.");
         }
+        if (aiUsageGuard != null) {
+            aiUsageGuard.assertCanCall("claude");
+        }
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("x-api-key", apiKey.trim());
@@ -101,6 +111,7 @@ public class ClaudeClient {
         }
         body.put("messages", List.of(Map.of("role", "user", "content", userPrompt)));
 
+        int recordedIn = 0, recordedOut = 0;
         try {
             String reqJson = objectMapper.writeValueAsString(body);
             ResponseEntity<String> res = restTemplate.exchange(
@@ -110,6 +121,8 @@ public class ClaudeClient {
                     String.class
             );
             ClaudeMessageResponse parsed = extractMessageResponse(res.getBody());
+            recordedIn = parsed.inputTokens();
+            recordedOut = parsed.outputTokens();
             log.info("Claude API response (model={}, stop_reason={}, input_tokens={}, output_tokens={})",
                     getModel(), parsed.stopReason(), parsed.inputTokens(), parsed.outputTokens());
             return parsed;
@@ -132,6 +145,10 @@ public class ClaudeClient {
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to call Claude API: "
                     + AiErrorSanitizer.sanitizeText(ex.getMessage(), apiKey));
+        } finally {
+            if (aiUsageGuard != null) {
+                aiUsageGuard.recordCall("claude", recordedIn, recordedOut);
+            }
         }
     }
 

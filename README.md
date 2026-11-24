@@ -80,7 +80,10 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 | `GEMINI_MODEL` | **Yes** | `gemini-3.8-flash` | Gemini model name configured on the server (`thinkingLevel` normalized to `low`/`medium`/`high` — never `minimal`). |
 | `ANTHROPIC_API_KEY` | Optional | Empty | Anthropic Claude API key (`x-api-key` header only) for cross-model Pass 1 writing / Pass 2 verification. |
 | `CLAUDE_MODEL` | Optional | `claude-sonnet-5-5` | Anthropic Claude model name used by `ClaudeClient`. |
-| `AUTO_QUIZ_GENERATION_ENABLED` | Optional | `true` | Master toggle (`app.quiz.auto-generation.enabled`) for automatic background quiz generation on student watch/retry. |
+| `AUTO_QUIZ_GENERATION_ENABLED` | Optional | `false` (safe default) | Master toggle (`app.quiz.auto-generation.enabled`) for automatic background quiz generation on student watch/retry. Keep `false` in production until cost caps and strict auto-approval are verified. |
+| `AUTO_APPROVE_SINGLE_MODEL` | Optional | `false` | When `false` (default), auto-generated questions require different writer and verifier models to auto-approve; single-model items are saved as `DRAFT` under Needs Review. |
+| `AI_DAILY_CALL_CAP` | Optional | `150` | Maximum total AI model calls per UTC day across all providers (including retries); refuses new jobs and stops running jobs when reached. |
+| `CLAUDE_DAILY_OUTPUT_TOKEN_CAP` | Optional | `150000` | Maximum Claude output tokens per UTC day tracked in `ai_usage_daily`. |
 | `FALLBACK_AI_API_KEY` | Optional | Empty | Optional OpenAI-compatible API key used automatically for text-only generation if primary providers fail (`400`/`403`/`429`/`5xx`). |
 | `FALLBACK_AI_BASE_URL` | Optional | `https://api.openai.com/v1` | Base URL for the optional OpenAI-compatible fallback provider (`/chat/completions`). |
 | `FALLBACK_AI_MODEL` | Optional | `gpt-4.1` | Model identifier sent to the optional OpenAI-compatible fallback provider. |

@@ -33,6 +33,7 @@ public class GenerationJobService {
     private final CrossModelQuizPipelineService pipelineService;
     private final GeminiTextClient geminiTextClient;
     private final ClaudeClient claudeClient;
+    private final AiUsageGuard aiUsageGuard;
     private final TransactionTemplate requiresNewTx;
     private final ExecutorService singleWorkerExecutor;
     private final ConcurrentHashMap<Long, CompletableFuture<GenerationJob>> jobFutures = new ConcurrentHashMap<>();
@@ -44,12 +45,13 @@ public class GenerationJobService {
     public GenerationJobService(
             GenerationJobRepository jobRepository, EpisodeRepository episodeRepository,
             CrossModelQuizPipelineService pipelineService, GeminiTextClient geminiTextClient,
-            ClaudeClient claudeClient, TransactionTemplate transactionTemplate) {
+            ClaudeClient claudeClient, AiUsageGuard aiUsageGuard, TransactionTemplate transactionTemplate) {
         this.jobRepository = jobRepository;
         this.episodeRepository = episodeRepository;
         this.pipelineService = pipelineService;
         this.geminiTextClient = geminiTextClient;
         this.claudeClient = claudeClient;
+        this.aiUsageGuard = aiUsageGuard;
         if (transactionTemplate.getTransactionManager() != null) {
             TransactionTemplate tx = new TransactionTemplate(transactionTemplate.getTransactionManager());
             tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -139,13 +141,14 @@ public class GenerationJobService {
     }
 
     public boolean canTriggerAutoGenerationToday(Long episodeId) {
-        if (!autoQuizGenerationEnabled || episodeId == null) return false;
+        if (!autoQuizGenerationEnabled || episodeId == null || aiUsageGuard.isGlobalCallCapReached()) return false;
         long attemptsToday = jobRepository.countAutoAttemptsSince(episodeId, LocalDate.now().atStartOfDay());
         return attemptsToday < MAX_AUTO_ATTEMPTS_PER_DAY;
     }
 
     public GenerationJob enqueueJob(Long episodeId, String writerModel, String optionalTranscript, boolean autoTriggered) {
         expireStaleActiveJobs();
+        aiUsageGuard.assertGlobalCallCapAvailable();
         if (autoTriggered && !canTriggerAutoGenerationToday(episodeId)) {
             throw new IllegalStateException("Daily auto-generation limit (3 attempts/day) reached for episode " + episodeId);
         }
