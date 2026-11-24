@@ -23,6 +23,11 @@ public interface QuizAttemptRepository extends JpaRepository<QuizAttempt, Long> 
     @Query("SELECT DISTINCT qa.episode.id FROM QuizAttempt qa WHERE qa.student.id = :studentId AND qa.passed = true")
     Set<Long> findPassedEpisodeIdsByStudentId(@Param("studentId") Long studentId);
 
+    @Query("SELECT qa.episode.id, MAX(qa.attemptedAt) FROM QuizAttempt qa " +
+           "WHERE qa.student.id = :studentId AND qa.passed = false " +
+           "GROUP BY qa.episode.id")
+    List<Object[]> findLatestFailedAttemptTimesByStudentId(@Param("studentId") Long studentId);
+
     List<QuizAttempt> findByStudentIdAndEpisodeId(Long studentId, Long episodeId);
     Optional<QuizAttempt> findFirstByStudentIdAndEpisodeIdAndPassedTrue(Long studentId, Long episodeId);
     Optional<QuizAttempt> findTopByStudentIdAndEpisodeIdAndPassedFalseOrderByAttemptedAtDesc(Long studentId, Long episodeId);
