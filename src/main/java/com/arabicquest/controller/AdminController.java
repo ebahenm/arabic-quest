@@ -198,9 +198,9 @@ public class AdminController {
         }
 
         if (request.newPassword() != null && !request.newPassword().isBlank()) {
-            if (request.newPassword().length() < 8) {
+            if (request.newPassword().length() < 10) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(Map.of("error", "New password must be at least 8 characters"));
+                        .body(Map.of("error", "New password must be at least 10 characters"));
             }
             student.setPassword(passwordEncoder.encode(request.newPassword()));
             changed = true;
