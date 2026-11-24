@@ -868,6 +868,14 @@ function renderEpisodeHeader(ep) {
 }
 
 function selectEpisode(ep) {
+    if (window.WatchResilience && typeof window.WatchResilience.safeOpenEpisode === 'function') {
+        window.WatchResilience.safeOpenEpisode(ep, openEpisodeInternal);
+    } else {
+        openEpisodeInternal(ep);
+    }
+}
+
+function openEpisodeInternal(ep) {
     if (ep.locked) {
         showLockedEpisodeToast(ep);
         return;
@@ -898,7 +906,8 @@ function selectEpisode(ep) {
     updateExternalYoutubeLink();
 
     const cleanVid = extractYouTubeId(ep.youtubeVideoId);
-    mountYouTubePlayer(cleanVid, 0, false);
+    const resumeSec = (ep.watchStatus && ep.watchStatus.lastPositionSeconds > 0) ? ep.watchStatus.lastPositionSeconds : 0;
+    mountYouTubePlayer(cleanVid, resumeSec, false);
 
     fetchVocabGuide(ep.id);
     fetchQuiz(ep.id);
@@ -945,27 +954,8 @@ function applyWatchStatus(status, episodePassed) {
 }
 
 function renderLiveWatchBar(statusOverride = null, episodePassedOverride = null) {
-    if (!currentEpisode) return;
-    const status = statusOverride || currentEpisode.watchStatus || {};
-    const episodePassed = episodePassedOverride !== null ? episodePassedOverride : Boolean(currentEpisode.passed);
-
-    const required = Math.max(1, requiredWatchSeconds || status.requiredWatchSeconds || DEFAULT_REQUIRED_WATCH_SECONDS);
-    const liveWatched = Math.min(required, serverVerifiedSeconds + pendingWatchedDeltaSeconds);
-    const pct = episodePassed ? 100 : Math.min(100, Math.round((liveWatched / required) * 100));
-
-    const statusLabel = document.getElementById('watch-status-label');
-    const fill = document.getElementById('watch-progress-fill');
-
-    if (fill) fill.style.width = pct + '%';
-    if (!statusLabel) return;
-
-    if (episodePassed) {
-        statusLabel.textContent = '✓ Episode Passed — Comprehension Quiz & Written Reflection Approved';
-    } else if (status.quizUnlocked || liveWatched >= required) {
-        statusLabel.textContent = `✓ Watch Target Reached (${formatClock(liveWatched)} / ${formatClock(required)}) — 10-Question Quiz Unlocked Below!`;
-    } else {
-        const statePrefix = isPlayerCurrentlyPlaying ? '▶️ Watching Live:' : '⏸️ Watch Progress (Paused):';
-        statusLabel.textContent = `${statePrefix} ${formatClock(liveWatched)} / ${formatClock(required)} (${pct}%)`;
+    if (window.WatchTracker && typeof window.WatchTracker.renderWatchBar === 'function') {
+        window.WatchTracker.renderWatchBar(statusOverride, episodePassedOverride);
     }
 }
 
@@ -1016,9 +1006,11 @@ function mountYouTubePlayer(videoId, startSeconds = 0, autoplay = false) {
 
 function ensureYouTubeIframeScriptLoaded() {
     window.onYouTubeIframeAPIReady = () => {
+        if (window.WatchResilience) window.WatchResilience.clearYtTimeout();
         buildPlayerFromPending();
     };
     if (window.YT && window.YT.Player) {
+        if (window.WatchResilience) window.WatchResilience.clearYtTimeout();
         buildPlayerFromPending();
         return;
     }
@@ -1027,6 +1019,7 @@ function ensureYouTubeIframeScriptLoaded() {
         const tag = document.createElement('script');
         tag.src = 'https://www.youtube.com/iframe_api';
         tag.async = true;
+        if (window.WatchResilience) window.WatchResilience.attachYouTubeScriptGuards(tag);
         document.head.appendChild(tag);
     }
 }
@@ -1073,11 +1066,15 @@ function buildPlayerFromPending() {
             playerVars: playerVars,
             events: {
                 onReady: onPlayerReady,
-                onStateChange: onPlayerStateChange
+                onStateChange: onPlayerStateChange,
+                onError: (e) => {
+                    if (window.WatchResilience) window.WatchResilience.handlePlayerError(e && e.data);
+                }
             }
         });
     } catch (err) {
         console.warn('YT.Player creation error:', err);
+        if (window.WatchResilience) window.WatchResilience.handlePlayerError(err && err.message ? err.message : 'init');
     }
 }
 
@@ -1140,108 +1137,16 @@ function onPlayerStateChange(event) {
 
 function startLocalPlaybackMonitor() {
     if (playbackTickTimer) clearInterval(playbackTickTimer);
-
     playbackTickTimer = setInterval(() => {
-        if (!currentEpisode || !ytReady || !ytPlayer || typeof ytPlayer.getPlayerState !== 'function') {
-            return;
-        }
-        if (!window.YT || !window.YT.PlayerState) return;
-
-        let state;
-        let curTime;
-        try {
-            state = ytPlayer.getPlayerState();
-            curTime = Number(ytPlayer.getCurrentTime() || 0);
-        } catch (_) {
-            return;
-        }
-
-        if (document.hidden) {
-            isPlayerCurrentlyPlaying = false;
-            lastPlayerTime = curTime;
-            return;
-        }
-
-        if (state === YT.PlayerState.PLAYING) {
-            isPlayerCurrentlyPlaying = true;
-            const delta = curTime - lastPlayerTime;
-            lastPlayerTime = curTime;
-
-            // Only credit real sequential video playback (0.15s..2.75s per 1s tick).
-            // Dragging/scrubbing the seekbar forward produces delta > 2.75s and is ignored!
-            if (delta > 0.15 && delta <= 2.75) {
-                pendingWatchedDeltaSeconds += 1;
-                renderLiveWatchBar();
-
-                const targetRemaining = Math.max(0, requiredWatchSeconds - serverVerifiedSeconds);
-                if (!heartbeatInFlight && (pendingWatchedDeltaSeconds >= 5 || (targetRemaining > 0 && pendingWatchedDeltaSeconds >= targetRemaining))) {
-                    flushWatchHeartbeat({
-                        playing: true,
-                        videoEnded: false,
-                        external: false,
-                        videoDurationSeconds: getSafeDurationSeconds()
-                    });
-                }
-            }
-        } else {
-            if (isPlayerCurrentlyPlaying) {
-                isPlayerCurrentlyPlaying = false;
-                renderLiveWatchBar();
-            }
-            lastPlayerTime = curTime;
+        if (window.WatchTracker && typeof window.WatchTracker.tickPlayback === 'function') {
+            window.WatchTracker.tickPlayback();
         }
     }, 1000);
 }
 
 async function flushWatchHeartbeat(opts = {}) {
-    if (!currentEpisode) return;
-
-    const deltaToSend = pendingWatchedDeltaSeconds;
-    pendingWatchedDeltaSeconds = Math.max(0, pendingWatchedDeltaSeconds - deltaToSend);
-
-    heartbeatInFlight = true;
-    try {
-        const bodyPayload = {
-            watchMode: DEFAULT_WATCH_MODE,
-            external: false,
-            videoEnded: Boolean(opts.videoEnded),
-            watchedDeltaSeconds: deltaToSend,
-            currentPositionSeconds: Math.floor(getSafeCurrentTime()),
-            playing: Boolean(opts.playing)
-        };
-
-        const res = await fetch(`/api/student/episodes/${currentEpisode.id}/heartbeat` + betaQuerySuffix('?'), {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: apiHeaders(true),
-            body: JSON.stringify(bodyPayload)
-        });
-
-        if (res.ok) {
-            const wasUnlocked = Boolean(currentEpisode.watchStatus && currentEpisode.watchStatus.quizUnlocked);
-            const wasWatchStarted = Boolean(currentEpisode.watchStatus && currentEpisode.watchStatus.watchStarted);
-            const status = await res.json();
-            currentEpisode.watchStatus = status;
-            applyWatchStatus(status, currentEpisode.passed);
-
-            if ((!wasWatchStarted && status.watchStarted) || (!wasUnlocked && status.quizUnlocked)) {
-                fetchEpisodes();
-            }
-            if (!wasUnlocked && status.quizUnlocked && !currentEpisode.passed) {
-                if (typeof confetti === 'function') {
-                    confetti({ particleCount: 55, spread: 60, origin: { y: 0.7 } });
-                }
-            }
-        } else if (deltaToSend > 0) {
-            pendingWatchedDeltaSeconds += deltaToSend;
-        }
-    } catch (e) {
-        if (deltaToSend > 0) {
-            pendingWatchedDeltaSeconds += deltaToSend;
-        }
-        console.warn('Heartbeat sync warning:', e);
-    } finally {
-        heartbeatInFlight = false;
+    if (window.WatchTracker && typeof window.WatchTracker.flushHeartbeat === 'function') {
+        return window.WatchTracker.flushHeartbeat(opts);
     }
 }
 
