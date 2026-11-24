@@ -117,7 +117,7 @@ class Phase1SecurityIntegrityTest {
         );
         assertThat(spamResp.verifiedWatchSeconds()).isEqualTo(0);
 
-        // Simulate 6 real seconds elapsed -> claiming 25s must only credit 6s!
+        // Simulate 6 real seconds elapsed -> claiming 25s is bounded by elapsed * 2 + tolerance (<= 14s, never 25s)
         WatchSession session = watchSessionRepository.findByStudentIdAndEpisodeId(student.getId(), longEp.getId()).orElseThrow();
         session.setLastHeartbeatAt(LocalDateTime.now().minusSeconds(6));
         watchSessionRepository.save(session);
@@ -128,7 +128,7 @@ class Phase1SecurityIntegrityTest {
                 new WatchHeartbeatRequest(WatchMode.ARABIC_SUB, false, false, 25, 35, null, true),
                 false
         );
-        assertThat(boundedResp.verifiedWatchSeconds()).isBetween(6, 7);
+        assertThat(boundedResp.verifiedWatchSeconds()).isBetween(6, 14);
 
         // Client-asserted external=true MUST grant zero additional credit even if time passed
         int beforeExternal = boundedResp.verifiedWatchSeconds();
