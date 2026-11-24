@@ -93,6 +93,7 @@
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
                 if (res.status === 409 && data.jobId) {
+                    showJobStatusBox({ jobId: data.jobId, status: 'RUNNING', stage: 'ALREADY_RUNNING', progress: 0, savedCount: 0, sanitizedError: 'A generation job is already running for this episode. Showing live progress below.' }, episodeId);
                     pollGenerationJob(episodeId, data.jobId);
                     return;
                 }
@@ -129,9 +130,8 @@
                 if (job.status === 'DONE' || job.status === 'FAILED') {
                     clearInterval(activePollTimer);
                     activePollTimer = null;
-                    if (typeof window.loadEpisodeQuestionBank === 'function') {
-                        window.loadEpisodeQuestionBank(episodeId);
-                    }
+                    if (typeof window.loadEpisodeQuestionBank === 'function') window.loadEpisodeQuestionBank(episodeId);
+                    if (window.GeneratorCardUi && typeof window.GeneratorCardUi.refreshEpisodeStatusLine === 'function') window.GeneratorCardUi.refreshEpisodeStatusLine();
                 }
             } catch (e) {
                 clearInterval(activePollTimer);

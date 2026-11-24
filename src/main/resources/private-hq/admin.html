@@ -753,12 +753,12 @@
                     <div id="qbank-backup-msg" class="feedback-msg"></div>
                 </div>
 
-                <div class="admin-card-section">
+                <div id="generator-card-section" class="admin-card-section">
                     <div class="card-header-bar">
                         <div>
-                            <h3>✨ Generate Question Bank from YouTube Video (2-Pass Gemini)</h3>
+                            <h3>Generate Episode Quiz</h3>
                             <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Gemini analyzes the YouTube video directly (segmented for videos &gt; 35 min) with mandatory evidence timestamps and 2-pass verification. Transcript is optional. Manual runs save as <strong>DRAFT</strong> until you approve them below (background student-triggered runs auto-approve verified items).
+                                Uses the saved transcript automatically; questions are saved as drafts for you to approve.
                             </p>
                         </div>
                     </div>
@@ -1058,7 +1058,8 @@
     <script src="{{HQ_BASE_PATH}}/modules/pages/student-unlock-tools.js?v=9"></script>
     <script src="{{HQ_BASE_PATH}}/modules/pages/payouts-and-overview.js?v=9"></script>
     <script src="{{HQ_BASE_PATH}}/modules/pages/generation-job-ui.js?v=9"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/pages/question-bank-manager.js?v=9"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/question-bank-manager.js?v=10"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/generator-card-ui.js?v=1"></script>
     <script src="{{HQ_BASE_PATH}}/modules/pages/transcript-upload.js?v=9"></script>
     <script src="{{HQ_BASE_PATH}}/modules/pages/text-source-import.js?v=10"></script>
 </body>
