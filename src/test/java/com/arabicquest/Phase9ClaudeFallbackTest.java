@@ -157,7 +157,11 @@ class Phase9ClaudeFallbackTest {
         GenerationJob doneAutoJob = generationJobService.awaitJob(autoJob.getId(), 5000);
         assertThat(doneAutoJob.getStatus()).isEqualTo("DONE");
         assertThat(doneAutoJob.getSavedCount()).isEqualTo(12);
-        assertThat(autoQuizGenerationService.isEpisodeBankReady(ep2.getId())).isTrue();
+        // Single-model fallback (both writer & verifier = gemini-3.8-flash) must stay DRAFT under strict AutoApprovalPolicy
+        assertThat(autoQuizGenerationService.isEpisodeBankReady(ep2.getId())).isFalse();
+        assertThat(questionRepository.findByEpisodeIdWithOptions(ep2.getId()))
+                .hasSize(12)
+                .allMatch(q -> q.getStatus() == QuestionStatus.DRAFT && "AUTO".equals(q.getSource()) && q.isSingleModel());
     }
 
     @Test
