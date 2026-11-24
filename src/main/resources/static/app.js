@@ -693,6 +693,13 @@ async function fetchEarnings() {
 }
 
 async function fetchEpisodes() {
+    if (window.PostQuizSync && typeof window.PostQuizSync.dedupFetchEpisodes === 'function') {
+        return window.PostQuizSync.dedupFetchEpisodes(fetchEpisodesInternal);
+    }
+    return fetchEpisodesInternal();
+}
+
+async function fetchEpisodesInternal() {
     try {
         if (currentCourse) {
             const res = await fetch(`/api/student/courses/${currentCourse.id}` + betaQuerySuffix('?'), {
@@ -1746,7 +1753,11 @@ async function handleOpenAnswerSubmit(event) {
                 msgEl.style.color = '#6ee7b7';
                 msgEl.textContent = '✓ Written answer submitted! Your reward now appears under Pending Review until approved.';
             }
-            await Promise.all([fetchEarnings(), fetchEpisodes()]);
+            if (window.PostQuizSync && typeof window.PostQuizSync.applyOpenAnswerImmediate === 'function') {
+                window.PostQuizSync.applyOpenAnswerImmediate(data);
+            } else {
+                await Promise.all([fetchEarnings(), fetchEpisodes()]);
+            }
         } else if (msgEl) {
             msgEl.style.display = 'block';
             msgEl.style.color = '#fca5a5';
@@ -1805,7 +1816,11 @@ async function handleQuizSubmit(event) {
             } else {
                 failedQuestionsByEpisodeId[currentEpisode.id] = attemptedQuestionsSnapshot;
             }
-            await Promise.all([fetchEarnings(), fetchEpisodes(), fetchQuiz(currentEpisode.id)]);
+            if (window.PostQuizSync && typeof window.PostQuizSync.applyQuizSubmitImmediate === 'function') {
+                window.PostQuizSync.applyQuizSubmitImmediate(result);
+            } else {
+                await Promise.all([fetchEarnings(), fetchEpisodes(), fetchQuiz(currentEpisode.id)]);
+            }
             if (result.openQuestion) {
                 renderOpenQuestionSection(result.openQuestion);
             }

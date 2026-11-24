@@ -17,13 +17,13 @@ public interface EpisodeRepository extends JpaRepository<Episode, Long> {
     Optional<Episode> findByPlaylistIdAndYoutubeVideoId(Long playlistId, String youtubeVideoId);
     long countByPlaylistId(Long playlistId);
 
-    @Query("SELECT e FROM Episode e JOIN FETCH e.playlist " +
+    @Query("SELECT e FROM Episode e JOIN FETCH e.playlist LEFT JOIN FETCH e.quiz " +
            "WHERE (e.archived IS NULL OR e.archived = false) " +
            "AND (e.enabled IS NULL OR e.enabled = true) " +
            "ORDER BY e.playlist.id ASC, COALESCE(e.sortOrder, e.episodeNumber) ASC, e.episodeNumber ASC, e.id ASC")
     List<Episode> findAllActiveOrderByEpisodeNumberAsc();
 
-    @Query("SELECT e FROM Episode e JOIN FETCH e.playlist " +
+    @Query("SELECT e FROM Episode e JOIN FETCH e.playlist LEFT JOIN FETCH e.quiz " +
            "WHERE e.playlist.id = :playlistId " +
            "AND (e.archived IS NULL OR e.archived = false) " +
            "AND (e.enabled IS NULL OR e.enabled = true) " +
