@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ public class GeminiTextClient {
 
     private final ObjectMapper objectMapper;
     private RestTemplate restTemplate = GeminiVideoBankSupport.createDefaultRestTemplate();
+    private AiUsageGuard aiUsageGuard;
 
     @Value("${GEMINI_API_KEY:${AI_API_KEY:}}")
     private String apiKey;
@@ -45,6 +47,11 @@ public class GeminiTextClient {
 
     public void setRestTemplate(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
+    }
+
+    @Autowired(required = false)
+    public void setAiUsageGuard(AiUsageGuard aiUsageGuard) {
+        this.aiUsageGuard = aiUsageGuard;
     }
 
     public RestTemplate getRestTemplate() {
@@ -94,6 +101,9 @@ public class GeminiTextClient {
         if (!isConfigured()) {
             throw new IllegalStateException("GEMINI_API_KEY is not configured.");
         }
+        if (aiUsageGuard != null) {
+            aiUsageGuard.assertCanCall("gemini");
+        }
         String url = "https://generativelanguage.googleapis.com/v1beta/models/" + getModel() + ":generateContent";
 
         Map<String, Object> generationConfig = new LinkedHashMap<>();
@@ -112,6 +122,7 @@ public class GeminiTextClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("x-goog-api-key", apiKey.trim());
 
+        int recordedIn = 0, recordedOut = 0;
         try {
             String reqJson = objectMapper.writeValueAsString(body);
             ResponseEntity<String> res = restTemplate.exchange(
@@ -120,7 +131,13 @@ public class GeminiTextClient {
                     new HttpEntity<>(reqJson, headers),
                     String.class
             );
-            return extractTextFromResponse(res.getBody());
+            String resBody = res.getBody();
+            if (resBody != null && !resBody.isBlank()) {
+                JsonNode meta = objectMapper.readTree(resBody).path("usageMetadata");
+                recordedIn = meta.path("promptTokenCount").asInt(0);
+                recordedOut = meta.path("candidatesTokenCount").asInt(0);
+            }
+            return extractTextFromResponse(resBody);
         } catch (HttpStatusCodeException ex) {
             int code = ex.getStatusCode().value();
             String detail = AiErrorSanitizer.extractProviderErrorDetail(ex, apiKey);
@@ -140,6 +157,10 @@ public class GeminiTextClient {
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to call Gemini API: "
                     + AiErrorSanitizer.sanitizeText(ex.getMessage(), apiKey));
+        } finally {
+            if (aiUsageGuard != null) {
+                aiUsageGuard.recordCall("gemini", recordedIn, recordedOut);
+            }
         }
     }
 

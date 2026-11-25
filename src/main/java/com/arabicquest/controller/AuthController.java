@@ -233,9 +233,9 @@ public class AuthController {
         }
 
         String newPw = request.newPassword();
-        if (newPw == null || newPw.length() < 8) {
+        if (newPw == null || newPw.length() < 10) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "New password must be at least 8 characters"));
+                    .body(Map.of("error", "New password must be at least 10 characters"));
         }
         String lowerPw = newPw.toLowerCase();
         if ("admin123".equals(lowerPw) || "learn123".equals(lowerPw)

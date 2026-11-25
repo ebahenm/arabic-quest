@@ -1165,6 +1165,7 @@ function renderMcqBankList(mcqs) {
         meta.style.fontWeight = '800';
         meta.style.color = q.status === 'APPROVED' ? '#6ee7b7' : (q.status === 'DRAFT' ? '#fde68a' : '#94a3b8');
         meta.textContent = `[${q.status}] • ${q.type}` + (q.reportCount > 0 ? ` • 🚩 ${q.reportCount} report(s)` : '');
+        if (typeof window.createVerifierMetaSpan === 'function' && (q.verifierModel || q.singleModel)) meta.appendChild(window.createVerifierMetaSpan(q.verifierModel, q.singleModel));
 
         const btnGroup = document.createElement('div');
         btnGroup.style.display = 'flex';

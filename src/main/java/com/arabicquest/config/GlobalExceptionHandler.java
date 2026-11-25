@@ -90,6 +90,12 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", "Access denied"));
     }
 
+    @ExceptionHandler(com.arabicquest.service.AiUsageGuard.AiCostCapExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleAiCostCapExceeded(com.arabicquest.service.AiUsageGuard.AiCostCapExceededException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(Map.of("error", ex.getMessage() != null ? ex.getMessage() : "Daily AI usage cap reached."));
+    }
+
     @ExceptionHandler(TooManyRequestsException.class)
     public ResponseEntity<Map<String, Object>> handleTooManyRequests(TooManyRequestsException ex) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
