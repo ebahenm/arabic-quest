@@ -39,7 +39,6 @@ import java.util.Set;
 public class WatchProgressService {
 
     private static final Logger log = LoggerFactory.getLogger(WatchProgressService.class);
-    private static final int MAX_HEARTBEAT_CREDIT_SECONDS = 25;
     public static final int DEFAULT_REQUIRED_CAP_SECONDS = 1800; // 30 minutes cap
 
     private final WatchSessionRepository watchSessionRepository;
@@ -412,15 +411,9 @@ public class WatchProgressService {
         boolean watchStarted = alreadyPassed || session.getLastHeartbeatAt() != null || verified > 0;
 
         return new WatchStatusResponse(
-                episode.getId(),
-                WatchMode.ARABIC_SUB,
-                false,
-                alreadyPassed ? required : verified,
-                required,
-                unlocked,
-                cooldown,
-                watchStarted
-        );
+                episode.getId(), WatchMode.ARABIC_SUB, false,
+                alreadyPassed ? required : verified, required, unlocked, cooldown, watchStarted,
+                session.getLastPositionSeconds());
     }
 
     @Transactional
@@ -471,24 +464,26 @@ public class WatchProgressService {
         session.setLockedWatchMode(effectiveMode);
         session.setModeLocked(false);
 
+        long elapsedSinceLast = 0L;
+        int credit = 0;
         if (session.getLastHeartbeatAt() == null) {
             session.setLastHeartbeatAt(now);
         } else {
-            long elapsedMillis = Math.max(0L, Duration.between(session.getLastHeartbeatAt(), now).toMillis());
-            int elapsedWholeSeconds = (int) Math.min(Integer.MAX_VALUE, elapsedMillis / 1000L);
-            int wallCap = Math.min(MAX_HEARTBEAT_CREDIT_SECONDS, elapsedWholeSeconds);
-            int credit = (req != null && req.watchedDeltaSeconds() != null)
-                    ? Math.min(reportedDelta, wallCap)
-                    : 0;
-
+            WatchCreditCalculator.CreditComputation comp = WatchCreditCalculator.computeCredit(
+                    session.getLastHeartbeatAt(), now, req != null ? req.watchedDeltaSeconds() : null);
+            elapsedSinceLast = comp.elapsedSeconds();
+            credit = comp.creditSeconds();
             if (credit > 0) {
                 session.setVerifiedWatchSeconds(Math.min(required, session.getVerifiedWatchSeconds() + credit));
             }
-            if (reportedDelta == 0 || elapsedWholeSeconds >= 1) {
+            if (reportedDelta == 0 || elapsedSinceLast >= 1 || credit > 0) {
                 session.setLastHeartbeatAt(now);
             }
         }
 
+        if (req != null && req.currentPositionSeconds() != null && req.currentPositionSeconds() >= 0) {
+            session.setLastPositionSeconds(WatchCreditCalculator.clampResumePosition(req.currentPositionSeconds(), episode.getDurationSeconds()));
+        }
         if (videoEnded) {
             session.setVideoEnded(true);
         }
@@ -496,6 +491,8 @@ public class WatchProgressService {
         watchSessionRepository.save(session);
 
         int verified = Math.min(required, session.getVerifiedWatchSeconds());
+        log.debug("WATCH_HEARTBEAT studentId={} episodeId={} reportedDelta={} elapsedSinceLast={}s credit={} verifiedBefore={} verifiedAfter={}",
+                student.getId(), episode.getId(), reportedDelta, elapsedSinceLast, credit, beforeVerified, verified);
         int quarterMark = required > 0 ? Math.max(1, (int) Math.ceil(required * 0.25)) : 0;
         boolean crossedQuarter = required > 0 && beforeVerified < quarterMark && verified >= quarterMark;
         if (autoQuizGenerationService != null && (wasFirstHeartbeat || beforeVerified == 0 || crossedQuarter)) {
@@ -506,15 +503,9 @@ public class WatchProgressService {
         boolean unlocked = alreadyPassed || verified >= required || session.isAdminUnlocked();
 
         return new WatchStatusResponse(
-                episode.getId(),
-                WatchMode.ARABIC_SUB,
-                false,
-                alreadyPassed ? required : verified,
-                required,
-                unlocked,
-                cooldown,
-                true
-        );
+                episode.getId(), WatchMode.ARABIC_SUB, false,
+                alreadyPassed ? required : verified, required, unlocked, cooldown, true,
+                session.getLastPositionSeconds());
     }
 
     @Transactional

@@ -32,6 +32,9 @@ public class WatchSession {
     @Column(name = "verified_watch_seconds", nullable = false)
     private Integer verifiedWatchSeconds = 0;
 
+    @Column(name = "last_position_seconds")
+    private Integer lastPositionSeconds;
+
     @Column(name = "external_watch_started_at")
     private LocalDateTime externalWatchStartedAt;
 
@@ -112,6 +115,14 @@ public class WatchSession {
 
     public void setVerifiedWatchSeconds(int verifiedWatchSeconds) {
         this.verifiedWatchSeconds = verifiedWatchSeconds;
+    }
+
+    public int getLastPositionSeconds() {
+        return lastPositionSeconds == null ? 0 : Math.max(0, lastPositionSeconds);
+    }
+
+    public void setLastPositionSeconds(Integer lastPositionSeconds) {
+        this.lastPositionSeconds = (lastPositionSeconds == null || lastPositionSeconds < 0) ? 0 : lastPositionSeconds;
     }
 
     public LocalDateTime getExternalWatchStartedAt() {

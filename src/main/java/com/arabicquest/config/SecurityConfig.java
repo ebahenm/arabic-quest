@@ -145,6 +145,8 @@ public class SecurityConfig {
                     "/quiz-empty-state.js",
                     "/mobile-episode-list.js",
                     "/mobile-watch.js",
+                    "/watch-tracker.js",
+                    "/watch-resilience.js",
                     "/post-quiz-sync.js",
                     "/admin-mobile.css",
                     "/favicon.ico",
