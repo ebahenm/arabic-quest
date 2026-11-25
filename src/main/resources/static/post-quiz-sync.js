@@ -14,15 +14,10 @@
     function bumpWalletDisplayImmediate(rewardDelta) {
         var delta = Number(rewardDelta || 0);
         if (!(delta > 0)) return;
-        var earnedEl = document.getElementById('wallet-earned');
+        var earnedEl = document.getElementById('val-earned');
         var earnedVal = parseDollarText(earnedEl);
         if (earnedEl && earnedVal !== null) {
             earnedEl.textContent = '$' + (earnedVal + delta).toFixed(2);
-        }
-        var owedEl = document.getElementById('wallet-owed');
-        var owedVal = parseDollarText(owedEl);
-        if (owedEl && owedVal !== null && owedEl.textContent.indexOf('Prepaid') === -1) {
-            owedEl.textContent = '$' + (owedVal + delta).toFixed(2);
         }
     }
 

@@ -1380,7 +1380,7 @@ header {
 }
 
 #episode-reward-pill {
-    white-space: nowrap;
+    display: none !important;
 }
 
 #open-answer-textarea {
