@@ -94,6 +94,13 @@ public class TranscriptController {
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found"));
         Optional<EpisodeTranscript> opt = transcriptRepository.findByEpisodeId(episodeId);
         if (opt.isEmpty()) {
+            String legacy = episode.getTranscriptText();
+            if (legacy != null && !legacy.isBlank()) {
+                int words = legacy.trim().split("\\s+").length;
+                return ResponseEntity.ok(Map.of("episodeId", episode.getId(), "hasTranscript", true,
+                        "source", "LEGACY", "qualityStatus", "PASS", "useAnyway", true,
+                        "usableForGeneration", true, "wordCount", words, "reasons", List.of()));
+            }
             return ResponseEntity.ok(Map.of("episodeId", episode.getId(), "hasTranscript", false,
                     "qualityStatus", "NONE", "useAnyway", false, "wordCount", 0, "reasons", List.of()));
         }

@@ -95,8 +95,11 @@ public class WatchProgressService {
         if (requiredCapSeconds <= 0) {
             return 0;
         }
-        int durationSeconds = Math.max(1, episode.getDurationSeconds());
-        return Math.min(requiredCapSeconds, durationSeconds);
+        int dynamicTarget = WatchCreditCalculator.computeRequiredWatchSeconds(episode.getDurationSeconds());
+        if (requiredCapSeconds != 1800) {
+            return Math.min(requiredCapSeconds, dynamicTarget);
+        }
+        return dynamicTarget;
     }
 
     public record EpisodeLockState(boolean locked, Integer unlockAfterEpisodeNumber) {}

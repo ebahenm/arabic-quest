@@ -1,4 +1,4 @@
-// Simplifies the Question Bank "Generate Episode Quiz" card: status line, wide writer select, green primary CTA, and collapsed Advanced tools.
+// Simplifies the Question Bank "Generate Episode Quiz" card into 4 clean rows with status pills, wide writer select, and Advanced drawer.
 (function () {
     'use strict';
 
@@ -6,34 +6,41 @@
     var WRITER_PROVIDERS = [
         { value: 'claude-sonnet-5-5', baseLabel: 'Claude Sonnet 5.5 (Primary)', providerKey: 'claude' },
         { value: 'gemini-3.8-flash', baseLabel: 'Gemini 3.8 Flash (Fallback)', providerKey: 'gemini' }
-        // Future extra writer options (e.g. DeepSeek) can be appended via GeneratorCardUi.registerWriterOption(...)
     ];
+
+    function doAdminFetch(url, opts) {
+        if (window.GeneratorStatusPills) return window.GeneratorStatusPills.doAdminFetch(url, opts);
+        if (window.AdminApi && typeof window.AdminApi.apiFetch === 'function') return window.AdminApi.apiFetch(url, opts);
+        return apiFetch(url, opts);
+    }
 
     function injectStyles() {
         if (document.getElementById('generator-card-styles')) return;
         var style = document.createElement('style');
         style.id = 'generator-card-styles';
         style.textContent =
-            '#generator-card-section .gen-episode-wrap{width:100%;margin-bottom:.75rem}' +
+            '#generator-card-section .gen-episode-wrap{width:100%;margin-bottom:.65rem}' +
             '#generator-card-section #ai-episode-search,#generator-card-section #ai-episode-select{width:100%;max-width:100%;box-sizing:border-box}' +
-            '#gen-episode-status-line{display:flex;flex-wrap:wrap;gap:.5rem 1.25rem;align-items:center;padding:.55rem .85rem;margin:.5rem 0 .9rem;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--border);font-size:.84rem;color:var(--text-muted)}' +
-            '#gen-episode-status-line .gen-status-ok{color:#6ee7b7;font-weight:700}' +
-            '#gen-episode-status-line .gen-status-warn{color:#fcd34d;font-weight:700}' +
-            '#gen-primary-row{display:flex;flex-wrap:wrap;gap:.85rem;align-items:flex-end;margin-bottom:.75rem}' +
-            '#gen-writer-group{flex:1 1 320px;min-width:260px;max-width:480px}' +
+            '#gen-episode-status-line{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;margin:.55rem 0 .95rem}' +
+            '.gen-status-pill{padding:.55rem .8rem;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--border);font-size:.82rem;color:var(--text-muted);display:flex;align-items:center;min-height:2.2rem}' +
+            '.gen-status-pill.gen-status-ok{color:#6ee7b7;font-weight:700;border-color:rgba(16,185,129,.35)}' +
+            '.gen-status-pill.gen-status-warn{color:#fcd34d;font-weight:700;border-color:rgba(245,158,11,.35)}' +
+            '.gen-status-pill.gen-status-err{color:#fca5a5;font-weight:700;border-color:rgba(239,68,68,.4)}' +
+            '#gen-primary-row{display:flex;flex-wrap:wrap;gap:.85rem;align-items:flex-end;margin-bottom:.85rem}' +
+            '#gen-writer-group{flex:1 1 320px;min-width:260px;max-width:500px}' +
             '#gen-writer-group label{display:block;font-size:.8rem;font-weight:700;color:var(--text-muted);margin-bottom:.3rem}' +
             '#generator-card-section #ai-writer-model-select{width:100%;max-width:100%;min-width:260px;box-sizing:border-box}' +
-            '#generator-card-section #btn-start-async-job{background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;padding:.72rem 1.45rem;font-size:.92rem;font-weight:800;border-radius:8px;cursor:pointer;white-space:nowrap}' +
+            '#generator-card-section #btn-start-async-job{background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;padding:.72rem 1.5rem;font-size:.92rem;font-weight:800;border-radius:8px;cursor:pointer;white-space:nowrap}' +
             '#generator-card-section #btn-start-async-job:hover:not(:disabled){filter:brightness(1.08)}' +
             '#generator-card-section #btn-start-async-job:disabled{opacity:.6;cursor:not-allowed}' +
-            '#gen-usage-line{font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem}' +
-            '#gen-advanced-panel{margin-top:1rem;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);padding:.75rem 1rem}' +
+            '#generator-card-section #ai-result-box{margin-top:.25rem;margin-bottom:.85rem}' +
+            '#gen-advanced-panel{margin-top:.85rem;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);padding:.75rem 1rem}' +
             '#gen-advanced-panel>summary{cursor:pointer;font-weight:700;font-size:.88rem;color:var(--text-muted);user-select:none}' +
             '#gen-advanced-body{display:flex;flex-direction:column;gap:1rem;margin-top:.9rem;padding-top:.85rem;border-top:1px solid var(--border)}' +
             '.gen-adv-row{display:flex;flex-wrap:wrap;gap:.65rem;align-items:center}' +
             '.gen-adv-note{font-size:.8rem;color:var(--text-muted)}' +
             '#gen-ai-test-results{display:none;padding:.65rem .85rem;border-radius:8px;border:1px solid var(--border);background:rgba(15,23,42,.55);font-size:.83rem;line-height:1.5}' +
-            '@media(max-width:900px){#gen-primary-row{flex-direction:column;align-items:stretch}#gen-writer-group{max-width:100%}#generator-card-section #btn-start-async-job{width:100%}}';
+            '@media(max-width:900px){#gen-episode-status-line{grid-template-columns:1fr}#gen-primary-row{flex-direction:column;align-items:stretch}#gen-writer-group{max-width:100%}#generator-card-section #btn-start-async-job{width:100%}}';
         document.head.appendChild(style);
     }
 
@@ -95,7 +102,7 @@
         var btn = document.getElementById('btn-test-ai-connections');
         if (btn) { btn.disabled = true; btn.textContent = 'Testing AI connections...'; }
         try {
-            var res = await window.AdminApi.apiFetch('/api/admin/ai/test-connection', { method: 'POST' });
+            var res = await doAdminFetch('/api/admin/ai/test-connection', { method: 'POST' });
             var data = await res.json().catch(function () { return {}; });
             if (!res.ok) {
                 renderConnectionResults(null, data.error || data.message || ('Connection test failed (HTTP ' + res.status + ')'));
@@ -104,61 +111,12 @@
             try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
             renderConnectionResults(data, null);
             applyProviderStatuses(data);
-        } catch (_) {
+        } catch (err) {
+            console.error('Test AI Connections failed:', err);
             renderConnectionResults(null, 'Network error while testing AI connections.');
         } finally {
             if (btn) { btn.disabled = false; btn.textContent = 'Test AI Connections'; }
         }
-    }
-
-    async function refreshEpisodeStatusLine() {
-        var selectEl = document.getElementById('ai-episode-select');
-        var statusLine = document.getElementById('gen-episode-status-line');
-        if (!selectEl || !statusLine || !window.AdminApi) return;
-
-        var episodeId = selectEl.value;
-        while (statusLine.firstChild) statusLine.removeChild(statusLine.firstChild);
-        if (!episodeId) {
-            statusLine.textContent = 'Select an episode to view transcript and question bank status.';
-            return;
-        }
-
-        var trSpan = document.createElement('span');
-        var bankSpan = document.createElement('span');
-        trSpan.textContent = 'Transcript: checking...';
-        bankSpan.textContent = 'Bank: checking...';
-        statusLine.appendChild(trSpan);
-        statusLine.appendChild(bankSpan);
-
-        try {
-            var results = await Promise.all([
-                window.AdminApi.apiFetch('/api/admin/episodes/' + encodeURIComponent(episodeId) + '/transcript'),
-                window.AdminApi.apiFetch('/api/admin/episodes/' + encodeURIComponent(episodeId) + '/question-bank?status=ALL&type=ALL&reportedOnly=false')
-            ]);
-            if (results[0] && results[0].ok) {
-                var tr = await results[0].json();
-                if (tr.hasTranscript) {
-                    trSpan.className = 'gen-status-ok';
-                    trSpan.textContent = 'Transcript: saved (' + Number(tr.wordCount || 0).toLocaleString() + ' words)';
-                } else {
-                    trSpan.className = 'gen-status-warn';
-                    trSpan.textContent = 'No transcript yet: upload one in Transcripts';
-                }
-            }
-            if (results[1] && results[1].ok) {
-                var bank = await results[1].json();
-                var approved = Number(bank.approvedMcqCount || 0) + Number(bank.approvedOpenCount || 0);
-                var draft = Number(bank.draftMcqCount || 0) + Number(bank.draftOpenCount || 0);
-                bankSpan.textContent = 'Current bank: ' + approved + ' approved, ' + draft + ' draft';
-            }
-        } catch (_) {
-            trSpan.textContent = 'Transcript: status unavailable';
-        }
-    }
-
-    function setUsage(used, limit) {
-        var el = document.getElementById('gen-usage-line');
-        if (el) el.textContent = 'Today: ' + String(used) + ' of ' + String(limit) + ' calls';
     }
 
     function registerWriterOption(opt) {
@@ -168,6 +126,16 @@
         var cached = null;
         try { cached = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null'); } catch (_) {}
         applyProviderStatuses(cached);
+    }
+
+    function refreshEpisodeStatusLine() {
+        if (window.GeneratorStatusPills) return window.GeneratorStatusPills.refreshEpisodeStatusLine();
+    }
+    function setUsage(used, limit) {
+        if (window.GeneratorStatusPills) window.GeneratorStatusPills.setUsage(used, limit);
+    }
+    function setUsageUnavailable() {
+        if (window.GeneratorStatusPills) window.GeneratorStatusPills.setUsageUnavailable();
     }
 
     function enhanceGeneratorCard() {
@@ -185,6 +153,24 @@
         var statusLine = document.createElement('div');
         statusLine.id = 'gen-episode-status-line';
         statusLine.setAttribute('role', 'status');
+
+        var trPill = document.createElement('div');
+        trPill.id = 'gen-pill-transcript';
+        trPill.className = 'gen-status-pill';
+        trPill.textContent = 'Transcript: select an episode';
+
+        var bankPill = document.createElement('div');
+        bankPill.id = 'gen-pill-bank';
+        bankPill.className = 'gen-status-pill';
+        bankPill.textContent = 'Bank: select an episode';
+
+        var usagePill = document.createElement('div');
+        usagePill.id = 'gen-usage-line';
+        usagePill.className = 'gen-status-pill';
+        usagePill.setAttribute('data-usage-slot', 'true');
+        usagePill.textContent = 'Today: loading...';
+
+        statusLine.append(trPill, bankPill, usagePill);
         epWrap.insertAdjacentElement('afterend', statusLine);
 
         var primaryRow = document.createElement('div');
@@ -195,20 +181,15 @@
         var writerLabel = document.createElement('label');
         writerLabel.setAttribute('for', 'ai-writer-model-select');
         writerLabel.textContent = 'Writer';
-        writerGroup.appendChild(writerLabel);
+        writerGroup.append(writerLabel, writerSelect);
         writerSelect.style.maxWidth = '100%';
-        writerGroup.appendChild(writerSelect);
 
         asyncBtn.textContent = 'Generate quiz';
-        primaryRow.appendChild(writerGroup);
-        primaryRow.appendChild(asyncBtn);
+        primaryRow.append(writerGroup, asyncBtn);
         statusLine.insertAdjacentElement('afterend', primaryRow);
 
-        var usageLine = document.createElement('div');
-        usageLine.id = 'gen-usage-line';
-        usageLine.setAttribute('data-usage-slot', 'true');
-        usageLine.textContent = 'Today: — of — calls';
-        primaryRow.insertAdjacentElement('afterend', usageLine);
+        var resultBox = document.getElementById('ai-result-box');
+        if (resultBox) primaryRow.insertAdjacentElement('afterend', resultBox);
 
         var details = document.createElement('details');
         details.id = 'gen-advanced-panel';
@@ -223,11 +204,10 @@
         if (compareBtn) {
             var compareRow = document.createElement('div');
             compareRow.className = 'gen-adv-row';
-            compareRow.appendChild(compareBtn);
             var costNote = document.createElement('span');
             costNote.className = 'gen-adv-note';
-            costNote.textContent = 'Cost warning: runs both Gemini and Claude (2x API cost).';
-            compareRow.appendChild(costNote);
+            costNote.textContent = 'Cost warning: runs all configured writer models (2x–3x API cost).';
+            compareRow.append(compareBtn, costNote);
             advBody.appendChild(compareRow);
         }
         if (compareBox) advBody.appendChild(compareBox);
@@ -235,10 +215,7 @@
         var testRow = document.createElement('div');
         testRow.className = 'gen-adv-row';
         var testBtn = document.createElement('button');
-        testBtn.type = 'button';
-        testBtn.id = 'btn-test-ai-connections';
-        testBtn.className = 'btn-secondary btn-sm';
-        testBtn.textContent = 'Test AI Connections';
+        Object.assign(testBtn, { type: 'button', id: 'btn-test-ai-connections', className: 'btn-secondary btn-sm', textContent: 'Test AI Connections' });
         testBtn.addEventListener('click', handleTestAiConnections);
         testRow.appendChild(testBtn);
         advBody.appendChild(testRow);
@@ -260,19 +237,16 @@
             var legacyRow = document.createElement('div');
             legacyRow.className = 'gen-adv-row';
             legacyRunBtn.textContent = 'Generate from the YouTube video (no transcript)';
-            legacyRow.appendChild(legacyRunBtn);
             var fallbackNote = document.createElement('span');
             fallbackNote.className = 'gen-adv-note';
             fallbackNote.textContent = 'Fallback when an episode has no saved transcript.';
-            legacyRow.appendChild(fallbackNote);
+            legacyRow.append(legacyRunBtn, fallbackNote);
             advBody.appendChild(legacyRow);
         }
 
         details.appendChild(advBody);
         var legacyToolbar = document.getElementById('pipeline-v2-toolbar');
         if (legacyToolbar) legacyToolbar.style.display = 'none';
-
-        var resultBox = document.getElementById('ai-result-box');
         if (resultBox) resultBox.insertAdjacentElement('afterend', details);
         else card.appendChild(details);
 
@@ -284,13 +258,15 @@
         var obs = new MutationObserver(function () { if (epSelect.value) refreshEpisodeStatusLine(); });
         obs.observe(epSelect, { childList: true });
         if (epSelect.value) refreshEpisodeStatusLine();
+        if (typeof window.refreshAiUsageBanner === 'function') window.refreshAiUsageBanner();
     }
 
     window.GeneratorCardUi = {
         refreshEpisodeStatusLine: refreshEpisodeStatusLine,
         applyProviderStatuses: applyProviderStatuses,
         registerWriterOption: registerWriterOption,
-        setUsage: setUsage
+        setUsage: setUsage,
+        setUsageUnavailable: setUsageUnavailable
     };
 
     document.addEventListener('DOMContentLoaded', function () { setTimeout(enhanceGeneratorCard, 0); });

@@ -41,7 +41,12 @@
 
         var fill = document.getElementById('watch-progress-fill');
         var statusLabel = document.getElementById('watch-status-label');
+        var subnote = document.getElementById('watch-live-subnote');
         if (fill) fill.style.width = pct + '%';
+        if (subnote) {
+            subnote.style.display = 'none';
+            subnote.textContent = '';
+        }
         if (!statusLabel) return;
 
         if (!canSeeNumericClock()) {

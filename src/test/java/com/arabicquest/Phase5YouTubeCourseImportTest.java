@@ -349,10 +349,10 @@ class Phase5YouTubeCourseImportTest {
         JsonNode ep2Json = detail.get("episodes").get(1);
         assertThat(ep1Json.get("id").asLong()).isEqualTo(ep1Id);
         assertThat(ep1Json.get("durationSeconds").asInt()).isEqualTo(720);
-        assertThat(ep1Json.get("watchStatus").get("requiredWatchSeconds").asInt()).isEqualTo(720);
+        assertThat(ep1Json.get("watchStatus").get("requiredWatchSeconds").asInt()).isEqualTo(357);
         assertThat(ep2Json.get("id").asLong()).isEqualTo(ep2Id);
         assertThat(ep2Json.get("durationSeconds").asInt()).isEqualTo(2400);
-        assertThat(ep2Json.get("watchStatus").get("requiredWatchSeconds").asInt()).isEqualTo(1800);
+        assertThat(ep2Json.get("watchStatus").get("requiredWatchSeconds").asInt()).isEqualTo(1785);
     }
 
     @Test
