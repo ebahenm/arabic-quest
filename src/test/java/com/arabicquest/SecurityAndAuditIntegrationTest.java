@@ -426,11 +426,11 @@ class SecurityAndAuditIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, studentBearer))
                 .andExpect(status().is4xxClientError());
 
-        // Submitting quiz BEFORE 30 minutes (1799s < 1800s) is blocked with 403 Forbidden
+        // Submitting quiz BEFORE dynamic watch requirement (1784s < 1785s for 2400s video) is blocked with 403 Forbidden
         User earner = userRepository.findById(studentId).orElseThrow();
         WatchSession ws1 = new WatchSession(earner, ep1, WatchMode.ENGLISH_DUB);
         ws1.setModeLocked(true);
-        ws1.setVerifiedWatchSeconds(1799);
+        ws1.setVerifiedWatchSeconds(1784);
         watchSessionRepository.save(ws1);
 
         Map<String, Object> earlyEp1Payload = buildSessionSubmission(studentBearer, ep1.getId(), "ARABIC_SUB", 10);
@@ -440,8 +440,8 @@ class SecurityAndAuditIntegrationTest {
                         .content(objectMapper.writeValueAsString(earlyEp1Payload)))
                 .andExpect(status().isForbidden());
 
-        // Reach exact 30-minute (1800s) watch requirement
-        ws1.setVerifiedWatchSeconds(1800);
+        // Reach exact dynamic watch requirement (1785s)
+        ws1.setVerifiedWatchSeconds(1785);
         watchSessionRepository.save(ws1);
 
         // Answering 9 out of 10 (90%) MUST FAIL because pass requirement is strictly 100%
@@ -720,7 +720,7 @@ class SecurityAndAuditIntegrationTest {
         long ep1Id = epNodes.get(0).get("id").asLong();
         long ep2Id = epNodes.get(1).get("id").asLong();
         assertThat(epNodes.get(0).get("locked").asBoolean()).isFalse();
-        assertThat(epNodes.get(0).get("watchStatus").get("requiredWatchSeconds").asInt()).isEqualTo(1800);
+        assertThat(epNodes.get(0).get("watchStatus").get("requiredWatchSeconds").asInt()).isEqualTo(1785);
         assertThat(epNodes.get(1).get("locked").asBoolean()).isTrue();
         assertThat(epNodes.get(1).get("unlockAfterEpisodeNumber").asInt()).isEqualTo(1);
 

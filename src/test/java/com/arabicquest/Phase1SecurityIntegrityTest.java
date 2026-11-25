@@ -92,9 +92,9 @@ class Phase1SecurityIntegrityTest {
         Episode shortEp = episodeRepository.findByPlaylistIdAndEpisodeNumber(course.getId(), 2)
                 .orElseGet(() -> episodeRepository.save(new Episode(course, 2, "12-Min Episode", "VIDSHRT0002", 720)));
 
-        // Required watch seconds = min(1800, duration)
-        assertThat(watchProgressService.computeRequiredWatchSeconds(longEp)).isEqualTo(1800);
-        assertThat(watchProgressService.computeRequiredWatchSeconds(shortEp)).isEqualTo(720);
+        // Dynamic required watch seconds: >600s => round((duration - 300) * 0.85)
+        assertThat(watchProgressService.computeRequiredWatchSeconds(longEp)).isEqualTo(2040);
+        assertThat(watchProgressService.computeRequiredWatchSeconds(shortEp)).isEqualTo(357);
 
         // Client-supplied videoDurationSeconds MUST NOT mutate Episode.durationSeconds
         WatchStatusResponse afterSpoofedDuration = watchProgressService.recordHeartbeat(
@@ -104,7 +104,7 @@ class Phase1SecurityIntegrityTest {
                 false
         );
         assertThat(episodeRepository.findById(longEp.getId()).orElseThrow().getDurationSeconds()).isEqualTo(2700);
-        assertThat(afterSpoofedDuration.requiredWatchSeconds()).isEqualTo(1800);
+        assertThat(afterSpoofedDuration.requiredWatchSeconds()).isEqualTo(2040);
         // Initial anchor heartbeat grants 0 credit
         assertThat(afterSpoofedDuration.verifiedWatchSeconds()).isEqualTo(0);
 

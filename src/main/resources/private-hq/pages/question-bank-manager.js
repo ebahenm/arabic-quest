@@ -1,8 +1,29 @@
-// Question Bank Pipeline v2 controls: Async Generation Job status/cancel/retry, Compare Models, and Needs Review banner.
+// Question Bank Pipeline v2 controls: Async Generation Job status/cancel/retry, double-click lock, and Compare Models.
 (function () {
     'use strict';
 
     let activePollTimer = null;
+    let jobInFlight = false;
+
+    function doAdminFetch(url, opts) {
+        if (window.AdminApi && typeof window.AdminApi.apiFetch === 'function') return window.AdminApi.apiFetch(url, opts);
+        if (typeof apiFetch === 'function') return apiFetch(url, opts);
+        return Promise.reject(new Error('Admin apiFetch unavailable'));
+    }
+
+    function setGenerateButtonLocked(locked, labelText) {
+        jobInFlight = Boolean(locked);
+        const btn = document.getElementById('btn-start-async-job');
+        if (!btn) return;
+        btn.disabled = Boolean(locked);
+        btn.textContent = labelText || (locked ? 'Running job...' : 'Generate quiz');
+    }
+
+    function refreshAllAfterJob(episodeId) {
+        if (episodeId && typeof window.loadEpisodeQuestionBank === 'function') window.loadEpisodeQuestionBank(episodeId);
+        if (window.GeneratorCardUi && typeof window.GeneratorCardUi.refreshEpisodeStatusLine === 'function') window.GeneratorCardUi.refreshEpisodeStatusLine();
+        if (typeof window.refreshAiUsageBanner === 'function') window.refreshAiUsageBanner();
+    }
 
     function injectPipelineV2Controls() {
         const aiBtn = document.getElementById('btn-run-ai');
@@ -10,15 +31,10 @@
 
         const bar = document.createElement('div');
         bar.id = 'pipeline-v2-toolbar';
-        bar.style.display = 'flex';
-        bar.style.flexWrap = 'wrap';
-        bar.style.gap = '0.6rem';
-        bar.style.alignItems = 'center';
-        bar.style.marginTop = '0.75rem';
+        Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center', marginTop: '0.75rem' });
 
         const modelSelect = document.createElement('select');
-        modelSelect.id = 'ai-writer-model-select';
-        modelSelect.className = 'select-input';
+        Object.assign(modelSelect, { id: 'ai-writer-model-select', className: 'select-input' });
         modelSelect.style.maxWidth = '240px';
         [
             { value: 'claude-sonnet-5-5', label: 'Writer: Claude Sonnet 5.5 (Primary)' },
@@ -31,39 +47,27 @@
         });
 
         const asyncJobBtn = document.createElement('button');
-        asyncJobBtn.type = 'button';
-        asyncJobBtn.id = 'btn-start-async-job';
-        asyncJobBtn.className = 'btn-primary btn-sm';
-        asyncJobBtn.textContent = '🚀 Run Async 3-Pass Job';
+        Object.assign(asyncJobBtn, { type: 'button', id: 'btn-start-async-job', className: 'btn-primary btn-sm', textContent: 'Generate quiz' });
         asyncJobBtn.addEventListener('click', startAsyncGenerationJob);
 
         const compareBtn = document.createElement('button');
-        compareBtn.type = 'button';
-        compareBtn.id = 'btn-compare-models';
-        compareBtn.className = 'btn-secondary btn-sm';
-        compareBtn.textContent = '⚖️ Compare Models (2x Cost)';
+        Object.assign(compareBtn, { type: 'button', id: 'btn-compare-models', className: 'btn-secondary btn-sm', textContent: '⚖️ Compare Models (2x Cost)' });
         compareBtn.addEventListener('click', handleCompareModels);
 
-        bar.appendChild(modelSelect);
-        bar.appendChild(asyncJobBtn);
-        bar.appendChild(compareBtn);
+        bar.append(modelSelect, asyncJobBtn, compareBtn);
         aiBtn.parentNode.appendChild(bar);
 
         const reviewBanner = document.createElement('div');
-        reviewBanner.id = 'qb-needs-review-banner';
-        reviewBanner.className = 'feedback-msg error';
-        reviewBanner.style.display = 'none';
-        reviewBanner.style.marginTop = '0.75rem';
+        Object.assign(reviewBanner, { id: 'qb-needs-review-banner', className: 'feedback-msg error' });
+        Object.assign(reviewBanner.style, { display: 'none', marginTop: '0.75rem' });
         aiBtn.parentNode.appendChild(reviewBanner);
 
         const compareBox = document.createElement('div');
         compareBox.id = 'qb-compare-models-box';
-        compareBox.style.display = 'none';
-        compareBox.style.marginTop = '0.85rem';
-        compareBox.style.padding = '0.9rem';
-        compareBox.style.borderRadius = '10px';
-        compareBox.style.border = '1px solid rgba(139, 92, 246, 0.35)';
-        compareBox.style.background = 'rgba(15, 23, 42, 0.65)';
+        Object.assign(compareBox.style, {
+            display: 'none', marginTop: '0.85rem', padding: '0.9rem',
+            borderRadius: '10px', border: '1px solid rgba(139, 92, 246, 0.35)', background: 'rgba(15, 23, 42, 0.65)'
+        });
         aiBtn.parentNode.appendChild(compareBox);
     }
 
@@ -73,49 +77,44 @@
     }
 
     async function startAsyncGenerationJob() {
+        if (jobInFlight) return;
         const episodeId = getSelectedEpisodeId();
-        if (!episodeId || !window.AdminApi) return;
-
+        if (!episodeId) {
+            showJobStatusBox({ jobId: '—', status: 'FAILED', stage: 'NO_EPISODE', progress: 0, savedCount: 0, sanitizedError: 'Please select an episode first before generating a quiz.' }, null);
+            return;
+        }
         const modelSelect = document.getElementById('ai-writer-model-select');
         const transcriptInput = document.getElementById('ai-transcript-input');
         const writerModel = modelSelect ? modelSelect.value : 'claude-sonnet-5-5';
         const transcript = transcriptInput && transcriptInput.value.trim() ? transcriptInput.value.trim() : null;
 
-        const btn = document.getElementById('btn-start-async-job');
-        if (btn) btn.disabled = true;
+        setGenerateButtonLocked(true, 'Starting job...');
+        showJobStatusBox({ jobId: 'starting', status: 'QUEUED', stage: 'QUEUED', progress: 6, savedCount: 0 }, episodeId);
 
         try {
-            const res = await window.AdminApi.apiFetch('/api/admin/episodes/' + episodeId + '/generation-jobs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            const res = await doAdminFetch('/api/admin/episodes/' + encodeURIComponent(episodeId) + '/generation-jobs', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ writerModel: writerModel, transcript: transcript })
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
                 if (res.status === 409 && data.jobId) {
-                    showJobStatusBox({ jobId: data.jobId, status: 'RUNNING', stage: 'ALREADY_RUNNING', progress: 0, savedCount: 0, sanitizedError: 'A generation job is already running for this episode. Showing live progress below.' }, episodeId);
+                    setGenerateButtonLocked(true, 'Running job #' + data.jobId + '...');
+                    showJobStatusBox({ jobId: data.jobId, status: 'RUNNING', stage: 'ALREADY_RUNNING', progress: 10, savedCount: 0, sanitizedError: 'A generation job is already running for this episode. Showing live progress below.' }, episodeId);
                     pollGenerationJob(episodeId, data.jobId);
                     return;
                 }
-                showJobStatusBox({
-                    jobId: data.jobId || '—',
-                    status: 'FAILED',
-                    stage: 'CONFLICT',
-                    progress: 0,
-                    savedCount: 0,
-                    sanitizedError: data.error || ('Failed to start job (HTTP ' + res.status + ')')
-                }, episodeId);
+                setGenerateButtonLocked(false);
+                showJobStatusBox({ jobId: data.jobId || '—', status: 'FAILED', stage: 'ERROR', progress: 0, savedCount: 0, sanitizedError: data.error || data.message || ('Failed to start job (HTTP ' + res.status + ')') }, episodeId);
                 return;
             }
+            setGenerateButtonLocked(true, 'Running job #' + data.jobId + '...');
             showJobStatusBox(data, episodeId);
             pollGenerationJob(episodeId, data.jobId);
         } catch (err) {
-            showJobStatusBox({
-                jobId: '—', status: 'FAILED', stage: 'NETWORK_ERROR', progress: 0, savedCount: 0,
-                sanitizedError: 'Network error starting generation job.'
-            }, episodeId);
-        } finally {
-            if (btn) btn.disabled = false;
+            console.error('Failed to start generation job:', err);
+            setGenerateButtonLocked(false);
+            showJobStatusBox({ jobId: '—', status: 'FAILED', stage: 'NETWORK_ERROR', progress: 0, savedCount: 0, sanitizedError: 'Network error starting generation job.' }, episodeId);
         }
     }
 
@@ -123,19 +122,20 @@
         if (activePollTimer) clearInterval(activePollTimer);
         const fetchOnce = async () => {
             try {
-                const res = await window.AdminApi.apiFetch('/api/admin/episodes/' + episodeId + '/generation-jobs/' + jobId);
+                const res = await doAdminFetch('/api/admin/episodes/' + encodeURIComponent(episodeId) + '/generation-jobs/' + encodeURIComponent(jobId));
                 if (!res.ok) return;
                 const job = await res.json();
                 showJobStatusBox(job, episodeId);
                 if (job.status === 'DONE' || job.status === 'FAILED') {
                     clearInterval(activePollTimer);
                     activePollTimer = null;
-                    if (typeof window.loadEpisodeQuestionBank === 'function') window.loadEpisodeQuestionBank(episodeId);
-                    if (window.GeneratorCardUi && typeof window.GeneratorCardUi.refreshEpisodeStatusLine === 'function') window.GeneratorCardUi.refreshEpisodeStatusLine();
+                    setGenerateButtonLocked(false);
+                    refreshAllAfterJob(episodeId);
                 }
             } catch (e) {
                 clearInterval(activePollTimer);
                 activePollTimer = null;
+                setGenerateButtonLocked(false);
             }
         };
         fetchOnce();
@@ -143,34 +143,32 @@
     }
 
     async function cancelActiveJob(episodeId, jobId) {
-        if (!window.AdminApi || !jobId) return;
-        if (activePollTimer) {
-            clearInterval(activePollTimer);
-            activePollTimer = null;
-        }
+        if (!jobId) return;
+        if (activePollTimer) { clearInterval(activePollTimer); activePollTimer = null; }
         try {
-            const res = await window.AdminApi.apiFetch('/api/admin/generation-jobs/' + jobId + '/cancel', { method: 'POST' });
+            const res = await doAdminFetch('/api/admin/generation-jobs/' + encodeURIComponent(jobId) + '/cancel', { method: 'POST' });
             const data = await res.json().catch(() => ({}));
-            if (res.ok) {
-                showJobStatusBox(data, episodeId);
-            }
-        } catch (e) {}
+            if (res.ok) showJobStatusBox(data, episodeId);
+        } catch (e) {
+            console.error('Cancel job error:', e);
+        } finally {
+            setGenerateButtonLocked(false);
+            refreshAllAfterJob(episodeId);
+        }
     }
 
     async function retryFailedJob(episodeId, jobId) {
-        if (!window.AdminApi) return;
+        if (jobInFlight) return;
+        setGenerateButtonLocked(true, 'Starting job...');
         try {
-            const res = await window.AdminApi.apiFetch('/api/admin/episodes/' + episodeId + '/generation-jobs/' + jobId + '/retry', {
-                method: 'POST'
-            });
+            const res = await doAdminFetch('/api/admin/episodes/' + encodeURIComponent(episodeId) + '/generation-jobs/' + encodeURIComponent(jobId) + '/retry', { method: 'POST' });
             const data = await res.json().catch(() => ({}));
-            if (res.ok && data.jobId) {
+            if ((res.ok || res.status === 409) && data.jobId) {
+                setGenerateButtonLocked(true, 'Running job #' + data.jobId + '...');
                 showJobStatusBox(data, episodeId);
                 pollGenerationJob(episodeId, data.jobId);
-            } else if (res.status === 409 && data.jobId) {
-                pollGenerationJob(episodeId, data.jobId);
-            }
-        } catch (e) {}
+            } else setGenerateButtonLocked(false);
+        } catch (e) { setGenerateButtonLocked(false); }
     }
 
     function showJobStatusBox(job, episodeId) {
@@ -184,20 +182,16 @@
 
     async function handleCompareModels() {
         const episodeId = getSelectedEpisodeId();
-        if (!episodeId || !window.AdminApi) return;
-        if (!window.confirm('Compare Models runs both Gemini and Claude pipelines (Set A & Set B) and doubles token usage. Continue?')) {
-            return;
-        }
+        if (!episodeId || !window.confirm('Compare Models runs all configured writer pipelines and multiplies token usage. Continue?')) return;
         const compareBox = document.getElementById('qb-compare-models-box');
         if (!compareBox) return;
         compareBox.style.display = 'block';
         while (compareBox.firstChild) compareBox.removeChild(compareBox.firstChild);
         const loading = document.createElement('p');
-        loading.textContent = 'Running Set A & Set B pipelines (blind model comparison)...';
+        loading.textContent = 'Running blind model comparison pipelines...';
         compareBox.appendChild(loading);
-
         try {
-            const res = await window.AdminApi.apiFetch('/api/admin/episodes/' + episodeId + '/compare-models', { method: 'POST' });
+            const res = await doAdminFetch('/api/admin/episodes/' + encodeURIComponent(episodeId) + '/compare-models', { method: 'POST' });
             const data = await res.json().catch(() => ({}));
             while (compareBox.firstChild) compareBox.removeChild(compareBox.firstChild);
             if (!res.ok) {
@@ -208,9 +202,11 @@
                 return;
             }
             renderCompareModelsResult(episodeId, data, compareBox);
+            refreshAllAfterJob(episodeId);
         } catch (e) {
             while (compareBox.firstChild) compareBox.removeChild(compareBox.firstChild);
             const err = document.createElement('p');
+            err.style.color = '#fca5a5';
             err.textContent = 'Network error running Compare Models.';
             compareBox.appendChild(err);
         }
@@ -223,21 +219,16 @@
         container.appendChild(header);
 
         const summary = document.createElement('p');
-        summary.style.fontSize = '0.85rem';
-        summary.style.marginBottom = '0.65rem';
+        Object.assign(summary.style, { fontSize: '0.85rem', marginBottom: '0.65rem' });
         const hasSetC = Array.isArray(data.setC);
-        summary.textContent = 'Set A: ' + (data.setA ? data.setA.length : 0) + ' draft MCQs • Set B: ' + (data.setB ? data.setB.length : 0) + ' draft MCQs'
-            + (hasSetC ? (' • Set C: ' + data.setC.length + ' draft MCQs') : '');
+        summary.textContent = 'Set A: ' + (data.setA ? data.setA.length : 0) + ' draft MCQs • Set B: ' + (data.setB ? data.setB.length : 0) + ' draft MCQs' + (hasSetC ? (' • Set C: ' + data.setC.length + ' draft MCQs') : '');
         container.appendChild(summary);
 
         const btnRow = document.createElement('div');
-        btnRow.style.display = 'flex';
-        btnRow.style.gap = '0.6rem';
+        Object.assign(btnRow.style, { display: 'flex', gap: '0.6rem', flexWrap: 'wrap' });
         (hasSetC ? ['SET_A', 'SET_B', 'SET_C'] : ['SET_A', 'SET_B']).forEach(setKey => {
             const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'btn-primary btn-sm';
-            b.textContent = 'Approve ' + setKey.replace('_', ' ') + ' & Retire Other';
+            Object.assign(b, { type: 'button', className: 'btn-primary btn-sm', textContent: 'Approve ' + setKey.replace('_', ' ') + ' & Retire Other' });
             b.addEventListener('click', () => chooseComparedSet(episodeId, setKey, container));
             btnRow.appendChild(b);
         });
@@ -245,10 +236,8 @@
     }
 
     async function chooseComparedSet(episodeId, chosenSet, container) {
-        const res = await window.AdminApi.apiFetch('/api/admin/episodes/' + episodeId + '/compare-models/choose', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chosenSet: chosenSet })
+        const res = await doAdminFetch('/api/admin/episodes/' + encodeURIComponent(episodeId) + '/compare-models/choose', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chosenSet: chosenSet })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return;
@@ -259,9 +248,7 @@
         done.textContent = 'Chosen ' + data.chosenSet + ' (' + data.approvedCount + ' approved, ' + data.retiredCount +
             ' retired). Revealed: Set A = ' + (rev.SET_A || '?') + ', Set B = ' + (rev.SET_B || '?') + (rev.SET_C ? (', Set C = ' + rev.SET_C) : '');
         container.appendChild(done);
-        if (typeof window.loadEpisodeQuestionBank === 'function') {
-            window.loadEpisodeQuestionBank(episodeId);
-        }
+        refreshAllAfterJob(episodeId);
     }
 
     function formatTimestampMmSs(totalSeconds) {
@@ -281,18 +268,13 @@
         return link;
     }
 
-    window.QuestionBankManager = {
-        formatTimestampMmSs: formatTimestampMmSs,
-        buildJumpToMomentLink: buildJumpToMomentLink
-    };
+    window.QuestionBankManager = { formatTimestampMmSs: formatTimestampMmSs, buildJumpToMomentLink: buildJumpToMomentLink };
 
     document.addEventListener('DOMContentLoaded', function () {
         injectPipelineV2Controls();
         if (window.GenerationJobUi && typeof window.GenerationJobUi.initEpisodeSearchFilter === 'function') {
             window.GenerationJobUi.initEpisodeSearchFilter(function (newEpisodeId) {
-                if (typeof window.loadEpisodeQuestionBank === 'function') {
-                    window.loadEpisodeQuestionBank(newEpisodeId);
-                }
+                if (typeof window.loadEpisodeQuestionBank === 'function') window.loadEpisodeQuestionBank(newEpisodeId);
             });
         }
     });

@@ -22,6 +22,9 @@
     }
 
     window.AdminApi = {
+        apiFetch(url, options = {}) {
+            return apiFetch(url, options);
+        },
         setStudentEnabled(studentId, enabled) {
             return jsonRequest(`/api/admin/students/${encodeURIComponent(studentId)}/enabled`, {
                 method: 'PUT',

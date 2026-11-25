@@ -52,8 +52,17 @@
 
         try {
             const res = await apiFetch('/api/admin/ai/usage');
-            if (!res.ok) return;
+            if (!res.ok) {
+                console.error('Failed to load AI usage snapshot: HTTP ' + res.status);
+                if (window.GeneratorCardUi && typeof window.GeneratorCardUi.setUsageUnavailable === 'function') {
+                    window.GeneratorCardUi.setUsageUnavailable();
+                }
+                return;
+            }
             const d = await res.json();
+            if (window.GeneratorCardUi && typeof window.GeneratorCardUi.setUsage === 'function') {
+                window.GeneratorCardUi.setUsage(d.totalCalls, d.dailyCallCap);
+            }
             const capReached = Boolean(d.capReached);
             box.style.borderColor = capReached ? 'rgba(239, 68, 68, 0.65)' : 'rgba(16, 185, 129, 0.45)';
             title.style.color = capReached ? '#fca5a5' : '#6ee7b7';
@@ -69,8 +78,12 @@
                 parts.push(`${name}: ${p.calls} calls (${Number(p.outputTokens || 0).toLocaleString()} out tokens${capStr})`);
             });
             detail.textContent = parts.join('   •   ');
-        } catch (_) {
+        } catch (err) {
+            console.error('Error fetching /api/admin/ai/usage:', err);
             title.textContent = '🛡️ Daily AI Cost Guard: Unable to load usage.';
+            if (window.GeneratorCardUi && typeof window.GeneratorCardUi.setUsageUnavailable === 'function') {
+                window.GeneratorCardUi.setUsageUnavailable();
+            }
         }
     }
 

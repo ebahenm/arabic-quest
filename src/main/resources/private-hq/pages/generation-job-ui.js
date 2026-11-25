@@ -67,10 +67,10 @@
 
     function formatStageLabel(rawStage) {
         const s = rawStage || 'QUEUED';
-        return s.replace('PASS_1_WRITER', 'Pass 1 Writer')
-                .replace('PASS_2_VERIFIER', 'Pass 2 Verifier')
-                .replace('PASS_3_BLIND_TEST', 'Pass 3 Blind Test')
-                .replace('VERIFIED', 'Verified');
+        return s.replace('PASS_1_WRITER', 'PASS_1_WRITER (Writer)')
+                .replace('PASS_2_VERIFIER', 'PASS_2_VERIFIER (Verifier)')
+                .replace('PASS_3_BLIND_TEST', 'PASS_3_BLIND_TEST (Blind Test)')
+                .replace('COMPLETED', 'COMPLETED');
     }
 
     function computeElapsedSeconds(job) {
@@ -93,7 +93,9 @@
         while (resContent.firstChild) resContent.removeChild(resContent.firstChild);
 
         const isRunning = job.status === 'QUEUED' || job.status === 'RUNNING';
-        const pct = Math.max(0, Math.min(100, Number(job.progress || 0)));
+        const isStarting = job.jobId === 'starting';
+        const rawPct = Number(job.progress || 0);
+        const pct = Math.max(isRunning ? 5 : 0, Math.min(100, rawPct));
         if (isRunning && !activeJobStartMs) activeJobStartMs = Date.now();
         if (!isRunning) {
             stopElapsedTimer();
@@ -102,13 +104,14 @@
 
         if (resTitle) {
             resTitle.textContent = job.status === 'DONE'
-                ? '✅ Async 3-Pass Generation Complete!'
-                : (job.status === 'FAILED' ? '❌ Generation Job Stopped / Failed' : '⏳ Running 3-Pass Pipeline...');
+                ? '✅ Quiz Generation Completed (Saved as Drafts)'
+                : (job.status === 'FAILED' ? '❌ Generation Job Stopped / Failed' : '⏳ Generating Quiz (3-Pass Pipeline)...');
         }
 
         const summaryLine = document.createElement('div');
         summaryLine.style.fontWeight = '700';
-        summaryLine.textContent = 'Job #' + job.jobId + ' • ' + job.status + ' (' + (job.stage || '') + ') • Progress: ' + pct + '% • Saved MCQs: ' + (job.savedCount || 0);
+        summaryLine.textContent = (isStarting ? 'Starting job...' : ('Job #' + job.jobId)) +
+            ' • ' + (job.stage || job.status || 'QUEUED') + ' • Progress: ' + pct + '% • Saved MCQs: ' + (job.savedCount || 0);
         resContent.appendChild(summaryLine);
 
         const barTrack = document.createElement('div');
@@ -145,14 +148,16 @@
         const btnRow = document.createElement('div');
         btnRow.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.55rem;flex-wrap:wrap;';
 
-        if (isRunning && job.jobId && handlers && typeof handlers.onCancel === 'function') {
+        if (isRunning && handlers && typeof handlers.onCancel === 'function') {
             const cancelBtn = document.createElement('button');
             cancelBtn.type = 'button';
             cancelBtn.id = 'btn-cancel-gen-job';
             cancelBtn.className = 'btn-secondary btn-sm';
             cancelBtn.style.cssText = 'border-color:rgba(239,68,68,0.5);color:#fca5a5;';
-            cancelBtn.textContent = '⏹ Cancel / Reset Job #' + job.jobId;
+            cancelBtn.disabled = Boolean(isStarting);
+            cancelBtn.textContent = isStarting ? '⏹ Cancel / Reset Job (allocating...)' : ('⏹ Cancel / Reset Job #' + job.jobId);
             cancelBtn.addEventListener('click', function () {
+                if (isStarting || !job.jobId) return;
                 cancelBtn.disabled = true;
                 cancelBtn.textContent = 'Cancelling...';
                 handlers.onCancel(job.jobId);

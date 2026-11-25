@@ -49,4 +49,13 @@ public final class WatchCreditCalculator {
         int maxResume = Math.max(0, safeDuration - 5);
         return Math.min(reportedPositionSeconds, maxResume);
     }
+
+    public static int computeRequiredWatchSeconds(int durationSeconds) {
+        int safeDuration = Math.max(0, durationSeconds);
+        if (safeDuration > 600) {
+            int raw = (int) Math.round((safeDuration - 300) * 0.85);
+            return Math.min(safeDuration, Math.max(300, raw));
+        }
+        return Math.max(60, (int) Math.round(safeDuration * 0.85));
+    }
 }
