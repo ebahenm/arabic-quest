@@ -225,13 +225,15 @@
         const summary = document.createElement('p');
         summary.style.fontSize = '0.85rem';
         summary.style.marginBottom = '0.65rem';
-        summary.textContent = 'Set A: ' + (data.setA ? data.setA.length : 0) + ' draft MCQs • Set B: ' + (data.setB ? data.setB.length : 0) + ' draft MCQs';
+        const hasSetC = Array.isArray(data.setC);
+        summary.textContent = 'Set A: ' + (data.setA ? data.setA.length : 0) + ' draft MCQs • Set B: ' + (data.setB ? data.setB.length : 0) + ' draft MCQs'
+            + (hasSetC ? (' • Set C: ' + data.setC.length + ' draft MCQs') : '');
         container.appendChild(summary);
 
         const btnRow = document.createElement('div');
         btnRow.style.display = 'flex';
         btnRow.style.gap = '0.6rem';
-        ['SET_A', 'SET_B'].forEach(setKey => {
+        (hasSetC ? ['SET_A', 'SET_B', 'SET_C'] : ['SET_A', 'SET_B']).forEach(setKey => {
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'btn-primary btn-sm';
@@ -255,7 +257,7 @@
         done.style.color = '#6ee7b7';
         const rev = data.revealedModels || {};
         done.textContent = 'Chosen ' + data.chosenSet + ' (' + data.approvedCount + ' approved, ' + data.retiredCount +
-            ' retired). Revealed: Set A = ' + (rev.SET_A || '?') + ', Set B = ' + (rev.SET_B || '?');
+            ' retired). Revealed: Set A = ' + (rev.SET_A || '?') + ', Set B = ' + (rev.SET_B || '?') + (rev.SET_C ? (', Set C = ' + rev.SET_C) : '');
         container.appendChild(done);
         if (typeof window.loadEpisodeQuestionBank === 'function') {
             window.loadEpisodeQuestionBank(episodeId);

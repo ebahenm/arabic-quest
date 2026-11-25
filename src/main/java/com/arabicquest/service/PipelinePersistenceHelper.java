@@ -108,8 +108,9 @@ public class PipelinePersistenceHelper {
 
     @Transactional
     public Map<String, Object> chooseComparedSet(Long episodeId, String chosenSet, Map<String, String> revealedModels) {
-        String winner = "SET_B".equalsIgnoreCase(chosenSet) ? "SET_B" : "SET_A";
-        String loser = "SET_A".equals(winner) ? "SET_B" : "SET_A";
+        String winner = "SET_C".equalsIgnoreCase(chosenSet) ? "SET_C"
+                : ("SET_B".equalsIgnoreCase(chosenSet) ? "SET_B" : "SET_A");
+        Set<String> allSets = Set.of("SET_A", "SET_B", "SET_C");
         int approved = 0, retired = 0;
         for (Question q : questionRepository.findByEpisodeIdWithOptions(episodeId)) {
             if (winner.equals(q.getSource())) {
@@ -117,7 +118,7 @@ public class PipelinePersistenceHelper {
                 q.setActive(true);
                 questionRepository.save(q);
                 approved++;
-            } else if (loser.equals(q.getSource())) {
+            } else if (allSets.contains(q.getSource())) {
                 q.setStatus(QuestionStatus.RETIRED);
                 q.setActive(false);
                 questionRepository.save(q);
