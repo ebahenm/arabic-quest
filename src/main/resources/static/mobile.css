@@ -71,9 +71,9 @@ img, picture, video, iframe, canvas, svg { max-width: 100%; }
     .header-actions { width: 100%; flex-direction: column; align-items: stretch; gap: 0.5rem; }
     .earnings-strip {
         width: 100%; border-radius: var(--radius-md); padding: 0.45rem 0.65rem;
-        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; text-align: center;
+        display: flex; align-items: center; justify-content: center; text-align: center;
     }
-    .earnings-metric { flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; font-size: 0.72rem; }
+    .earnings-metric { flex-direction: row; align-items: baseline; justify-content: center; gap: 0.35rem; font-size: 0.8rem; }
     .earnings-metric strong { font-size: 0.86rem; }
     .student-user-pill { width: 100%; justify-content: space-between; padding: 0.4rem 0.75rem; }
 
@@ -154,7 +154,7 @@ img, picture, video, iframe, canvas, svg { max-width: 100%; }
     .breadcrumb-nav-bar { gap: 0.45rem; }
     .mode-card-stacked { padding: 0.95rem; }
     #current-episode-title { font-size: 1.08rem; line-height: 1.4; }
-    #episode-reward-pill { width: 100%; justify-content: space-between; white-space: normal; }
+    #episode-reward-pill { display: none !important; }
     .player-wrapper { width: 100%; aspect-ratio: 16 / 9; border-radius: var(--radius-md); }
     .watch-progress-strip { padding: 0.85rem 0.95rem; }
     #sidebar-course-title, .quiz-pass-badge, .btn-ai-auto-badge {

@@ -26,6 +26,7 @@ public class CourseService {
     private final StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository;
     private final UserRepository userRepository;
     private final WatchProgressService watchProgressService;
+    private final EpisodeStatusBatchLoader episodeStatusBatchLoader;
     private final YouTubePlaylistService youTubePlaylistService;
 
     public CourseService(
@@ -41,6 +42,7 @@ public class CourseService {
             StudentFavoriteEpisodeRepository studentFavoriteEpisodeRepository,
             UserRepository userRepository,
             WatchProgressService watchProgressService,
+            EpisodeStatusBatchLoader episodeStatusBatchLoader,
             YouTubePlaylistService youTubePlaylistService) {
         this.playlistRepository = playlistRepository;
         this.episodeRepository = episodeRepository;
@@ -54,6 +56,7 @@ public class CourseService {
         this.studentFavoriteEpisodeRepository = studentFavoriteEpisodeRepository;
         this.userRepository = userRepository;
         this.watchProgressService = watchProgressService;
+        this.episodeStatusBatchLoader = episodeStatusBatchLoader;
         this.youTubePlaylistService = youTubePlaylistService;
     }
 
@@ -127,21 +130,14 @@ public class CourseService {
                     .add(ep);
         }
 
-        Set<Long> passedIds = episodeRewardClaimRepository.findClaimedEpisodeIdsByStudentId(student.getId());
-        Set<Long> mcqPassedIds = quizAttemptRepository.findPassedEpisodeIdsByStudentId(student.getId());
-        Set<Long> favoriteIds = studentFavoriteEpisodeRepository.findFavoriteEpisodeIdsByStudentId(student.getId());
-
+        EpisodeStatusBatchLoader.BatchData batch = episodeStatusBatchLoader.loadForStudent(student.getId());
+        Set<Long> passedIds = batch.passedIds();
+        Set<Long> mcqPassedIds = batch.mcqPassedIds();
+        Set<Long> favoriteIds = batch.favoriteIds();
         Set<Long> pendingReviewEpisodeIds = Collections.emptySet();
-
-        Map<Long, Long> approvedMcqCounts = toCountMap(questionRepository.countActiveByStatusGroupedByEpisode(QuestionStatus.APPROVED));
-        Map<Long, Long> approvedOpenCounts = toCountMap(openQuestionRepository.countActiveByStatusGroupedByEpisode(QuestionStatus.APPROVED));
-
-        Map<Long, StudentEpisodeOverride.OverrideState> overridesByEp = new HashMap<>();
-        for (StudentEpisodeOverride ov : studentEpisodeOverrideRepository.findByStudentIdWithEpisode(student.getId())) {
-            if (ov.getOverrideState() != null) {
-                overridesByEp.put(ov.getEpisode().getId(), ov.getOverrideState());
-            }
-        }
+        Map<Long, Long> approvedMcqCounts = batch.approvedMcqCounts();
+        Map<Long, Long> approvedOpenCounts = batch.approvedOpenCounts();
+        Map<Long, StudentEpisodeOverride.OverrideState> overridesByEp = batch.overridesByEpisodeId();
 
         return episodes.stream().map(ep -> {
             Playlist course = ep.getPlaylist();
@@ -155,7 +151,7 @@ public class CourseService {
             WatchProgressService.EpisodeLockState lockState =
                     watchProgressService.evaluateSequentialLock(
                             ep, sameCourseEpisodes, passedIds, overridesByEp.get(ep.getId()), allowBetaBypass);
-            WatchStatusResponse watchStatus = watchProgressService.getWatchStatus(student, ep, passed);
+            WatchStatusResponse watchStatus = episodeStatusBatchLoader.buildWatchStatus(ep, passed, batch);
             EpisodeProgressState progressState = watchProgressService.computeEpisodeProgressState(
                     lockState, passed, pendingReview, mcqPassed, watchStatus, quizBankReady);
 

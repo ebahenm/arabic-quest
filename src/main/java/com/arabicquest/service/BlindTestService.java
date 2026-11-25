@@ -23,6 +23,7 @@ public class BlindTestService {
     private final ClaudeClient claudeClient;
     private final GeminiTextClient geminiTextClient;
     private final ObjectMapper objectMapper;
+    private DeepSeekClient deepSeekClient;
     private final SecureRandom random = new SecureRandom();
 
     @Value("${app.quiz.blind-test-runs:3}")
@@ -38,6 +39,11 @@ public class BlindTestService {
         this.claudeClient = claudeClient;
         this.geminiTextClient = geminiTextClient;
         this.objectMapper = objectMapper;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setDeepSeekClient(DeepSeekClient deepSeekClient) {
+        this.deepSeekClient = deepSeekClient;
     }
 
     public void setBlindTestRuns(int runs) {
@@ -83,6 +89,17 @@ public class BlindTestService {
             boolean useClaudeAsBlindTester,
             AtomicBoolean geminiUnavailableForJob,
             AtomicBoolean claudeUnavailableForJob) {
+        String preferred = useClaudeAsBlindTester ? PipelineModelRouter.CLAUDE : PipelineModelRouter.GEMINI;
+        return runBlindTestForChunk(chunkCandidates, chunkIndex, preferred, geminiUnavailableForJob, claudeUnavailableForJob, null);
+    }
+
+    public List<BlindTestedCandidate> runBlindTestForChunk(
+            List<CandidateMcq> chunkCandidates,
+            int chunkIndex,
+            String preferredProvider,
+            AtomicBoolean geminiUnavailableForJob,
+            AtomicBoolean claudeUnavailableForJob,
+            AtomicBoolean deepSeekUnavailableForJob) {
         if (chunkCandidates == null || chunkCandidates.isEmpty()) {
             return List.of();
         }
@@ -94,6 +111,9 @@ public class BlindTestService {
                 : new AtomicBoolean(false);
         AtomicBoolean effectiveClaudeUnavailable = claudeUnavailableForJob != null
                 ? claudeUnavailableForJob
+                : new AtomicBoolean(false);
+        AtomicBoolean effectiveDeepSeekUnavailable = deepSeekUnavailableForJob != null
+                ? deepSeekUnavailableForJob
                 : new AtomicBoolean(false);
 
         for (int run = 0; run < runs; run++) {
@@ -114,10 +134,8 @@ public class BlindTestService {
                 }
             }
 
-            boolean useClaudeThisRun = (useClaudeAsBlindTester || effectiveGeminiUnavailable.get())
-                    && !effectiveClaudeUnavailable.get();
             Map<Integer, Integer> modelPicks = callBlindTesterFastFallback(
-                    prompt.toString(), useClaudeThisRun, effectiveGeminiUnavailable, effectiveClaudeUnavailable);
+                    prompt.toString(), preferredProvider, effectiveGeminiUnavailable, effectiveClaudeUnavailable, effectiveDeepSeekUnavailable);
             for (int qIdx = 0; qIdx < n; qIdx++) {
                 Integer pickedIdx = modelPicks.get(qIdx);
                 List<CandidateOption> opts = shuffledPerQuestion.get(qIdx);
@@ -163,12 +181,13 @@ public class BlindTestService {
     }
 
     private Map<Integer, Integer> callBlindTesterFastFallback(
-            String prompt, boolean useClaude,
-            AtomicBoolean geminiUnavailableForJob, AtomicBoolean claudeUnavailableForJob) {
+            String prompt, String preferredProvider,
+            AtomicBoolean geminiUnavailableForJob, AtomicBoolean claudeUnavailableForJob,
+            AtomicBoolean deepSeekUnavailableForJob) {
         String sysPrompt = "You are taking a blind multiple-choice test without any source transcript. Output strict JSON only.";
-        String raw = PipelineModelFallbackHelper.callModelDetailed(
-                claudeClient, geminiTextClient, useClaude,
-                geminiUnavailableForJob, claudeUnavailableForJob,
+        String raw = PipelineModelRouter.callProviderDetailed(
+                preferredProvider, claudeClient, geminiTextClient, deepSeekClient,
+                geminiUnavailableForJob, claudeUnavailableForJob, deepSeekUnavailableForJob,
                 sysPrompt, prompt, 1024, 3, backoffBaseMs).text();
         return parseAnswersMap(raw);
     }

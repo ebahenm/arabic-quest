@@ -32,6 +32,8 @@ public record QuestionBankAdminResponse(
             Integer evidenceTimestamp,
             Integer chunkIndex,
             String source,
+            String verifierModel,
+            boolean singleModel,
             int reportCount,
             List<OptionAdminItem> options
     ) {
@@ -47,6 +49,8 @@ public record QuestionBankAdminResponse(
                     q.getEvidenceTimestamp(),
                     q.getChunkIndex(),
                     q.getSource(),
+                    q.getVerifierModel(),
+                    q.isSingleModel(),
                     q.getReportCount(),
                     q.getOptions().stream()
                             .map(o -> new OptionAdminItem(o.getId(), o.getOptionText(), Boolean.TRUE.equals(o.getIsCorrect())))
@@ -67,6 +71,8 @@ public record QuestionBankAdminResponse(
             String evidence,
             Integer evidenceTimestamp,
             String source,
+            String verifierModel,
+            boolean singleModel,
             String status,
             boolean active
     ) {
@@ -77,6 +83,8 @@ public record QuestionBankAdminResponse(
                     oq.getEvidence(),
                     oq.getEvidenceTimestamp(),
                     oq.getSource(),
+                    oq.getVerifierModel(),
+                    oq.isSingleModel(),
                     oq.getStatus().name(),
                     oq.isActive()
             );

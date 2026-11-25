@@ -277,8 +277,8 @@ public class AdminStudentToolsService {
     }
 
     private void validateCustomPassword(String password, String username) {
-        if (password.length() < 8) {
-            throw new IllegalArgumentException("Password must be at least 8 characters");
+        if (password.length() < 10) {
+            throw new IllegalArgumentException("Password must be at least 10 characters");
         }
         String lower = password.toLowerCase(Locale.ROOT);
         if (WEAK_PASSWORDS.contains(lower) || (username != null && lower.equals(username.toLowerCase(Locale.ROOT)))) {

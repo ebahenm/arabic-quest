@@ -444,8 +444,8 @@
                                 <input type="text" id="new-student-username" class="text-input" minlength="3" maxlength="100" placeholder="e.g. ahmad@gmail.com or ahmad" required>
                             </div>
                             <div>
-                                <label for="new-student-password" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Initial Password (min 8 chars)</label>
-                                <input type="password" id="new-student-password" class="text-input" minlength="8" maxlength="128" placeholder="Minimum 8 characters" required>
+                                <label for="new-student-password" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">Initial Password (min 10 chars)</label>
+                                <input type="password" id="new-student-password" class="text-input" minlength="10" maxlength="128" placeholder="Minimum 10 characters" required>
                             </div>
                         </div>
                         <button type="submit" id="btn-create-student" class="btn-primary" style="padding: 0.7rem 1.5rem;">
@@ -496,8 +496,8 @@
                                 <input type="text" id="edit-student-fullname" class="text-input" maxlength="100" placeholder="e.g. Brother Ahmed" required>
                             </div>
                             <div>
-                                <label for="reset-student-newpw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">New Password (Optional, min 8 chars)</label>
-                                <input type="password" id="reset-student-newpw" class="text-input" minlength="8" maxlength="128" placeholder="Leave blank to keep current">
+                                <label for="reset-student-newpw" style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:0.35rem;">New Password (Optional, min 10 chars)</label>
+                                <input type="password" id="reset-student-newpw" class="text-input" minlength="10" maxlength="128" placeholder="Leave blank to keep current">
                             </div>
                         </div>
 
@@ -753,12 +753,12 @@
                     <div id="qbank-backup-msg" class="feedback-msg"></div>
                 </div>
 
-                <div class="admin-card-section">
+                <div id="generator-card-section" class="admin-card-section">
                     <div class="card-header-bar">
                         <div>
-                            <h3>✨ Generate Question Bank from YouTube Video (2-Pass Gemini)</h3>
+                            <h3>Generate Episode Quiz</h3>
                             <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">
-                                Gemini analyzes the YouTube video directly (segmented for videos &gt; 35 min) with mandatory evidence timestamps and 2-pass verification. Transcript is optional. Manual runs save as <strong>DRAFT</strong> until you approve them below (background student-triggered runs auto-approve verified items).
+                                Uses the saved transcript automatically; questions are saved as drafts for you to approve.
                             </p>
                         </div>
                     </div>
@@ -1058,8 +1058,11 @@
     <script src="{{HQ_BASE_PATH}}/modules/pages/student-unlock-tools.js?v=9"></script>
     <script src="{{HQ_BASE_PATH}}/modules/pages/payouts-and-overview.js?v=9"></script>
     <script src="{{HQ_BASE_PATH}}/modules/pages/generation-job-ui.js?v=9"></script>
-    <script src="{{HQ_BASE_PATH}}/modules/pages/question-bank-manager.js?v=9"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/question-bank-manager.js?v=10"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/generator-card-ui.js?v=2"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/pages/deepseek-provider-ui.js?v=1"></script>
     <script src="{{HQ_BASE_PATH}}/modules/pages/transcript-upload.js?v=9"></script>
     <script src="{{HQ_BASE_PATH}}/modules/pages/text-source-import.js?v=10"></script>
+    <script src="{{HQ_BASE_PATH}}/modules/components/ai-usage-banner.js?v=11"></script>
 </body>
 </html>

@@ -54,6 +54,12 @@ public class Question {
     @Column(name = "source", length = 30)
     private String source;
 
+    @Column(name = "verifier_model", length = 80)
+    private String verifierModel;
+
+    @Column(name = "single_model")
+    private Boolean singleModel = false;
+
     @OneToMany(mappedBy = "question", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<QuestionOption> options = new ArrayList<>();
 
@@ -202,5 +208,21 @@ public class Question {
 
     public void setSource(String source) {
         this.source = source;
+    }
+
+    public String getVerifierModel() {
+        return verifierModel;
+    }
+
+    public void setVerifierModel(String verifierModel) {
+        this.verifierModel = verifierModel;
+    }
+
+    public boolean isSingleModel() {
+        return Boolean.TRUE.equals(singleModel);
+    }
+
+    public void setSingleModel(Boolean singleModel) {
+        this.singleModel = singleModel != null ? singleModel : Boolean.FALSE;
     }
 }

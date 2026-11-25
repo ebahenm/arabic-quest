@@ -188,8 +188,8 @@
         submitBtn.onclick = async () => {
             errBox.style.display = 'none';
             const customPw = customInput.value.trim();
-            if (customPw && customPw.length < 8) {
-                errBox.textContent = 'Custom password must be at least 8 characters.';
+            if (customPw && customPw.length < 10) {
+                errBox.textContent = 'Custom password must be at least 10 characters.';
                 errBox.style.display = 'block';
                 return;
             }

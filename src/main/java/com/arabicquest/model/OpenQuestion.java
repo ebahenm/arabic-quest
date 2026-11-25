@@ -39,6 +39,12 @@ public class OpenQuestion {
     @Column(name = "source", length = 30)
     private String source;
 
+    @Column(name = "verifier_model", length = 80)
+    private String verifierModel;
+
+    @Column(name = "single_model")
+    private Boolean singleModel = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -137,5 +143,21 @@ public class OpenQuestion {
 
     public void setSource(String source) {
         this.source = source;
+    }
+
+    public String getVerifierModel() {
+        return verifierModel;
+    }
+
+    public void setVerifierModel(String verifierModel) {
+        this.verifierModel = verifierModel;
+    }
+
+    public boolean isSingleModel() {
+        return Boolean.TRUE.equals(singleModel);
+    }
+
+    public void setSingleModel(Boolean singleModel) {
+        this.singleModel = singleModel != null ? singleModel : Boolean.FALSE;
     }
 }

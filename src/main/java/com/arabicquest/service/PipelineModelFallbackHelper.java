@@ -17,7 +17,7 @@ public final class PipelineModelFallbackHelper {
     private PipelineModelFallbackHelper() {}
 
     public static boolean isClaudeFallbackError(Throwable ex) {
-        if (!(ex instanceof Exception)) {
+        if (!(ex instanceof Exception) || ex instanceof AiUsageGuard.AiCostCapExceededException) {
             return false;
         }
         if (ex instanceof TooManyRequestsException) {
@@ -104,6 +104,9 @@ public final class PipelineModelFallbackHelper {
             try {
                 return new ClaudeMessageResponse(geminiTextClient.callTextJson(systemPrompt, userPrompt), "STOP", 0, 0);
             } catch (Exception geminiEx) {
+                if (geminiEx instanceof AiUsageGuard.AiCostCapExceededException) {
+                    throw asRuntime(geminiEx);
+                }
                 String geminiMsg = geminiEx.getMessage() != null ? geminiEx.getMessage() : geminiEx.getClass().getSimpleName();
                 if (claudeConfigured && !cldUnavail.get()) {
                     gemUnavail.set(true);
