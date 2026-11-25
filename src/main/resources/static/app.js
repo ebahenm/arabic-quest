@@ -321,10 +321,7 @@ function renderCourseCatalog() {
         metaRow.className = 'course-card-meta-row';
         const epCountSpan = document.createElement('span');
         epCountSpan.textContent = `${course.totalEpisodes} Episode${course.totalEpisodes === 1 ? '' : 's'}`;
-        const ratesSpan = document.createElement('span');
-        ratesSpan.textContent = `+$${resolveEpisodeRewardValue(course).toFixed(2)} / episode`;
         metaRow.appendChild(epCountSpan);
-        metaRow.appendChild(ratesSpan);
         body.appendChild(metaRow);
 
         const progWrap = document.createElement('div');
@@ -475,7 +472,8 @@ function renderCourseSyllabus() {
 
     const ratesSummary = document.getElementById('syllabus-rates-summary');
     if (ratesSummary) {
-        ratesSummary.textContent = `Episode Reward: +$${resolveEpisodeRewardValue(currentCourse).toFixed(2)}`;
+        ratesSummary.textContent = '';
+        ratesSummary.style.display = 'none';
     }
 
     syncSyllabusFavFilterButton();
@@ -552,16 +550,11 @@ function renderCourseSyllabus() {
         const rightWrap = document.createElement('div');
         rightWrap.className = 'syllabus-ep-rates';
 
-        const chipReward = document.createElement('span');
-        chipReward.className = 'rate-chip';
-        chipReward.textContent = `+$${resolveEpisodeRewardValue(ep).toFixed(2)} Reward`;
-
         const stateBadge = document.createElement('span');
         const stateCode = ep.state || (ep.locked ? 'LOCKED' : (ep.passed ? 'PASSED' : 'AVAILABLE'));
         applyEpisodeStateBadgeStyle(stateBadge, stateCode);
         stateBadge.textContent = ep.stateLabel || stateCode;
 
-        rightWrap.appendChild(chipReward);
         rightWrap.appendChild(stateBadge);
 
         row.appendChild(leftWrap);
@@ -830,14 +823,13 @@ function renderEpisodeList() {
 
         const tag = document.createElement('div');
         tag.className = 'ep-tag';
-        const epReward = resolveEpisodeRewardValue(ep).toFixed(2);
         if (ep.locked) {
             tag.textContent = ep.unlockAfterEpisodeNumber
                 ? `Pass Episode ${ep.unlockAfterEpisodeNumber} first`
                 : 'Locked by administrator';
         } else {
             const mins = Math.max(1, Math.round((ep.durationSeconds || 1200) / 60));
-            tag.textContent = `~${mins} min • +$${epReward} Reward`;
+            tag.textContent = `~${mins} min`;
         }
         info.appendChild(tag);
 
@@ -862,7 +854,7 @@ function renderEpisodeHeader(ep) {
     if (!ep) return;
     const rewardBadge = document.getElementById('episode-reward-badge');
     if (rewardBadge) {
-        rewardBadge.textContent = `+$${resolveEpisodeRewardValue(ep).toFixed(2)}`;
+        rewardBadge.textContent = '';
     }
 
     const curStateBadge = document.getElementById('current-episode-state-badge');
@@ -1669,19 +1661,16 @@ function renderOpenQuestionSection(openQuestion) {
     }
 
     const st = openQuestion.submissionStatus || 'AWAITING_SUBMISSION';
-    const rewardStr = openQuestion.potentialRewardAmount != null
-        ? `+$${Number(openQuestion.potentialRewardAmount).toFixed(2)}`
-        : '+$15.00';
 
     if (statusBadge) {
         if (st === 'APPROVED') {
-            statusBadge.textContent = `✓ Approved (${rewardStr} Earned)`;
+            statusBadge.textContent = '✓ Approved';
         } else if (st === 'PENDING') {
-            statusBadge.textContent = `⏳ Pending Admin Review (${rewardStr})`;
+            statusBadge.textContent = '⏳ Pending Admin Review';
         } else if (st === 'REVISION_REQUESTED') {
-            statusBadge.textContent = `↩ Revision Requested (${rewardStr})`;
+            statusBadge.textContent = '↩ Revision Requested';
         } else {
-            statusBadge.textContent = `✍️ Awaiting Written Answer (${rewardStr})`;
+            statusBadge.textContent = '✍️ Awaiting Written Answer';
         }
     }
 
