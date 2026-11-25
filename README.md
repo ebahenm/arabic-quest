@@ -61,6 +61,7 @@
   - **YouTube Data API v3** (`X-Goog-Api-Key` request header only).
   - **Anthropic Claude (`claude-sonnet-5-5`)** (`x-api-key` request header only) and **Google Gemini (`gemini-3.8-flash`)** (`x-goog-api-key` request header only; `thinkingLevel` normalized strictly to `low`/`medium`/`high`) for cross-model writing, verification, and blind testing, with optional **OpenAI-compatible fallback** (`FALLBACK_AI_API_KEY`).
 - **Container**: Multi-stage `Dockerfile` running as non-root `appuser` on Eclipse Temurin 21 Alpine.
+- **DeepSeek Privacy / Data-Transfer Note**: DeepSeek is strictly optional (`DEEPSEEK_API_KEY`). **Only public episode transcript text is ever sent to DeepSeek** for quiz writing/verification/blind-testing. Student PII, accounts, balances, and student written answers are **never** sent to DeepSeek.
 
 ---
 
@@ -84,6 +85,11 @@ In `prod` (`SPRING_PROFILES_ACTIVE=prod`), `ProdStartupValidator` fails fast on 
 | `AUTO_APPROVE_SINGLE_MODEL` | Optional | `false` | When `false` (default), auto-generated questions require different writer and verifier models to auto-approve; single-model items are saved as `DRAFT` under Needs Review. |
 | `AI_DAILY_CALL_CAP` | Optional | `150` | Maximum total AI model calls per UTC day across all providers (including retries); refuses new jobs and stops running jobs when reached. |
 | `CLAUDE_DAILY_OUTPUT_TOKEN_CAP` | Optional | `150000` | Maximum Claude output tokens per UTC day tracked in `ai_usage_daily`. |
+| `DEEPSEEK_API_KEY` | Optional | Empty | Optional DeepSeek API key (`Authorization: Bearer` header only; never logged). When blank, DeepSeek is disabled and nothing changes. |
+| `DEEPSEEK_BASE_URL` | Optional | `https://api.deepseek.com` | Base URL for DeepSeek OpenAI-compatible `/v1/chat/completions` endpoint. |
+| `DEEPSEEK_MODEL` | Optional | `deepseek-flash` | DeepSeek model name used by `DeepSeekClient`. |
+| `DEEPSEEK_DAILY_CALL_CAP` | Optional | `150` | Maximum DeepSeek API calls per UTC day enforced by `AiUsageGuard`. |
+| `DEEPSEEK_DAILY_OUTPUT_TOKEN_CAP` | Optional | `250000` | Maximum DeepSeek output tokens per UTC day tracked in `ai_usage_daily`. |
 | `FALLBACK_AI_API_KEY` | Optional | Empty | Optional OpenAI-compatible API key used automatically for text-only generation if primary providers fail (`400`/`403`/`429`/`5xx`). |
 | `FALLBACK_AI_BASE_URL` | Optional | `https://api.openai.com/v1` | Base URL for the optional OpenAI-compatible fallback provider (`/chat/completions`). |
 | `FALLBACK_AI_MODEL` | Optional | `gpt-4.1` | Model identifier sent to the optional OpenAI-compatible fallback provider. |

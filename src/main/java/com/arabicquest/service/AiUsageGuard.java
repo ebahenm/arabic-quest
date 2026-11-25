@@ -18,6 +18,8 @@ public class AiUsageGuard {
 
     public static final int DEFAULT_DAILY_CALL_CAP = 150;
     public static final long DEFAULT_CLAUDE_OUTPUT_TOKEN_CAP = 150_000L;
+    public static final int DEFAULT_DEEPSEEK_DAILY_CALL_CAP = 150;
+    public static final long DEFAULT_DEEPSEEK_OUTPUT_TOKEN_CAP = 250_000L;
 
     public static class AiCostCapExceededException extends RuntimeException {
         public AiCostCapExceededException(String message) {
@@ -35,9 +37,13 @@ public class AiUsageGuard {
 
     public AiUsageGuard(
             AiUsageDailyRepository usageRepository,
-            @Value("${CLAUDE_DAILY_OUTPUT_TOKEN_CAP:" + DEFAULT_CLAUDE_OUTPUT_TOKEN_CAP + "}") long claudeOutputTokenCap) {
+            @Value("${CLAUDE_DAILY_OUTPUT_TOKEN_CAP:" + DEFAULT_CLAUDE_OUTPUT_TOKEN_CAP + "}") long claudeOutputTokenCap,
+            @Value("${DEEPSEEK_DAILY_CALL_CAP:" + DEFAULT_DEEPSEEK_DAILY_CALL_CAP + "}") int deepSeekDailyCallCap,
+            @Value("${DEEPSEEK_DAILY_OUTPUT_TOKEN_CAP:" + DEFAULT_DEEPSEEK_OUTPUT_TOKEN_CAP + "}") long deepSeekOutputTokenCap) {
         this.usageRepository = usageRepository;
         this.providerOutputTokenCaps.put("claude", claudeOutputTokenCap);
+        this.providerCallCaps.put("deepseek", deepSeekDailyCallCap);
+        this.providerOutputTokenCaps.put("deepseek", deepSeekOutputTokenCap);
     }
 
     public void setClock(Clock clock) {
@@ -130,7 +136,7 @@ public class AiUsageGuard {
         long totalInput = 0L, totalOutput = 0L;
         Map<String, Map<String, Object>> providers = new LinkedHashMap<>();
 
-        Set<String> allProviders = new LinkedHashSet<>(List.of("claude", "gemini"));
+        Set<String> allProviders = new LinkedHashSet<>(List.of("claude", "gemini", "deepseek"));
         allProviders.addAll(providerCallCaps.keySet());
         allProviders.addAll(providerOutputTokenCaps.keySet());
         rows.forEach(r -> allProviders.add(r.getProvider()));

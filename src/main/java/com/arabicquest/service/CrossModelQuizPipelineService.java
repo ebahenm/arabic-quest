@@ -39,6 +39,7 @@ public class CrossModelQuizPipelineService {
     private final TranscriptQualityGate transcriptQualityGate;
     private final GeminiTextClient geminiTextClient;
     private final ClaudeClient claudeClient;
+    private DeepSeekClient deepSeekClient;
     private final BlindTestService blindTestService;
     private final AiQuizService aiQuizService;
     private final ObjectMapper objectMapper;
@@ -61,6 +62,9 @@ public class CrossModelQuizPipelineService {
         this.aiQuizService = aiQuizService; this.objectMapper = objectMapper;
         this.writtenTextSourceService = writtenTextSourceService; this.persistenceHelper = persistenceHelper;
     }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setDeepSeekClient(DeepSeekClient deepSeekClient) { this.deepSeekClient = deepSeekClient; }
 
     public record PipelineResult(int savedMcqs, int savedOpenQuestions, String writerModelUsed, String verifierModelUsed,
                                  boolean blindTestCompleted, boolean needsReview, boolean autoApproved) {}
@@ -93,13 +97,12 @@ public class CrossModelQuizPipelineService {
             boolean autoTriggered, String sourceTag, BiConsumer<String, Integer> progressCallback) {
         Episode episode = episodeRepository.findById(episodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Episode not found: " + episodeId));
-        boolean explicitGemini = requestedWriter != null && requestedWriter.toLowerCase(Locale.ROOT).contains("gemini");
-        boolean useClaudeWriter = claudeClient.isConfigured() && (!explicitGemini || !geminiTextClient.isConfigured());
-        boolean useClaudeVerifier = !geminiTextClient.isConfigured() || (!useClaudeWriter && claudeClient.isConfigured());
+        PipelineModelRouter.ProviderPlan plan = PipelineModelRouter.resolveProviders(requestedWriter, claudeClient, geminiTextClient, deepSeekClient);
         AtomicBoolean geminiUnavailable = new AtomicBoolean(false);
         AtomicBoolean claudeUnavailable = new AtomicBoolean(false);
-        String writerModelName = useClaudeWriter ? claudeClient.getModel() : geminiTextClient.getModel();
-        String verifierModelName = useClaudeVerifier ? claudeClient.getModel() : geminiTextClient.getModel();
+        AtomicBoolean deepSeekUnavailable = new AtomicBoolean(false);
+        String writerModelName = plan.writerModelName();
+        String verifierModelName = plan.verifierModelName();
 
         boolean isTextSource = writtenTextSourceService.isTextSource(episode.getId(), optionalTranscriptOverride);
         List<TranscriptChunk> chunks = resolveUsableTranscriptChunks(episode, optionalTranscriptOverride);
@@ -132,7 +135,7 @@ public class CrossModelQuizPipelineService {
             int p3Pct = totalChunks == 1 ? 65 : 10 + ((i * 75) + 50) / totalChunks;
             int donePct = totalChunks == 1 ? 85 : 10 + ((i + 1) * 75) / totalChunks;
             if (progressCallback != null) progressCallback.accept(chunkLabel + " • PASS_1_WRITER", p1Pct);
-            ParsedPass1Batch pass1 = runPass1WithRetryOnTruncation(useClaudeWriter, geminiUnavailable, claudeUnavailable, episode, chunk, isTextSource);
+            ParsedPass1Batch pass1 = runPass1WithRetryOnTruncation(plan.writerProvider(), geminiUnavailable, claudeUnavailable, deepSeekUnavailable, episode, chunk, isTextSource);
             ChunkNormalizationResult norm = PipelineCandidateNormalizer.normalizeChunkCandidates(pass1, chunk, episodeCues, transcriptParserService);
             if (isTextSource) norm = writtenTextSourceService.applySectionStartDefaults(norm, chunk);
             if (norm.softFlaggedOptionCount() > 0 || norm.unverifiedTimestampCount() > 0) anySoftFlagged = true;
@@ -141,7 +144,7 @@ public class CrossModelQuizPipelineService {
             boolean chunkPass2Parsed = false;
             if (!norm.keptMcqs().isEmpty() || !norm.keptOpens().isEmpty()) {
                 if (progressCallback != null) progressCallback.accept(chunkLabel + " • PASS_2_VERIFIER", p2Pct);
-                Pass2Outcome p2 = runPass2Verification(useClaudeVerifier, geminiUnavailable, claudeUnavailable, chunk.markedText(), norm.keptMcqs(), norm.keptOpens(), allVerifiedOpens, isTextSource);
+                Pass2Outcome p2 = runPass2Verification(plan.verifierProvider(), geminiUnavailable, claudeUnavailable, deepSeekUnavailable, chunk.markedText(), norm.keptMcqs(), norm.keptOpens(), allVerifiedOpens, isTextSource);
                 verifiedChunkMcqs = p2.verifiedMcqs();
                 chunkPass2Parsed = p2.parsedCleanly();
             }
@@ -149,7 +152,7 @@ public class CrossModelQuizPipelineService {
             norm.counts().pass2Verified = verifiedChunkMcqs.size();
             if (!verifiedChunkMcqs.isEmpty()) {
                 if (progressCallback != null) progressCallback.accept(chunkLabel + " • PASS_3_BLIND_TEST", p3Pct);
-                List<BlindTestedCandidate> chunkTested = blindTestService.runBlindTestForChunk(verifiedChunkMcqs, chunk.chunkIndex(), useClaudeVerifier, geminiUnavailable, claudeUnavailable);
+                List<BlindTestedCandidate> chunkTested = blindTestService.runBlindTestForChunk(verifiedChunkMcqs, chunk.chunkIndex(), plan.verifierProvider(), geminiUnavailable, claudeUnavailable, deepSeekUnavailable);
                 norm.counts().pass3Survived = (int) chunkTested.stream().filter(BlindTestedCandidate::survivedBlindTest).count();
                 allTestedMcqs.addAll(chunkTested);
             }
@@ -168,8 +171,8 @@ public class CrossModelQuizPipelineService {
         EpisodeBlindTestOutcome outcome = blindTestService.applySurvivalAndFallback(allTestedMcqs, TARGET_EPISODE_MCQ_COUNT);
         boolean needsReview = outcome.needsReview() || anySoftFlagged;
         String effectiveSource = autoTriggered ? "AUTO" : (sourceTag != null ? sourceTag : "MANUAL");
-        String effectiveWriter = claudeUnavailable.get() ? geminiTextClient.getModel() : (geminiUnavailable.get() ? claudeClient.getModel() : writerModelName);
-        String effectiveVerifier = claudeUnavailable.get() ? geminiTextClient.getModel() : (geminiUnavailable.get() ? claudeClient.getModel() : verifierModelName);
+        String effectiveWriter = PipelineModelRouter.resolveEffectiveModel(plan.writerProvider(), claudeClient, geminiTextClient, deepSeekClient, geminiUnavailable, claudeUnavailable, deepSeekUnavailable);
+        String effectiveVerifier = PipelineModelRouter.resolveEffectiveModel(plan.verifierProvider(), claudeClient, geminiTextClient, deepSeekClient, geminiUnavailable, claudeUnavailable, deepSeekUnavailable);
 
         PersistOutcome persisted = persistenceHelper.persistResultsTransactionally(
                 episodeId, autoTriggered, needsReview, outcome.selectedQuestions(),
@@ -179,15 +182,26 @@ public class CrossModelQuizPipelineService {
     }
 
     public Map<String, Object> compareModelsForEpisode(Long episodeId) {
-        boolean claudeSetA = secureRandom.nextBoolean();
-        PipelineResult resA = executePipeline(episodeId, claudeSetA ? "claude" : "gemini", null, false, "SET_A", null);
-        PipelineResult resB = executePipeline(episodeId, claudeSetA ? "gemini" : "claude", null, false, "SET_B", null);
-        hiddenCompareModelsByEpisode.put(episodeId, Map.of("SET_A", resA.writerModelUsed(), "SET_B", resB.writerModelUsed()));
+        List<Map.Entry<String, String>> plan = PipelineModelRouter.buildBlindComparePlan(deepSeekClient, secureRandom);
+        Map<String, String> revealed = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : plan) {
+            PipelineResult res = executePipeline(episodeId, entry.getValue(), null, false, entry.getKey(), null);
+            revealed.put(entry.getKey(), res.writerModelUsed());
+        }
+        hiddenCompareModelsByEpisode.put(episodeId, revealed);
         List<Question> all = questionRepository.findByEpisodeIdWithOptions(episodeId);
-        List<QuestionBankAdminResponse.McqAdminItem> setA = all.stream().filter(q -> "SET_A".equals(q.getSource()) && q.getStatus() == QuestionStatus.DRAFT).map(QuestionBankAdminResponse.McqAdminItem::from).toList();
-        List<QuestionBankAdminResponse.McqAdminItem> setB = all.stream().filter(q -> "SET_B".equals(q.getSource()) && q.getStatus() == QuestionStatus.DRAFT).map(QuestionBankAdminResponse.McqAdminItem::from).toList();
-        return Map.of("episodeId", episodeId, "setA", setA, "setB", setB, "modelsHidden", true,
-                "costWarning", "Compare Models runs both writer pipelines (Set A and Set B) and doubles token usage.");
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("episodeId", episodeId);
+        out.put("setA", filterDraftSet(all, "SET_A"));
+        out.put("setB", filterDraftSet(all, "SET_B"));
+        if (revealed.containsKey("SET_C")) out.put("setC", filterDraftSet(all, "SET_C"));
+        out.put("modelsHidden", true);
+        out.put("costWarning", "Compare Models runs all configured writer pipelines (" + plan.size() + "x token usage).");
+        return out;
+    }
+
+    private static List<QuestionBankAdminResponse.McqAdminItem> filterDraftSet(List<Question> all, String tag) {
+        return all.stream().filter(q -> tag.equals(q.getSource()) && q.getStatus() == QuestionStatus.DRAFT).map(QuestionBankAdminResponse.McqAdminItem::from).toList();
     }
 
     public Map<String, Object> chooseComparedSet(Long episodeId, String chosenSet) {
@@ -200,17 +214,17 @@ public class CrossModelQuizPipelineService {
     }
 
     private ParsedPass1Batch runPass1WithRetryOnTruncation(
-            boolean useClaudeWriter, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable,
+            String writerProvider, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable, AtomicBoolean deepSeekUnavailable,
             Episode episode, TranscriptChunk chunk, boolean isTextSource) {
         String pass1User = writtenTextSourceService.buildPass1UserPrompt(isTextSource, episode, chunk);
-        ClaudeMessageResponse firstResp = callModelDetailed(useClaudeWriter, geminiUnavailable, claudeUnavailable, writtenTextSourceService.pass1SystemInstruction(isTextSource, 12, 2), pass1User, PASS1_MAX_TOKENS);
+        ClaudeMessageResponse firstResp = callModelDetailed(writerProvider, geminiUnavailable, claudeUnavailable, deepSeekUnavailable, writtenTextSourceService.pass1SystemInstruction(isTextSource, 12, 2), pass1User, PASS1_MAX_TOKENS);
         if (!firstResp.isMaxTokensTruncated()) {
             try {
                 ParsedPass1Batch parsed = PipelineCandidateNormalizer.parsePass1Node(GeminiJsonRepairSupport.parseLenientJson(objectMapper, firstResp.text()));
                 if (!parsed.mcqs().isEmpty()) return parsed;
             } catch (Exception ex) { log.warn("Pass 1 chunk #{} JSON parse failed (stop_reason={}); retrying smaller batch (6+1): {}", chunk.chunkIndex(), firstResp.stopReason(), ex.getMessage()); }
         } else { log.warn("Pass 1 chunk #{} hit stop_reason=max_tokens (output_tokens={}); retrying smaller batch (6+1).", chunk.chunkIndex(), firstResp.outputTokens()); }
-        ClaudeMessageResponse retryResp = callModelDetailed(useClaudeWriter, geminiUnavailable, claudeUnavailable, writtenTextSourceService.pass1SystemInstruction(isTextSource, 6, 1), pass1User, PASS1_MAX_TOKENS);
+        ClaudeMessageResponse retryResp = callModelDetailed(writerProvider, geminiUnavailable, claudeUnavailable, deepSeekUnavailable, writtenTextSourceService.pass1SystemInstruction(isTextSource, 6, 1), pass1User, PASS1_MAX_TOKENS);
         try { return PipelineCandidateNormalizer.parsePass1Node(GeminiJsonRepairSupport.parseLenientJson(objectMapper, retryResp.text())); }
         catch (Exception ex) { throw new IllegalStateException("Failed to parse Pass 1 JSON after smaller-batch retry: " + ex.getMessage()); }
     }
@@ -238,12 +252,12 @@ public class CrossModelQuizPipelineService {
     }
 
     private Pass2Outcome runPass2Verification(
-            boolean useClaudeVerifier, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable,
+            String verifierProvider, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable, AtomicBoolean deepSeekUnavailable,
             String markedTranscript, List<CandidateMcq> mcqs, List<CandidateOpen> opens,
             List<PersistableOpen> verifiedOpensOut, boolean isTextSource) {
         try {
             String user = writtenTextSourceService.buildPass2UserPrompt(isTextSource, markedTranscript, objectMapper.writeValueAsString(Map.of("mcqs", mcqs, "openQuestions", opens)));
-            String raw = callModelDetailed(useClaudeVerifier, geminiUnavailable, claudeUnavailable, writtenTextSourceService.pass2SystemInstruction(isTextSource), user, 4096).text();
+            String raw = callModelDetailed(verifierProvider, geminiUnavailable, claudeUnavailable, deepSeekUnavailable, writtenTextSourceService.pass2SystemInstruction(isTextSource), user, 4096).text();
             JsonNode root = GeminiJsonRepairSupport.parseLenientJson(objectMapper, raw);
             JsonNode mArr = root.path("verifiedMcqIndices"), oArr = root.path("verifiedOpenIndices");
             if (!mArr.isArray() && !oArr.isArray()) {
@@ -258,7 +272,7 @@ public class CrossModelQuizPipelineService {
             else opens.forEach(o -> verifiedOpensOut.add(new PersistableOpen(o, false)));
             return new Pass2Outcome(keptMcqs, mArr.isArray());
         } catch (Exception ex) {
-            if (claudeUnavailable.get() && geminiUnavailable.get()) {
+            if (claudeUnavailable.get() && geminiUnavailable.get() && (deepSeekClient == null || !deepSeekClient.isConfigured() || deepSeekUnavailable.get())) {
                 throw (ex instanceof RuntimeException re) ? re : new IllegalStateException(ex);
             }
             log.warn("Pass 2 response could not be parsed; keeping {} MCQ and {} open candidates as DRAFT: {}", mcqs.size(), opens.size(), ex.getMessage());
@@ -268,10 +282,10 @@ public class CrossModelQuizPipelineService {
     }
 
     private ClaudeMessageResponse callModelDetailed(
-            boolean useClaude, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable,
+            String provider, AtomicBoolean geminiUnavailable, AtomicBoolean claudeUnavailable, AtomicBoolean deepSeekUnavailable,
             String systemPrompt, String userPrompt, int maxTokens) {
-        return PipelineModelFallbackHelper.callModelDetailed(
-                claudeClient, geminiTextClient, useClaude, geminiUnavailable, claudeUnavailable,
+        return PipelineModelRouter.callProviderDetailed(
+                provider, claudeClient, geminiTextClient, deepSeekClient, geminiUnavailable, claudeUnavailable, deepSeekUnavailable,
                 systemPrompt, userPrompt, maxTokens, 2, 0L);
     }
 }

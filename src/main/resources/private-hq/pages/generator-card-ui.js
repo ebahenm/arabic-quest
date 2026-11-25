@@ -79,12 +79,12 @@
             box.appendChild(err);
             return;
         }
-        ['claude', 'gemini'].forEach(function (key) {
+        ['claude', 'gemini', 'deepseek'].forEach(function (key) {
             var st = data && data[key];
             if (!st) return;
             var line = document.createElement('div');
             line.style.color = st.ok ? '#6ee7b7' : '#fca5a5';
-            var label = key === 'claude' ? 'Claude' : 'Gemini';
+            var label = key === 'claude' ? 'Claude' : (key === 'deepseek' ? 'DeepSeek' : 'Gemini');
             var statusTag = st.ok ? 'OK' : (st.configured === false ? 'No API key' : 'Failed');
             line.textContent = label + ' (' + (st.model || 'default') + '): ' + statusTag + (st.message ? ' — ' + st.message : '');
             box.appendChild(line);

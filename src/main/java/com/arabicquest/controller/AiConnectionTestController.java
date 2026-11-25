@@ -3,6 +3,7 @@ package com.arabicquest.controller;
 
 import com.arabicquest.config.TooManyRequestsException;
 import com.arabicquest.service.ClaudeClient;
+import com.arabicquest.service.DeepSeekClient;
 import com.arabicquest.service.GeminiTextClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,11 +28,16 @@ public class AiConnectionTestController {
 
     private final GeminiTextClient geminiTextClient;
     private final ClaudeClient claudeClient;
+    private final DeepSeekClient deepSeekClient;
     private final Map<String, Deque<Instant>> rateLimitBuckets = new ConcurrentHashMap<>();
 
-    public AiConnectionTestController(GeminiTextClient geminiTextClient, ClaudeClient claudeClient) {
+    public AiConnectionTestController(
+            GeminiTextClient geminiTextClient,
+            ClaudeClient claudeClient,
+            DeepSeekClient deepSeekClient) {
         this.geminiTextClient = geminiTextClient;
         this.claudeClient = claudeClient;
+        this.deepSeekClient = deepSeekClient;
     }
 
     @PostMapping("/test-connection")
@@ -42,12 +48,16 @@ public class AiConnectionTestController {
 
         Map<String, Object> geminiStatus = geminiTextClient.testConnection();
         Map<String, Object> claudeStatus = claudeClient.testConnection();
-        boolean anyOk = Boolean.TRUE.equals(geminiStatus.get("ok")) || Boolean.TRUE.equals(claudeStatus.get("ok"));
+        Map<String, Object> deepSeekStatus = deepSeekClient.testConnection();
+        boolean anyOk = Boolean.TRUE.equals(geminiStatus.get("ok"))
+                || Boolean.TRUE.equals(claudeStatus.get("ok"))
+                || Boolean.TRUE.equals(deepSeekStatus.get("ok"));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("ok", anyOk);
         result.put("gemini", geminiStatus);
         result.put("claude", claudeStatus);
+        result.put("deepseek", deepSeekStatus);
         return ResponseEntity.ok(result);
     }
 
